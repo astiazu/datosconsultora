@@ -1,0 +1,83 @@
+<!-- templates/admin_config.html -->
+{% extends "base.html" %}
+{% block title %}Configuración del Sitio - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-sliders"></i> Configuración del Sitio
+                </h1>
+                <p class="text-muted mb-0">Contactos, branding y textos principales.</p>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+        <form method="post">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <h5 class="text-petroleo fw-bold mb-3">
+                                <i class="bi bi-envelope"></i> Contacto
+                            </h5>
+                            <div class="mb-3">
+                                <label class="form-label">Email principal</label>
+                                <input type="email" name="email1" class="form-control" value="{{ cs.email1 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email secundario</label>
+                                <input type="email" name="email2" class="form-control" value="{{ cs.email2 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email alternativo</label>
+                                <input type="email" name="email3" class="form-control" value="{{ cs.email3 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">WhatsApp</label>
+                                <input type="text" name="whatsapp" class="form-control" value="{{ cs.whatsapp }}">
+                                <small class="text-muted">Formato: 54911XXXXXXXX (sin + ni espacios).</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Teléfono fijo</label>
+                                <input type="text" name="telefono_fijo" class="form-control"
+                                    value="{{ cs.telefono_fijo }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <h5 class="text-petroleo fw-bold mb-3">
+                                <i class="bi bi-brush"></i> Branding y textos
+                            </h5>
+                            <div class="mb-3">
+                                <label class="form-label">Marca</label>
+                                <input type="text" name="marca" class="form-control" value="{{ cs.marca }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Slogan</label>
+                                <input type="text" name="slogan" class="form-control" value="{{ cs.slogan }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Texto principal del home</label>
+                                <textarea name="texto_home" class="form-control" rows="5">{{ cs.texto_home }}</textarea>
+                                <small class="text-muted">Este texto puede aparecer en la sección principal del
+                                    sitio.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-4 d-flex justify-content-end">
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-check-lg"></i> Guardar cambios
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}

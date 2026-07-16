@@ -1,0 +1,186 @@
+<!-- app/template/index.html -->
+{% extends "base.html" %}
+
+{% block title %}DatosConsultora - Transformamos Datos, Procesos y Negocios con IA{% endblock %}
+
+{% block content %}
+    <!-- Hero -->
+    <section class="hero text-center">
+        <div class="container">
+            <h1 class="display-3 fw-bold mb-4">Transformamos Datos,<br>Procesos y Negocios con IA</h1>
+            <p class="lead mb-5 fs-5">
+                Somos un equipo de ingenieros, analistas y project managers dedicados a impulsar<br class="d-none d-lg-block">
+                la transformación digital de tu empresa.
+            </p>
+            <a href="#servicios" class="btn btn-light btn-lg px-5 me-md-3 mb-3 mb-md-0">Descubrí cómo ayudarte</a>
+            <a href="#contacto" class="btn btn-outline-light btn-lg px-5">Contactanos</a>
+        </div>
+    </section>
+
+    <!-- Manifiesto -->
+    <section id="nosotros" class="seccion-oscura py-5">
+        <div class="container py-5">
+            <div class="text-center mb-5">
+                <h2 class="display-5 fw-bold mb-3">Somos un equipo que combina ingeniería,<br>estrategia y humanidad.</h2>
+                <p class="lead text-celeste">Y estamos acá para ayudarte a evolucionar.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Sobre Nosotros -->
+    <section class="py-5">
+        <div class="container py-4">
+            <div class="text-center mb-5">
+                <h2 class="display-5 fw-bold text-petroleo">
+                    <i class="bi bi-people-fill"></i> Nuestro Equipo
+                </h2>
+            </div>
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="p-4 mb-3 bg-white rounded borde-celeste">
+                        <p class="fs-5 mb-0">
+                            Somos un equipo multidisciplinario con más de 20 años de experiencia combinada en ingeniería,
+                            análisis de datos, gestión de proyectos y transformación digital.
+                        </p>
+                    </div>
+                    <div class="p-4 mb-3 bg-white rounded borde-celeste">
+                        <p class="fs-5 mb-0">
+                            Nos une un propósito común:
+                            <strong class="text-celeste">ayudar a las organizaciones a evolucionar</strong>,
+                            integrando tecnología, inteligencia artificial y procesos humanos que generan impacto real.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Servicios -->
+    <section id="servicios" class="py-5 bg-gris">
+        <div class="container py-4">
+            <h2 class="text-center text-petroleo fw-bold mb-3 display-5">Nuestros Servicios</h2>
+            <p class="text-center text-peltre mb-5 fs-5">
+                No solo aplicamos tecnología: la conectamos con las personas, los datos y los objetivos de negocio.
+            </p>
+            <div class="row g-4">
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-mic-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Transcripción IA</h4>
+                        <p class="text-muted mb-4">Audio y video a texto con 95%+ de precisión. Español rioplatense optimizado.</p>
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">Usar ahora</a>
+                        {% else %}
+                            <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary">Acceder</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-diagram-3-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Automatizaciones</h4>
+                        <p class="text-muted mb-4">
+                            Diseñamos y desarrollamos soluciones basadas en IA y herramientas digitales personalizadas.
+                        </p>
+                        <span class="badge bg-secondary">Próximamente</span>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-chat-dots-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Asistentes IA</h4>
+                        <p class="text-muted mb-4">
+                            Asistentes conversacionales que fortalecen procesos e instalan capacidades que perduran.
+                        </p>
+                        <span class="badge bg-secondary">Próximamente</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Misión Visión -->
+    <section class="py-5">
+        <div class="container py-4">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="p-5 bg-white rounded border h-100">
+                        <h3 class="fw-bold text-petroleo mb-4">
+                            <i class="bi bi-bullseye text-celeste"></i> Misión
+                        </h3>
+                        <p class="fs-5 text-muted">
+                            Acompañamos a organizaciones y equipos en su evolución digital, combinando tecnología,
+                            automatización e inteligencia artificial con una mirada humana, práctica y estratégica.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="p-5 bg-white rounded border h-100">
+                        <h3 class="fw-bold text-petroleo mb-4">
+                            <i class="bi bi-stars text-celeste"></i> Visión
+                        </h3>
+                        <p class="fs-5 text-muted">
+                            Ser referentes en la transformación digital con propósito en América Latina, impulsando negocios
+                            más eficientes, humanos y escalables.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Valores -->
+    <section id="equipo" class="py-5 bg-gris">
+        <div class="container py-4">
+            <h2 class="text-center text-petroleo fw-bold mb-3 display-5">Nuestros Valores</h2>
+            <p class="text-center text-peltre mb-5 fs-5">
+                Porque no solo ofrecemos tecnología:
+                <strong class="text-petroleo">ofrecemos acompañamiento, claridad y resultados</strong>.
+            </p>
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-shield-check icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Transparencia</h4>
+                        <p class="text-muted">
+                            Te mostramos cómo, cuánto y por qué. Decimos lo que hacemos y hacemos lo que decimos.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-people-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Cercanía</h4>
+                        <p class="text-muted">
+                            Entendemos tu contexto y hablamos tu idioma. Nos vinculamos desde la escucha y la empatía.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-arrow-repeat icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Evolución Continua</h4>
+                        <p class="text-muted">
+                            Te ayudamos a crecer, no a depender. Aprendemos, mejoramos y nos adaptamos junto a vos.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-5 seccion-oscura" id="contacto">
+        <div class="container py-5 text-center">
+            <h2 class="display-5 fw-bold mb-4">
+                Transformar no es solo digitalizar.<br>Es activar capacidades que perduran.
+            </h2>
+            <p class="lead fs-4 mb-5">¿Listo para evolucionar?</p>
+            {% if current_user.is_authenticated %}
+                <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-light btn-lg px-5">Ir al Panel</a>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}" class="btn btn-light btn-lg px-5">Empezar Ahora</a>
+            {% endif %}
+        </div>
+    </section>
+{% endblock %}

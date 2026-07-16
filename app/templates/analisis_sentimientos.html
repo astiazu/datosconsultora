@@ -1,0 +1,375 @@
+<!-- templates/analisis_sentimientos.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'analisis' %}
+
+{% block title %}Análisis de Sentimientos - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+        </h1>
+        <p class="text-muted">Analizá comentarios de X, Facebook o Instagram con IA</p>
+    </div>
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
+</div>
+
+{% if paso == 'input' or paso == 'preview' %}
+<!-- PASO 1: Entrada de comentarios -->
+<div class="card p-4 mb-4 border-0 shadow-sm">
+    <form method="POST" id="analisisForm">
+        <div class="mb-3">
+            <label class="form-label fw-bold">
+                <i class="bi bi-chat-left-text me-2"></i>Pegá los comentarios
+            </label>
+            <textarea name="comentarios" class="form-control" rows="10" required
+                      placeholder="Copiá los comentarios directamente de X, Facebook o Instagram.&#10;&#10;Ejemplo:&#10;Usuario X&#10;Payaso te manda, sos un títere del gobierno&#10;1 día&#10;Responder&#10;&#10;Usuario Y&#10;Las internas partidarias no deben verse como una amenaza...&#10;2 h&#10;Responder">{{ comentarios_raw }}</textarea>
+            <small class="text-muted">
+                <i class="bi bi-info-circle"></i> 
+                Copiá los comentarios tal cual aparecen en la red social. 
+                El sistema detecta automáticamente la plataforma y limpia la metadata.
+            </small>
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label fw-bold">
+                <i class="bi bi-tag me-2"></i>Contexto (opcional)
+            </label>
+            <input type="text" name="contexto" class="form-control" 
+                   placeholder="Ej: Comentarios de Instagram sobre el debate en Córdoba">
+            <small class="text-muted">Ayuda a la IA a entender mejor el contexto del análisis.</small>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <button type="submit" name="action" value="limpiar" class="btn btn-outline-primary btn-lg px-4">
+                <i class="bi bi-funnel me-2"></i>Limpiar y previsualizar
+            </button>
+            <button type="submit" name="action" value="analizar" class="btn btn-primary btn-lg px-4">
+                <i class="bi bi-graph-up me-2"></i>Analizar directamente
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Info de redes soportadas -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-twitter-x fs-1 text-petroleo"></i>
+                <h6 class="fw-bold mt-2">X (Twitter)</h6>
+                <small class="text-muted">Copiá los replies de un tweet</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-facebook fs-1 text-primary"></i>
+                <h6 class="fw-bold mt-2">Facebook</h6>
+                <small class="text-muted">Copiá los comentarios de una publicación</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-instagram fs-1 text-danger"></i>
+                <h6 class="fw-bold mt-2">Instagram</h6>
+                <small class="text-muted">Copiá los comentarios de un post</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if paso == 'preview' and comentarios_limpios %}
+<!-- PASO 2: Vista previa de comentarios limpios -->
+<div class="card p-4 mb-4 border-0 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="text-petroleo fw-bold mb-0">
+            <i class="bi bi-check-circle-fill text-success me-2"></i>
+            Comentarios limpios ({{ comentarios_limpios|length }})
+        </h5>
+        <span class="badge bg-info fs-6">Red detectada: {{ red_social|upper }}</span>
+    </div>
+    
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        Revisá los comentarios limpios. Si están bien, hacé click en <strong>"Analizar"</strong>.
+    </div>
+    
+    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table table-hover align-middle">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <th style="width: 50px;">#</th>
+                    <th style="width: 200px;">Usuario</th>
+                    <th>Comentario</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in comentarios_limpios %}
+                <tr>
+                    <td><strong>{{ loop.index }}</strong></td>
+                    <td><span class="text-petroleo fw-bold">{{ c.usuario }}</span></td>
+                    <td>{{ c.texto }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <form method="POST" class="mt-3">
+        <input type="hidden" name="comentarios" value="{{ comentarios_raw }}">
+        <input type="hidden" name="contexto" value="{{ request.form.get('contexto', '') }}">
+        <input type="hidden" name="comentarios_limpios_json" value='{{ comentarios_limpios | tojson | e }}'>
+        <div class="d-flex gap-2 justify-content-end">
+            <button type="submit" name="action" value="limpiar" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-repeat me-2"></i>Re-limpiar
+            </button>
+            <button type="submit" name="action" value="analizar" class="btn btn-primary btn-lg px-5">
+                <i class="bi bi-graph-up me-2"></i>Analizar {{ comentarios_limpios|length }} comentarios
+            </button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% if paso == 'resultado' and resultado %}
+<!-- PASO 3: Resultados del análisis -->
+<div class="row g-4">
+    
+    <!-- Estadísticas -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-pie-chart-fill me-2"></i>Estadísticas
+                </h5>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-success fw-bold">
+                            <i class="bi bi-emoji-smile-fill"></i> Positivos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ resultado.estadisticas.porcentaje_positivo }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-secondary fw-bold">
+                            <i class="bi bi-emoji-neutral-fill"></i> Neutrales
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-secondary" style="width: {{ resultado.estadisticas.porcentaje_neutral }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-danger fw-bold">
+                            <i class="bi bi-emoji-frown-fill"></i> Negativos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-danger" style="width: {{ resultado.estadisticas.porcentaje_negativo }}%"></div>
+                    </div>
+                </div>
+                
+                <hr>
+                <p class="text-muted mb-0">
+                    <strong>Total analizado:</strong> {{ resultado.estadisticas.total }} comentarios<br>
+                    <small>Red social: {{ resultado.red_social|upper }}</small>
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Resumen general -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-journal-text me-2"></i>Resumen General
+                </h5>
+                <p class="fs-5">{{ resultado.resumen_general }}</p>
+                
+                {% if resultado.tono_general %}
+                <div class="mt-3 p-3 bg-light rounded">
+                    <strong class="text-petroleo">Tono general:</strong>
+                    <span class="text-muted">{{ resultado.tono_general }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Temas y palabras clave -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-tags-fill me-2"></i>Temas Principales
+                </h5>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for tema in resultado.temas_principales %}
+                    <span class="badge bg-info text-dark fs-6">{{ tema }}</span>
+                    {% endfor %}
+                </div>
+                
+                {% if resultado.palabras_clave %}
+                <h6 class="text-petroleo fw-bold mt-4 mb-2">
+                    <i class="bi bi-key-fill me-2"></i>Palabras Clave
+                </h6>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for palabra in resultado.palabras_clave %}
+                    <span class="badge bg-light text-dark border">{{ palabra }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Insights y recomendaciones -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-lightbulb-fill me-2"></i>Insights
+                </h5>
+                <ul class="list-unstyled mb-4">
+                    {% for insight in resultado.insights %}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>{{ insight }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                
+                {% if resultado.recomendaciones %}
+                <h6 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-rocket-takeoff-fill me-2"></i>Recomendaciones
+                </h6>
+                <ul class="list-unstyled mb-0">
+                    {% for rec in resultado.recomendaciones %}
+                    <li class="mb-2">
+                        <i class="bi bi-arrow-right-circle-fill text-primary me-2"></i>{{ rec }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Análisis individual -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-list-check me-2"></i>Análisis Detallado
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th>Sentimiento</th>
+                                <th>Resumen</th>
+                                <th style="width: 120px;">Confianza</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in resultado.analisis_individual %}
+                            <tr>
+                                <td><strong>{{ item.numero }}</strong></td>
+                                <td>
+                                    {% if item.sentimiento == 'positivo' %}
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-emoji-smile-fill"></i> Positivo
+                                        </span>
+                                    {% elif item.sentimiento == 'negativo' %}
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-emoji-frown-fill"></i> Negativo
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">
+                                            <i class="bi bi-emoji-neutral-fill"></i> Neutral
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.resumen_corto }}</td>
+                                <td>
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar 
+                                            {% if item.sentimiento == 'positivo' %}bg-success
+                                            {% elif item.sentimiento == 'negativo' %}bg-danger
+                                            {% else %}bg-secondary{% endif %}"
+                                            style="width: {{ (item.confianza * 100)|int }}%"></div>
+                                    </div>
+                                    <small class="text-muted">{{ (item.confianza * 100)|int }}%</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Botones de acción -->
+    <div class="col-12">
+        <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-outline-primary" onclick="exportarResultado()">
+                <i class="bi bi-download me-2"></i>Exportar JSON
+            </button>
+            <button class="btn btn-outline-secondary" onclick="window.print()">
+                <i class="bi bi-printer me-2"></i>Imprimir
+            </button>
+            <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                <i class="bi bi-arrow-repeat me-2"></i>Nuevo Análisis
+            </a>
+        </div>
+    </div>
+</div>
+
+<script id="resultado-data" type="application/json">
+{{ resultado | tojson | safe }}
+</script>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Loading al enviar
+document.getElementById('analisisForm').addEventListener('submit', function() {
+    const btns = this.querySelectorAll('button[type="submit"]');
+    btns.forEach(btn => btn.disabled = true);
+});
+
+function exportarResultado() {
+    const data = document.getElementById('resultado-data').textContent;
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analisis_sentimientos.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,56 @@
+(venv) PS C:\Users\Jose\Downloads\datosconsultora_app> python run.py                                                                        
+Traceback (most recent call last):                       
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: no such column: contact_settings.marca
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Jose\Downloads\datosconsultora_app\run.py", line 7, in <module>
+    init_db()
+  File "C:\Users\Jose\Downloads\datosconsultora_app\app\__init__.py", line 56, in init_db
+    if not ContactSettings.query.first():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2766, in first
+    return self.limit(1)._iter().first()  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\orm\query.py", line 2864, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+                                                  ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2373, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2271, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1421, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1643, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Jose\Downloads\datosconsultora_app\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: contact_settings.marca
+[SQL: SELECT contact_settings.id AS contact_settings_id, contact_settings.email1 AS contact_settings_email1, contact_settings.email2 AS contact_settings_email2, contact_settings.email3 AS contact_settings_email3, contact_settings.whatsapp AS contact_settings_whatsapp, contact_settings.telefono_fijo AS contact_settings_telefono_fijo, contact_settings.marca AS contact_settings_marca, contact_settings.slogan AS contact_settings_slogan, contact_settings.texto_home AS contact_settings_texto_home 
+FROM contact_settings
+ LIMIT ? OFFSET ?]
+[parameters: (1, 0)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

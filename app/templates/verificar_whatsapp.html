@@ -1,0 +1,95 @@
+<!-- templates/verificar_whatsapp.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'datos' %}
+
+{% block title %}Verificar WhatsApp - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-5">
+
+                <!-- Header -->
+                <div class="text-center mb-4">
+                    <div style="width:80px; height:80px; border-radius:50%; background:#25d366; display:inline-flex; align-items:center; justify-content:center;">
+                        <i class="bi bi-whatsapp text-white" style="font-size: 2.5rem;"></i>
+                    </div>
+                    <h2 class="text-petroleo fw-bold mt-3 mb-1">Verificar WhatsApp</h2>
+                    <p class="text-muted">Número: <strong>{{ telefono }}</strong></p>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else 'success') }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                <!-- Instrucciones -->
+                <div class="alert alert-light border mb-4">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-info-circle text-primary"></i> ¿Cómo funciona?</h6>
+                    <ol class="mb-0 ps-3">
+                        <li class="mb-1">Hacé click en <strong>"Abrir WhatsApp"</strong> (abajo)</li>
+                        <li class="mb-1">Se abre un chat con un mensaje que incluye tu código</li>
+                        <li class="mb-1"><strong>Enviá ese mensaje</strong> (así queda registro)</li>
+                        <li class="mb-1">Copiá el <strong>código de 6 dígitos</strong> y pegalo abajo</li>
+                        <li class="mb-0">Click en <strong>"Verificar"</strong></li>
+                    </ol>
+                </div>
+
+                <!-- Código -->
+                <div class="text-center mb-4">
+                    <div class="p-4 rounded-3" style="background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 2px solid #25d366;">
+                        <p class="text-muted mb-2 small fw-bold text-uppercase">Tu código de verificación</p>
+                        <h1 class="fw-bold mb-0" style="letter-spacing: 0.4em; color: #004d5c; font-size: 2.8rem;">
+                            {{ codigo }}
+                        </h1>
+                    </div>
+                </div>
+
+                <!-- Botón WhatsApp -->
+                <div class="text-center mb-4">
+                    <a href="{{ link_whatsapp }}" target="_blank" class="btn btn-lg px-5 text-white" style="background-color: #25d366; border-color: #25d366;">
+                        <i class="bi bi-whatsapp me-2" style="font-size: 1.3rem;"></i> Abrir WhatsApp y enviar código
+                    </a>
+                </div>
+
+                <hr class="my-4">
+
+                <!-- Formulario de verificación -->
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ingresá el código de 6 dígitos</label>
+                        <input type="text" name="codigo"
+                               class="form-control form-control-lg text-center"
+                               maxlength="6" pattern="[0-9]{6}"
+                               placeholder="000000" required
+                               style="letter-spacing: 0.5em; font-size: 1.5rem; font-weight: 600;">
+                        <small class="text-muted">Escribí el mismo código que aparece arriba</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 btn-lg">
+                        <i class="bi bi-check-circle me-2"></i> Verificar WhatsApp
+                    </button>
+                </form>
+
+                <!-- Acciones secundarias -->
+                <div class="d-flex justify-content-between mt-3">
+                    <a href="{{ url_for('verificacion.reenviar_codigo_whatsapp') }}" class="text-decoration-none small">
+                        <i class="bi bi-arrow-repeat"></i> Generar nuevo código
+                    </a>
+                    <a href="{{ url_for('dashboard.dashboard_user') }}" class="text-decoration-none small text-muted">
+                        <i class="bi bi-arrow-left"></i> Volver al Dashboard
+                    </a>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

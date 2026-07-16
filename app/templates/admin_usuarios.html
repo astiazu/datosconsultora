@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Administrar Usuarios - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-people-fill"></i> Usuarios
+                </h1>
+                <p class="text-muted mb-0">Gestioná estados, roles y contraseñas de los usuarios.</p>
+            </div>
+            <span class="badge bg-primary fs-6">Admin: {{ current_user.email }}</span>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="btn-group">
+                <a href="{{ url_for('admin.admin_usuarios', filtro='todos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'todos' %}active{% endif %}">
+                    Todos
+                </a>
+                <a href="{{ url_for('admin.admin_usuarios', filtro='activos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'activos' %}active{% endif %}">
+                    Activos
+                </a>
+                <a href="{{ url_for('admin.admin_usuarios', filtro='inactivos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'inactivos' %}active{% endif %}">
+                    Inactivos
+                </a>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table align-middle table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>Teléfono</th>
+                                <th>Estado</th>
+                                <th>Roles</th>
+                                <th>Verificación</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in usuarios %}
+                            <tr>
+                                <td>{{ u.nombre }}</td>
+                                <td>{{ u.email }}</td>
+                                <td>{{ u.telefono }}</td>
+                                <td>
+                                    {% if u.is_active_account %}
+                                        <span class="badge bg-success">Activo</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Inactivo</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if u.roles.count() == 0 %}
+                                        <span class="badge bg-secondary">Sin roles</span>
+                                    {% else %}
+                                        {% for ur in u.roles %}
+                                            <span class="badge bg-info text-dark">{{ ur.role.nombre }}</span>
+                                        {% endfor %}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if u.email_verificado %}
+                                        <span class="badge bg-success">Email verificado</span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark">Email pendiente</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('admin.admin_usuario_toggle', user_id=u.id) }}"
+                                           class="btn btn-outline-secondary">
+                                            {% if u.is_active_account %}
+                                                <i class="bi bi-toggle-on"></i>
+                                            {% else %}
+                                                <i class="bi bi-toggle-off"></i>
+                                            {% endif %}
+                                        </a>
+                                        <button class="btn btn-outline-primary"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#rolesModal{{ u.id }}">
+                                            <i class="bi bi-person-gear"></i>
+                                        </button>
+                                        <button class="btn btn-outline-warning"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#resetModal{{ u.id }}">
+                                            <i class="bi bi-key"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteModal{{ u.id }}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Modal Roles -->
+                            <div class="modal fade" id="rolesModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_roles', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Roles de {{ u.email }}</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted mb-2">Seleccioná los roles que querés asignar.</p>
+                                                {% for r in roles %}
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" name="roles"
+                                                           value="{{ r.id }}"
+                                                           id="role{{ r.id }}_user{{ u.id }}"
+                                                           {% if u.roles.filter_by(role_id=r.id).first() %}checked{% endif %}>
+                                                    <label class="form-check-label" for="role{{ r.id }}_user{{ u.id }}">
+                                                        {{ r.nombre }} <small class="text-muted">- {{ r.descripcion }}</small>
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Modal Reset Password -->
+                            <div class="modal fade" id="resetModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_reset_password', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Resetear contraseña</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted">Ingresá una nueva contraseña para <strong>{{ u.email }}</strong>.</p>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Nueva contraseña</label>
+                                                    <input type="password" name="nueva_password" class="form-control" required>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-warning">Actualizar contraseña</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Modal Delete -->
+                            <div class="modal fade" id="deleteModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_delete', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Eliminar usuario</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted">
+                                                    ¿Seguro que querés eliminar al usuario <strong>{{ u.email }}</strong>?<br>
+                                                    Esta acción no se puede deshacer.
+                                                </p>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-danger">Eliminar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

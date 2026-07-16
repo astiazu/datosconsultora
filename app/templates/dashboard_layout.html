@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard - DatosConsultora{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap + Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Tu styles.css -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        :root {
+            --dc-petroleo: #004d5c;
+            --dc-petroleo-dark: #012f36;
+            --dc-bg-light: #f4f5f7;
+            --dc-bg-dark: #0b1120;
+            --dc-sidebar-dark: #020617;
+            --dc-accent: #38bdf8;
+        }
+        [data-theme="light"] body {
+            background-color: var(--dc-bg-light);
+            color: #111827;
+        }
+        [data-theme="dark"] body {
+            background-color: var(--dc-bg-dark);
+            color: #e5e7eb;
+        }
+        .dc-sidebar {
+            width: 260px;
+            min-height: 100vh;
+            background: linear-gradient(180deg, var(--dc-sidebar-dark), var(--dc-petroleo-dark));
+            color: #e5e7eb;
+        }
+        .dc-sidebar .nav-link {
+            color: #9ca3af;
+            border-radius: .5rem;
+        }
+        .dc-sidebar .nav-link.active,
+        .dc-sidebar .nav-link:hover {
+            color: #e5e7eb;
+            background-color: rgba(56,189,248,0.15);
+        }
+        .dc-logo {
+            font-weight: 700;
+            letter-spacing: .04em;
+        }
+        .dc-main {
+            flex: 1;
+            min-height: 100vh;
+            background: radial-gradient(circle at top left, rgba(56,189,248,0.08), transparent),
+                        radial-gradient(circle at bottom right, rgba(0,77,92,0.15), transparent);
+        }
+        .dc-topbar {
+            border-bottom: 1px solid rgba(148,163,184,0.3);
+            backdrop-filter: blur(10px);
+        }
+        .dc-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            object-fit: cover;
+            border: 2px solid var(--dc-accent);
+        }
+        .dc-mode-toggle {
+            cursor: pointer;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+<div class="d-flex">
+    <!-- Sidebar -->
+    <aside class="dc-sidebar d-flex flex-column p-3">
+        <div class="d-flex align-items-center mb-4">
+            <i class="bi bi-soundwave fs-3 me-2 text-info"></i>
+            <span class="dc-logo">DatosConsultora</span>
+        </div>
+        <nav class="nav flex-column gap-1 mb-4">
+            <a class="nav-link {% if active_section == 'home' %}active{% endif %}"
+               href="{{ url_for('dashboard.dashboard_user') }}">
+                <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
+            </a>
+            <a class="nav-link {% if active_section == 'datos' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+            </a>
+            <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-folder2-open me-2"></i> Mis archivos
+            </a>
+            <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-mic-fill me-2"></i> Transcripciones
+            </a>
+            <a class="nav-link {% if active_section == 'analisis' %}active{% endif %}"
+            href="{{ url_for('servicios.analisis_sentimientos') }}">
+                <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+            </a>
+            <a class="nav-link {% if active_section == 'asistentes' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-robot me-2"></i> Asistentes IA
+            </a>
+            <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-activity me-2"></i> Actividad
+            </a>
+            <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+            </a>
+        </nav>
+        <div class="mt-auto">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <span class="small text-gray-400">Modo</span>
+                <span class="dc-mode-toggle text-info" id="modeToggle">
+                    <i class="bi bi-moon-stars-fill"></i>
+                </span>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light w-100 btn-sm">
+                <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="dc-main">
+        <header class="dc-topbar px-4 py-3 d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0 text-petroleo">Hola, {{ current_user.nombre }}</h5>
+                <small class="text-muted">Bienvenido a tu espacio de trabajo en DatosConsultora.</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-end">
+                    <div class="small">{{ current_user.email }}</div>
+                    <div class="small text-muted">Cuenta corporativa</div>
+                </div>
+                <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
+                    <i class="bi bi-camera-fill"></i>
+                </button>
+                <img src="{{ current_user.profile.avatar if current_user.profile and current_user.profile.avatar else url_for('static', filename='img/default-avatar.png') }}"
+                     alt="Avatar" class="dc-avatar">
+            </div>
+        </header>
+
+        <section class="p-4">
+            {% block content %}{% endblock %}
+        </section>
+    </main>
+</div>
+
+<!-- Modal Avatar (recorte placeholder) -->
+<div class="modal fade" id="avatarModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('dashboard.actualizar_avatar') }}" enctype="multipart/form-data">
+                <div class="modal-header">
+                    <h5 class="modal-title">Actualizar avatar</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">
+                        Subí una imagen cuadrada. Más adelante vamos a integrar recorte real (tipo SaaS).
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Imagen</label>
+                        <input type="file" name="avatar" accept="image/*" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar avatar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const modeToggle = document.getElementById('modeToggle');
+    const htmlEl = document.documentElement;
+    modeToggle.addEventListener('click', () => {
+        const current = htmlEl.getAttribute('data-theme') || 'light';
+        const next = current === 'light' ? 'dark' : 'light';
+        htmlEl.setAttribute('data-theme', next);
+    });
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>
+

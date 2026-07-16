@@ -1,0 +1,21 @@
+# Variables de entorno (NUNCA subir credenciales)
+.env
+
+# Base de datos local
+instance/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+
+# Uploads
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp

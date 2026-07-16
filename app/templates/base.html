@@ -1,0 +1,103 @@
+<!-- app/template/base.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DatosConsultora - Transformamos Datos con IA{% endblock %}</title>
+    <meta name="description" content="{% block description %}Consultora especializada en transformación digital con IA.{% endblock %}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="{{ url_for('public.index') }}">
+                <i class="bi bi-database-fill-gear"></i> DatosConsultora
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Abrir menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-lg-center">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a></li>
+                    <li class="nav-item ms-lg-3">
+                        <a class="btn btn-primary" href="{{ url_for('public.contacto') }}">Contacto</a>
+                    </li>
+                    <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
+                        {% if current_user.is_authenticated %}
+                            <a class="btn btn-outline-light" href="{{ url_for('dashboard.dashboard_user') }}">
+                                <i class="bi bi-speedometer2"></i> Panel
+                            </a>
+                        {% else %}
+                            <a class="btn btn-outline-light" href="{{ url_for('auth.login') }}">
+                                <i class="bi bi-box-arrow-in-right"></i> Ingresar
+                            </a>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+    <footer class="py-5">
+        <div class="container">
+            <div class="row g-4">
+                <div class="col-lg-4 mb-3 mb-lg-0">
+                    <h5 class="fw-bold text-white mb-3">
+                        <i class="bi bi-database-fill-gear"></i> DatosConsultora
+                    </h5>
+                    <p>Transformamos datos, procesos y negocios con inteligencia artificial.</p>
+                </div>
+                <div class="col-lg-4 mb-3 mb-lg-0">
+                    <h6 class="fw-bold text-white mb-3">Servicios</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="{{ url_for('servicios.servicio_transcripcion') }}">Transcripción IA</a></li>
+                        <li class="mb-2"><a href="#">Automatizaciones</a></li>
+                        <li class="mb-2"><a href="#">Asistentes Conversacionales</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-4">
+                    <h6 class="fw-bold text-white mb-3">Contacto</h6>
+                    {% if contact %}
+                        {% if contact.email1 %}<p class="mb-1"><i class="bi bi-envelope me-2"></i>{{ contact.email1 }}</p>{% endif %}
+                        {% if contact.telefono_fijo %}<p class="mb-1"><i class="bi bi-telephone me-2"></i>{{ contact.telefono_fijo }}</p>{% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            <hr class="my-4 border-secondary">
+            <div class="text-center">
+                <p class="mb-0">© 2026 DatosConsultora. Todos los derechos reservados.</p>
+            </div>
+        </div>
+    </footer>
+
+    {% if contact and contact.whatsapp %}
+    <a href="https://wa.me/{{ contact.whatsapp }}" class="whatsapp-float" target="_blank" rel="noopener noreferrer" title="Escribinos por WhatsApp">
+        <i class="bi bi-whatsapp"></i>
+    </a>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

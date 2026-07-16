@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Panel Administrador - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-gear-fill"></i> Panel Administrador
+                </h1>
+                <p class="text-muted mb-0">Gestioná usuarios, configuración y actividad del sistema.</p>
+            </div>
+            <span class="badge bg-primary fs-6">Admin: {{ current_user.email }}</span>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-people-fill"></i> Usuarios
+                        </h5>
+                        <p class="text-muted mb-3">Total: {{ usuarios_count }} | Activos: {{ activos_count }}</p>
+                        <a href="{{ url_for('admin.admin_usuarios') }}" class="btn btn-primary w-100">
+                            Gestionar Usuarios
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-sliders"></i> Configuración
+                        </h5>
+                        <p class="text-muted mb-3">Contactos, branding y textos del sitio.</p>
+                        <a href="{{ url_for('admin.admin_config') }}" class="btn btn-primary w-100">
+                            Configurar Sitio
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-activity"></i> Actividad
+                        </h5>
+                        <p class="text-muted mb-3">Logs de login, cambios e intentos fallidos.</p>
+                        <a href="{{ url_for('admin.admin_logs') }}" class="btn btn-primary w-100">
+                            Ver Logs
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h4 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-clock-history"></i> Última actividad
+        </h4>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Usuario</th>
+                        <th>Acción</th>
+                        <th>Detalle</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs_recientes %}
+                    <tr>
+                        <td>{{ log.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td>{{ log.user.email if log.user else '-' }}</td>
+                        <td><span class="badge bg-secondary">{{ log.accion }}</span></td>
+                        <td>{{ log.detalle }}</td>
+                        <td>{{ log.ip }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">Sin actividad registrada.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}

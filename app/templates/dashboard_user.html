@@ -1,0 +1,173 @@
+<!-- templates/dashboard_user.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'home' %}
+
+{% block title %}Mi Dashboard - DatosConsultora{% endblock %}
+
+{% block content %}
+<!-- Fila 1: Mis datos + Transcripción IA -->
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+                </h5>
+                <p class="text-muted mb-3">Resumen de tu perfil corporativo.</p>
+                <ul class="list-unstyled mb-0">
+                    <li>
+                        <strong>Nombre:</strong> {{ current_user.nombre }}
+                    </li>
+                    <li>
+                        <strong>Email:</strong> {{ current_user.email }}
+                        {% if current_user.email_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
+                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">
+                                Reenviar email
+                            </a>
+                        {% endif %}
+                    </li>
+                    <li>
+                        <strong>Teléfono:</strong> {{ current_user.telefono }}
+                        {% if current_user.telefono_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
+                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">
+                                Verificar WhatsApp
+                            </a>
+                        {% endif %}
+                    </li>
+                    {% if current_user.profile %}
+                        <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
+                        <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
+                        <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
+                    {% endif %}
+                </ul>
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
+                    <i class="bi bi-pencil"></i> Editar perfil
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                </h5>
+                <p class="text-muted mb-3">
+                    Subí archivos de audio o video para convertirlos en texto.
+                </p>
+                <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">
+                    Ir a Transcripción
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 2: Análisis de Sentimientos + Asistentes IA -->
+<div class="row g-4 mt-2">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
+                </h5>
+                <p class="text-muted mb-3">
+                    Analizá comentarios de redes sociales y obtené insights con IA.
+                </p>
+                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                    Analizar Comentarios
+                </a>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm opacity-75">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                </h5>
+                <p class="text-muted mb-3">
+                    Próximamente: asistentes conversacionales personalizados.
+                </p>
+                <button class="btn btn-outline-secondary" disabled>Próximamente</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 3: Mis archivos + Actividad + Mi plan -->
+<div class="row g-4 mt-2">
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                </h6>
+                <p class="text-muted mb-0">Más adelante vamos a listar tus archivos subidos.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-activity me-2"></i> Mi actividad
+                </h6>
+                <p class="text-muted mb-0">Historial de transcripciones y análisis realizados.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                </h6>
+                <p class="text-muted mb-0">Por ahora: plan free. Más adelante agregamos upgrades.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Perfil -->
+<div class="modal fade" id="perfilModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('dashboard.actualizar_perfil') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Editar perfil</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Empresa</label>
+                        <input type="text" name="empresa" class="form-control"
+                               value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cargo</label>
+                        <input type="text" name="cargo" class="form-control"
+                               value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">País</label>
+                        <input type="text" name="pais" class="form-control"
+                               value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
