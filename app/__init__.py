@@ -1,4 +1,4 @@
-# app/__init__.py - 
+# app/__init__.py
 import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -22,7 +22,6 @@ class Config:
     # Soporte dual: PostgreSQL (Render) o SQLite (local)
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
-        # Render usa postgres:// pero SQLAlchemy 2.x necesita postgresql://
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
         SQLALCHEMY_DATABASE_URI = database_url
@@ -30,7 +29,7 @@ class Config:
         SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
     
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
-    MAX_CONTENT_LENGTH = 200 * 1024 * 1024  # 200MB
+    MAX_CONTENT_LENGTH = 200 * 1024 * 1024
     
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
@@ -110,3 +109,11 @@ def init_db(app):
             db.session.add(u)
         
         db.session.commit()
+
+
+# ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
+app = create_app()
+
+# ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
+with app.app_context():
+    init_db(app)
