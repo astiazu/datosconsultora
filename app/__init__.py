@@ -15,15 +15,20 @@ mail = Mail()
 login_manager.login_view = "auth.login"
 login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
 
-
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esto-en-desarrollo")
     
     # Soporte dual: PostgreSQL (Render) o SQLite (local)
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
+        # Render usa postgres://, SQLAlchemy necesita postgresql://
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
+        
+        # Forzar el uso del driver psycopg (versión 3) que sí funciona en Python 3.14
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+            
         SQLALCHEMY_DATABASE_URI = database_url
     else:
         SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
