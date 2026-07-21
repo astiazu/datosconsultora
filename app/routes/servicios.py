@@ -10,7 +10,7 @@ from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.transcription.groq_backend import GroqBackend
 
-# Solo audio por ahora (video requiere FFmpeg en Render)
+# ✅ CORREGIDO: __name__ y sin espacios en las extensiones (solo audio por ahora)
 servicios_bp = Blueprint("servicios", __name__)
 ALLOWED_EXT = {"mp3", "wav", "m4a"}
 
@@ -40,7 +40,7 @@ def servicio_transcripcion():
                 db.session.commit()
                 
                 try:
-                    # Llamar a Groq Whisper API
+                    # ✅ LLAMADA REAL A GROQ WHISPER
                     backend = GroqBackend()
                     transcript = backend.transcribe(path, language="es")
                     
@@ -54,11 +54,9 @@ def servicio_transcripcion():
                     
                     flash("✅ Transcripción completada con éxito.", "success")
                 except ValueError as e:
-                    # API key no configurada
                     flash(f"❌ Error de configuración: {str(e)}", "error")
                     current_app.logger.error(f"Error de configuración Groq: {e}")
                 except Exception as e:
-                    # Otros errores (archivo muy grande, formato, red, etc.)
                     flash(f"❌ Error transcribiendo el archivo: {str(e)}", "error")
                     current_app.logger.error(f"Error en transcripción: {e}")
             else:

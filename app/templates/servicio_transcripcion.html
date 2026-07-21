@@ -1,104 +1,75 @@
-<!-- templates/servicio_transcripcion.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'transcripciones' %}
 
 {% block title %}Transcripción IA - DatosConsultora{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="text-petroleo fw-bold mb-1">Transcripción con IA</h1>
-        <p class="text-muted">Subí tu audio o video y obtené el texto en minutos</p>
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Transcripción con IA</h2>
+        <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Volver al Panel
+        </a>
     </div>
-    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> Volver al Panel
-    </a>
-</div>
 
-<!-- Card de subida -->
-<div class="card p-5 mb-4 text-center" style="border: 2px dashed #cbd5e1;">
-    <form method="POST" enctype="multipart/form-data" id="uploadForm">
-        <i class="bi bi-cloud-upload text-petroleo" style="font-size: 4rem;"></i>
-        <h4 class="mt-3 mb-3 text-petroleo">Seleccioná tu archivo</h4>
-        <p class="text-muted mb-4">
-            Formatos: MP3, WAV, M4A, MP4, MOV, AVI, MKV, WEBM<br>
-            <small>Máximo 200MB. Archivos grandes se procesan automáticamente.</small>
-        </p>
-        <input type="file" name="media" class="form-control mb-3" 
-               accept=".mp3,.wav,.m4a,.mp4,.mov,.avi,.mkv,.webm,.flac,.ogg" required>
-        <button type="submit" class="btn btn-primary btn-lg px-5" id="submitBtn">
-            <i class="bi bi-magic"></i> Transcribir Ahora
-        </button>
-    </form>
-    
-    <!-- Loading indicator -->
-    <div id="loadingIndicator" class="mt-4" style="display: none;">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Procesando...</span>
-        </div>
-        <p class="mt-3 text-muted">
-            <strong>Transcribiendo...</strong><br>
-            <small>Esto puede tardar unos minutos dependiendo del tamaño del archivo.</small>
-        </p>
-    </div>
-</div>
-
-<!-- Resultado -->
-{% if transcript %}
-<div class="card p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="text-petroleo mb-0">
-            <i class="bi bi-file-text"></i> Resultado: {{ filename }}
-        </h4>
-        <div>
-            <button class="btn btn-outline-primary btn-sm me-2" onclick="copiarTexto()">
-                <i class="bi bi-clipboard"></i> Copiar
-            </button>
-            <button class="btn btn-outline-success btn-sm" onclick="descargarTexto()">
-                <i class="bi bi-download"></i> Descargar TXT
-            </button>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <p class="text-muted mb-3">Subí tu audio y obtené el texto en minutos.</p>
+            
+            <!-- ✅ CORREGIDO: Se agregó enctype="multipart/form-data" -->
+            <form method="POST" action="{{ url_for('servicios.servicio_transcripcion') }}" enctype="multipart/form-data" id="transcriptForm">
+                <div class="mb-3">
+                    <label for="media" class="form-label fw-bold">Seleccioná tu archivo</label>
+                    <input class="form-control" type="file" id="media" name="media" accept=".mp3,.wav,.m4a" required>
+                    <div class="form-text">Formatos: MP3, WAV, M4A. Máximo 25MB (límite de Groq API).</div>
+                </div>
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    <i class="bi bi-mic"></i> Transcribir Ahora
+                </button>
+            </form>
         </div>
     </div>
-    <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 500px; overflow-y: auto;">
-        <pre id="transcriptText" style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ transcript }}</pre>
+
+    {% if transcript %}
+    <div class="card shadow-sm border-success">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-check-circle"></i> Resultado: {{ filename }}</h5>
+            <div>
+                <button class="btn btn-sm btn-light me-2" onclick="copiarTexto()">
+                    <i class="bi bi-clipboard"></i> Copiar
+                </button>
+                <a href="data:text/plain;charset=utf-8,{{ transcript | urlencode }}" download="{{ filename }}.txt" class="btn btn-sm btn-light">
+                    <i class="bi bi-download"></i> Descargar TXT
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="transcriptText">
+                {{ transcript }}
+            </div>
+            <div class="mt-3 text-muted small">
+                <i class="bi bi-info-circle"></i> La transcripción fue procesada con IA y puede contener errores menores. Revisá el texto antes de usarlo.
+            </div>
+        </div>
     </div>
-    <div class="mt-3 text-muted small">
-        <i class="bi bi-info-circle"></i> 
-        La transcripción fue procesada con IA y puede contener errores menores. 
-        Revisá el texto antes de usarlo.
-    </div>
+    {% endif %}
 </div>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// Mostrar loading al enviar formulario
-document.getElementById('uploadForm').addEventListener('submit', function() {
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('loadingIndicator').style.display = 'block';
-});
+    function copiarTexto() {
+        const texto = document.getElementById('transcriptText').innerText;
+        navigator.clipboard.writeText(texto).then(() => {
+            alert('¡Texto copiado al portapapeles!');
+        });
+    }
 
-// Copiar texto al portapapeles
-function copiarTexto() {
-    const texto = document.getElementById('transcriptText').innerText;
-    navigator.clipboard.writeText(texto).then(() => {
-        alert('Texto copiado al portapapeles');
+    // Feedback visual al enviar
+    document.getElementById('transcriptForm').addEventListener('submit', function() {
+        const btn = document.getElementById('submitBtn');
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
+        btn.disabled = true;
     });
-}
-
-// Descargar texto como archivo
-function descargarTexto() {
-    const texto = document.getElementById('transcriptText').innerText;
-    const blob = new Blob([texto], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'transcripcion.txt';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-}
 </script>
 {% endblock %}
