@@ -40,12 +40,13 @@ def registro():
 
         # Generar token y enviar email de verificación
         token = generar_token_email(user)
-        email_enviado = enviar_email_verificacion(user, token)
+        email_enviado, error_msg = enviar_email_verificacion(user, token)  # 
         
         if email_enviado:
             flash("Registro exitoso. Revisá tu email para verificar tu cuenta.", "success")
         else:
-            flash("Registro exitoso, pero no pudimos enviar el email de verificación. Contactá al administrador.", "warning")
+            # ← CAMBIO: Mostramos el error real en pantalla para debuggear
+            flash(f"Registro exitoso, pero falló el email. Error: {error_msg}", "error")
 
         # Log de registro
         log = ActivityLog(

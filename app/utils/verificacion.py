@@ -38,23 +38,17 @@ def enviar_email_verificacion(user, token):
                    Verificar mi email
                 </a>
             </p>
-            <p style="color: #666; font-size: 14px;">
-                Si el botón no funciona, copiá y pegá este link en tu navegador:<br>
-                <a href="{verification_url}">{verification_url}</a>
-            </p>
-            <p style="color: #999; font-size: 12px; margin-top: 30px;">
-                Este link expira en 24 horas. Si no solicitaste este registro, ignorá este email.
-            </p>
         </div>
         """
     )
     
     try:
         mail.send(msg)
-        return True
+        return True, None  # ← CAMBIO: Devolvemos None como error
     except Exception as e:
-        print(f"Error enviando email: {e}")
-        return False
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"❌ ERROR REAL ENVIANDO EMAIL: {error_msg}")  # Esto aparecerá en los Logs de Render
+        return False, error_msg  # ← CAMBIO: Devolvemos el error real
 
 
 def generar_codigo_whatsapp(user):
