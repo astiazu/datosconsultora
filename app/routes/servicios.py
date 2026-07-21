@@ -1,13 +1,13 @@
 # app/routes/servicios.py
 import os
+import json
 from flask import Blueprint, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
 from app.models import UserFile, Transcription
-from app.services.transcription import groq_backend
 from app.services.analysis import GroqLLMClient
-from app.services.analysis.text_cleaner import limpiar_comentarios, formatear_comentarios_para_prompt
+from app.services.analysis.text_cleaner import limpiar_comentarios
 
 servicios_bp = Blueprint("servicios", __name__)
 
@@ -38,38 +38,26 @@ def servicio_transcripcion():
                 db.session.add(user_file)
                 db.session.commit()
                 
-                try:
-                    backend = groq_backend()
-                    transcript = backend.transcribe(path, language="es")
-                    
-                    transcription = Transcription(
-                        user_id=current_user.id,
-                        file_id=user_file.id,
-                        texto=transcript,
-                    )
-                    db.session.add(transcription)
-                    db.session.commit()
-                    
-                    flash(f"✅ Transcripción completada ({backend.get_name()})", "success")
-                except Exception as e:
-                    flash(f"❌ Error en la transcripción: {str(e)}", "error")
-                    current_app.logger.error(f"Error transcribiendo: {str(e)}")
+                transcript = f"[DEMO] Archivo '{filename}' recibido. (Integración Whisper activa en desarrollo)"
+                transcription = Transcription(
+                    user_id=current_user.id,
+                    file_id=user_file.id,
+                    texto=transcript,
+                )
+                db.session.add(transcription)
+                db.session.commit()
+                flash("✅ Archivo recibido y guardado correctamente.", "success")
             else:
-                flash("Formato no permitido", "error")
+                flash("❌ Formato no permitido. Usá MP3, WAV, M4A o MP4.", "error")
         else:
-            flash("No seleccionaste ningún archivo", "error")
+            flash("❌ No seleccionaste ningún archivo", "error")
     
-    return render_template(
-        "servicio_transcripcion.html",
-        transcript=transcript,
-        filename=filename
-    )
+    return render_template("servicio_transcripcion.html", transcript=transcript, filename=filename)
 
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
 def analisis_sentimientos():
-    """Análisis de sentimientos de comentarios de redes sociales."""
     resultado = None
     comentarios_raw = ""
     comentarios_limpios = []
@@ -83,10 +71,8 @@ def analisis_sentimientos():
         contexto = request.form.get("contexto", "").strip()
         
         if action == "limpiar":
-            # PASO 1: Solo limpiar y mostrar preview
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
-                
                 if not comentarios_limpios:
                     flash("⚠️ No se encontraron comentarios válidos. Verificá el texto copiado.", "warning")
                     paso = "input"
@@ -96,14 +82,10 @@ def analisis_sentimientos():
             except Exception as e:
                 flash(f"❌ Error limpiando comentarios: {str(e)}", "error")
                 paso = "input"
-        
+                
         elif action == "analizar":
-            # PASO 2: Analizar comentarios (ya limpios o limpiar primero)
             try:
-                # Si viene del preview, los comentarios ya están limpios
-                # Si viene directo del input, limpiar primero
                 if request.form.get("comentarios_limpios_json"):
-                    import json
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
                 else:
                     comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
@@ -115,7 +97,6 @@ def analisis_sentimientos():
                     flash(f"⚠️ Máximo 100 comentarios. Tenés {len(comentarios_limpios)}.", "warning")
                     paso = "input"
                 else:
-                    # Formatear para el prompt
                     comentarios_texto = [
                         f"[{c['usuario']}]: {c['texto']}" 
                         for c in comentarios_limpios

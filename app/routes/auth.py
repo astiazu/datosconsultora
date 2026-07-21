@@ -134,6 +134,8 @@ def logout():
     return redirect(url_for("public.index"))
 
 
+# app/routes/auth.py (buscá y reemplazá esta función)
+
 @auth_bp.route("/reenviar-verificacion")
 @login_required
 def reenviar_verificacion():
@@ -142,12 +144,13 @@ def reenviar_verificacion():
         flash("Tu email ya está verificado", "success")
         return redirect(url_for("dashboard.dashboard_user"))
     
+    from app.utils.verificacion import generar_token_email, enviar_email_verificacion
     token = generar_token_email(current_user)
     email_enviado = enviar_email_verificacion(current_user, token)
     
     if email_enviado:
-        flash("Email de verificación reenviado", "success")
+        flash("✅ Email de verificación reenviado. Por favor, revisá tu bandeja de entrada y también la carpeta de Spam/Correo no deseado.", "success")
     else:
-        flash("No pudimos enviar el email. Contactá al administrador.", "error")
+        flash("❌ No pudimos enviar el email. Contactá al administrador.", "error")
     
     return redirect(url_for("dashboard.dashboard_user"))
