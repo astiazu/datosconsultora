@@ -1,17 +1,18 @@
-# app/routes/servicios.py
 import os
 import json
 from flask import Blueprint, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
+
 from app import db
 from app.models import UserFile, Transcription
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
+from app.services.transcription.groq_backend import GroqBackend
 
+# Solo audio por ahora (video requiere FFmpeg en Render)
 servicios_bp = Blueprint("servicios", __name__)
-
-ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm"}
+ALLOWED_EXT = {"mp3", "wav", "m4a"}
 
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
@@ -33,25 +34,38 @@ def servicio_transcripcion():
                     user_id=current_user.id,
                     filename=filename,
                     filepath=path,
-                    tipo="audio" if ext in ["mp3", "wav", "m4a"] else "video",
+                    tipo="audio",
                 )
                 db.session.add(user_file)
                 db.session.commit()
                 
-                transcript = f"[DEMO] Archivo '{filename}' recibido. (Integración Whisper activa en desarrollo)"
-                transcription = Transcription(
-                    user_id=current_user.id,
-                    file_id=user_file.id,
-                    texto=transcript,
-                )
-                db.session.add(transcription)
-                db.session.commit()
-                flash("✅ Archivo recibido y guardado correctamente.", "success")
+                try:
+                    # Llamar a Groq Whisper API
+                    backend = GroqBackend()
+                    transcript = backend.transcribe(path, language="es")
+                    
+                    transcription = Transcription(
+                        user_id=current_user.id,
+                        file_id=user_file.id,
+                        texto=transcript,
+                    )
+                    db.session.add(transcription)
+                    db.session.commit()
+                    
+                    flash("✅ Transcripción completada con éxito.", "success")
+                except ValueError as e:
+                    # API key no configurada
+                    flash(f"❌ Error de configuración: {str(e)}", "error")
+                    current_app.logger.error(f"Error de configuración Groq: {e}")
+                except Exception as e:
+                    # Otros errores (archivo muy grande, formato, red, etc.)
+                    flash(f"❌ Error transcribiendo el archivo: {str(e)}", "error")
+                    current_app.logger.error(f"Error en transcripción: {e}")
             else:
-                flash("❌ Formato no permitido. Usá MP3, WAV, M4A o MP4.", "error")
+                flash("❌ Formato no permitido. Usá MP3, WAV o M4A.", "error")
         else:
             flash("❌ No seleccionaste ningún archivo", "error")
-    
+            
     return render_template("servicio_transcripcion.html", transcript=transcript, filename=filename)
 
 
@@ -89,7 +103,7 @@ def analisis_sentimientos():
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
                 else:
                     comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
-                
+                    
                 if not comentarios_limpios:
                     flash("⚠️ No hay comentarios válidos para analizar", "warning")
                     paso = "input"
@@ -101,7 +115,6 @@ def analisis_sentimientos():
                         f"[{c['usuario']}]: {c['texto']}" 
                         for c in comentarios_limpios
                     ]
-                    
                     client = GroqLLMClient()
                     resultado = client.analizar_sentimientos(comentarios_texto, contexto)
                     
@@ -112,13 +125,12 @@ def analisis_sentimientos():
                     
                     flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
                     paso = "resultado"
-                    
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
                 current_app.logger.error(f"Error en análisis: {error_msg}")
                 paso = "input"
-    
+                
     return render_template(
         "analisis_sentimientos.html",
         resultado=resultado,
