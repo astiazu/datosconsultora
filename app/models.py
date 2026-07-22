@@ -132,4 +132,24 @@ class UserPlan(db.Model):
     plan = db.Column(db.String(120), default="free")
     consumo = db.Column(db.Integer, default=0)
     limite = db.Column(db.Integer, default=100)
+    fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
     user = db.relationship("User", backref=db.backref("plan", uselist=False))
+    def tiene_badge_cafecito(self):
+        """Verifica si el usuario tiene el badge de cafecito activo."""
+        if not self.fecha_expiracion_cafecito:
+            return False
+        from datetime import datetime
+        return datetime.utcnow() < self.fecha_expiracion_cafecito
+
+class Donation(db.Model):
+    """Registro de donaciones 'Invitame un cafecito'."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    monto = db.Column(db.Float, nullable=False)
+    moneda = db.Column(db.String(10), default='ARS')
+    mp_payment_id = db.Column(db.String(100), unique=True, nullable=True)
+    mp_preference_id = db.Column(db.String(100), nullable=True)
+    estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
+    mensaje = db.Column(db.String(500), default='')
+    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))

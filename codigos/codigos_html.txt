@@ -1,0 +1,1884 @@
+================================================================================
+ARCHIVO: admin_config.html
+================================================================================
+
+<!-- templates/admin_config.html -->
+{% extends "base.html" %}
+{% block title %}Configuración del Sitio - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-sliders"></i> Configuración del Sitio
+                </h1>
+                <p class="text-muted mb-0">Contactos, branding y textos principales.</p>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+        <form method="post">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <h5 class="text-petroleo fw-bold mb-3">
+                                <i class="bi bi-envelope"></i> Contacto
+                            </h5>
+                            <div class="mb-3">
+                                <label class="form-label">Email principal</label>
+                                <input type="email" name="email1" class="form-control" value="{{ cs.email1 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email secundario</label>
+                                <input type="email" name="email2" class="form-control" value="{{ cs.email2 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email alternativo</label>
+                                <input type="email" name="email3" class="form-control" value="{{ cs.email3 }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">WhatsApp</label>
+                                <input type="text" name="whatsapp" class="form-control" value="{{ cs.whatsapp }}">
+                                <small class="text-muted">Formato: 54911XXXXXXXX (sin + ni espacios).</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Teléfono fijo</label>
+                                <input type="text" name="telefono_fijo" class="form-control"
+                                    value="{{ cs.telefono_fijo }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="card shadow-sm border-0 h-100">
+                        <div class="card-body">
+                            <h5 class="text-petroleo fw-bold mb-3">
+                                <i class="bi bi-brush"></i> Branding y textos
+                            </h5>
+                            <div class="mb-3">
+                                <label class="form-label">Marca</label>
+                                <input type="text" name="marca" class="form-control" value="{{ cs.marca }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Slogan</label>
+                                <input type="text" name="slogan" class="form-control" value="{{ cs.slogan }}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Texto principal del home</label>
+                                <textarea name="texto_home" class="form-control" rows="5">{{ cs.texto_home }}</textarea>
+                                <small class="text-muted">Este texto puede aparecer en la sección principal del
+                                    sitio.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-4 d-flex justify-content-end">
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-check-lg"></i> Guardar cambios
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: admin_logs.html
+================================================================================
+
+{% extends "base.html" %}
+
+{% block title %}Logs de Actividad - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-activity"></i> Logs de Actividad
+                </h1>
+                <p class="text-muted mb-0">Seguimiento de login, cambios e intentos fallidos.</p>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-3">
+            <div class="card-body">
+                <form class="row g-3 align-items-center">
+                    <div class="col-auto">
+                        <label class="col-form-label">Filtrar por tipo:</label>
+                    </div>
+                    <div class="col-auto">
+                        <select name="tipo" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="todos" {% if tipo == 'todos' %}selected{% endif %}>Todos</option>
+                            <option value="login" {% if tipo == 'login' %}selected{% endif %}>Login</option>
+                            <option value="logout" {% if tipo == 'logout' %}selected{% endif %}>Logout</option>
+                            <option value="cambio_estado_usuario" {% if tipo == 'cambio_estado_usuario' %}selected{% endif %}>Cambio de estado</option>
+                            <option value="cambio_roles" {% if tipo == 'cambio_roles' %}selected{% endif %}>Cambio de roles</option>
+                            <option value="reset_password" {% if tipo == 'reset_password' %}selected{% endif %}>Reset de contraseña</option>
+                            <option value="config_update" {% if tipo == 'config_update' %}selected{% endif %}>Config sitio</option>
+                            <option value="intento_fallido" {% if tipo == 'intento_fallido' %}selected{% endif %}>Intento fallido</option>
+                            <option value="borrar_usuario" {% if tipo == 'borrar_usuario' %}selected{% endif %}>Borrado usuario</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <small class="text-muted">Mostrando hasta 200 registros.</small>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Usuario</th>
+                                <th>Acción</th>
+                                <th>Detalle</th>
+                                <th>IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td>{{ log.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+                                <td>{{ log.user.email if log.user else '-' }}</td>
+                                <td><span class="badge bg-secondary">{{ log.accion }}</span></td>
+                                <td>{{ log.detalle }}</td>
+                                <td>{{ log.ip }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">No hay registros para este filtro.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: admin_panel.html
+================================================================================
+
+{% extends "base.html" %}
+
+{% block title %}Panel Administrador - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-gear-fill"></i> Panel Administrador
+                </h1>
+                <p class="text-muted mb-0">Gestioná usuarios, configuración y actividad del sistema.</p>
+            </div>
+            <span class="badge bg-primary fs-6">Admin: {{ current_user.email }}</span>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-people-fill"></i> Usuarios
+                        </h5>
+                        <p class="text-muted mb-3">Total: {{ usuarios_count }} | Activos: {{ activos_count }}</p>
+                        <a href="{{ url_for('admin.admin_usuarios') }}" class="btn btn-primary w-100">
+                            Gestionar Usuarios
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-sliders"></i> Configuración
+                        </h5>
+                        <p class="text-muted mb-3">Contactos, branding y textos del sitio.</p>
+                        <a href="{{ url_for('admin.admin_config') }}" class="btn btn-primary w-100">
+                            Configurar Sitio
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-activity"></i> Actividad
+                        </h5>
+                        <p class="text-muted mb-3">Logs de login, cambios e intentos fallidos.</p>
+                        <a href="{{ url_for('admin.admin_logs') }}" class="btn btn-primary w-100">
+                            Ver Logs
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h4 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-clock-history"></i> Última actividad
+        </h4>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Usuario</th>
+                        <th>Acción</th>
+                        <th>Detalle</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs_recientes %}
+                    <tr>
+                        <td>{{ log.fecha.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td>{{ log.user.email if log.user else '-' }}</td>
+                        <td><span class="badge bg-secondary">{{ log.accion }}</span></td>
+                        <td>{{ log.detalle }}</td>
+                        <td>{{ log.ip }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">Sin actividad registrada.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: admin_usuarios.html
+================================================================================
+
+{% extends "base.html" %}
+
+{% block title %}Administrar Usuarios - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-people-fill"></i> Usuarios
+                </h1>
+                <p class="text-muted mb-0">Gestioná estados, roles y contraseñas de los usuarios.</p>
+            </div>
+            <span class="badge bg-primary fs-6">Admin: {{ current_user.email }}</span>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="btn-group">
+                <a href="{{ url_for('admin.admin_usuarios', filtro='todos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'todos' %}active{% endif %}">
+                    Todos
+                </a>
+                <a href="{{ url_for('admin.admin_usuarios', filtro='activos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'activos' %}active{% endif %}">
+                    Activos
+                </a>
+                <a href="{{ url_for('admin.admin_usuarios', filtro='inactivos') }}"
+                   class="btn btn-sm btn-outline-secondary {% if filtro == 'inactivos' %}active{% endif %}">
+                    Inactivos
+                </a>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table align-middle table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>Teléfono</th>
+                                <th>Estado</th>
+                                <th>Roles</th>
+                                <th>Verificación</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for u in usuarios %}
+                            <tr>
+                                <td>{{ u.nombre }}</td>
+                                <td>{{ u.email }}</td>
+                                <td>{{ u.telefono }}</td>
+                                <td>
+                                    {% if u.is_active_account %}
+                                        <span class="badge bg-success">Activo</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Inactivo</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if u.roles.count() == 0 %}
+                                        <span class="badge bg-secondary">Sin roles</span>
+                                    {% else %}
+                                        {% for ur in u.roles %}
+                                            <span class="badge bg-info text-dark">{{ ur.role.nombre }}</span>
+                                        {% endfor %}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if u.email_verificado %}
+                                        <span class="badge bg-success">Email verificado</span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark">Email pendiente</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('admin.admin_usuario_toggle', user_id=u.id) }}"
+                                           class="btn btn-outline-secondary">
+                                            {% if u.is_active_account %}
+                                                <i class="bi bi-toggle-on"></i>
+                                            {% else %}
+                                                <i class="bi bi-toggle-off"></i>
+                                            {% endif %}
+                                        </a>
+                                        <button class="btn btn-outline-primary"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#rolesModal{{ u.id }}">
+                                            <i class="bi bi-person-gear"></i>
+                                        </button>
+                                        <button class="btn btn-outline-warning"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#resetModal{{ u.id }}">
+                                            <i class="bi bi-key"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#deleteModal{{ u.id }}">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <!-- Modal Roles -->
+                            <div class="modal fade" id="rolesModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_roles', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Roles de {{ u.email }}</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted mb-2">Seleccioná los roles que querés asignar.</p>
+                                                {% for r in roles %}
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" name="roles"
+                                                           value="{{ r.id }}"
+                                                           id="role{{ r.id }}_user{{ u.id }}"
+                                                           {% if u.roles.filter_by(role_id=r.id).first() %}checked{% endif %}>
+                                                    <label class="form-check-label" for="role{{ r.id }}_user{{ u.id }}">
+                                                        {{ r.nombre }} <small class="text-muted">- {{ r.descripcion }}</small>
+                                                    </label>
+                                                </div>
+                                                {% endfor %}
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Modal Reset Password -->
+                            <div class="modal fade" id="resetModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_reset_password', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Resetear contraseña</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted">Ingresá una nueva contraseña para <strong>{{ u.email }}</strong>.</p>
+                                                <div class="mb-3">
+                                                    <label class="form-label">Nueva contraseña</label>
+                                                    <input type="password" name="nueva_password" class="form-control" required>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-warning">Actualizar contraseña</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Modal Delete -->
+                            <div class="modal fade" id="deleteModal{{ u.id }}" tabindex="-1">
+                                <div class="modal-dialog modal-dialog-centered">
+                                    <div class="modal-content">
+                                        <form method="post" action="{{ url_for('admin.admin_usuario_delete', user_id=u.id) }}">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">Eliminar usuario</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <p class="text-muted">
+                                                    ¿Seguro que querés eliminar al usuario <strong>{{ u.email }}</strong>?<br>
+                                                    Esta acción no se puede deshacer.
+                                                </p>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                                <button type="submit" class="btn btn-danger">Eliminar</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: base.html
+================================================================================
+
+<!-- app/template/base.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DatosConsultora - Transformamos Datos con IA{% endblock %}</title>
+    <meta name="description" content="{% block description %}Consultora especializada en transformación digital con IA.{% endblock %}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="{{ url_for('public.index') }}">
+                <i class="bi bi-database-fill-gear"></i> DatosConsultora
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-label="Abrir menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-lg-center">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a></li>
+                    <li class="nav-item ms-lg-3">
+                        <a class="btn btn-primary" href="{{ url_for('public.contacto') }}">Contacto</a>
+                    </li>
+                    <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
+                        {% if current_user.is_authenticated %}
+                            <a class="btn btn-outline-light" href="{{ url_for('dashboard.dashboard_user') }}">
+                                <i class="bi bi-speedometer2"></i> Panel
+                            </a>
+                        {% else %}
+                            <a class="btn btn-outline-light" href="{{ url_for('auth.login') }}">
+                                <i class="bi bi-box-arrow-in-right"></i> Ingresar
+                            </a>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+
+    <footer class="py-5">
+        <div class="container">
+            <div class="row g-4">
+                <div class="col-lg-4 mb-3 mb-lg-0">
+                    <h5 class="fw-bold text-white mb-3">
+                        <i class="bi bi-database-fill-gear"></i> DatosConsultora
+                    </h5>
+                    <p>Transformamos datos, procesos y negocios con inteligencia artificial.</p>
+                </div>
+                <div class="col-lg-4 mb-3 mb-lg-0">
+                    <h6 class="fw-bold text-white mb-3">Servicios</h6>
+                    <ul class="list-unstyled">
+                        <li class="mb-2"><a href="{{ url_for('servicios.servicio_transcripcion') }}">Transcripción IA</a></li>
+                        <li class="mb-2"><a href="#">Automatizaciones</a></li>
+                        <li class="mb-2"><a href="#">Asistentes Conversacionales</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-4">
+                    <h6 class="fw-bold text-white mb-3">Contacto</h6>
+                    {% if contact %}
+                        {% if contact.email1 %}<p class="mb-1"><i class="bi bi-envelope me-2"></i>{{ contact.email1 }}</p>{% endif %}
+                        {% if contact.telefono_fijo %}<p class="mb-1"><i class="bi bi-telephone me-2"></i>{{ contact.telefono_fijo }}</p>{% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            <hr class="my-4 border-secondary">
+            <div class="text-center">
+                <p class="mb-0">© 2026 DatosConsultora. Todos los derechos reservados.</p>
+            </div>
+        </div>
+    </footer>
+
+    {% if contact and contact.whatsapp %}
+    <a href="https://wa.me/{{ contact.whatsapp }}" class="whatsapp-float" target="_blank" rel="noopener noreferrer" title="Escribinos por WhatsApp">
+        <i class="bi bi-whatsapp"></i>
+    </a>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+
+
+================================================================================
+ARCHIVO: contacto.html
+================================================================================
+
+<!-- templates/contacto.html -->
+{% extends "base.html" %}
+{% block title %}Contacto - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container py-5">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-petroleo">Contactanos</h1>
+            <p class="lead text-peltre">Estamos listos para ayudarte en tu transformación digital</p>
+        </div>
+
+        <div class="row g-4 justify-content-center">
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-5">
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="text-center p-4">
+                                    <i class="bi bi-envelope-fill text-celeste" style="font-size: 3rem;"></i>
+                                    <h5 class="fw-bold text-petroleo mt-3">Email</h5>
+                                    {% if contact and contact.email1 %}
+                                    <p class="text-muted">{{ contact.email1 }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="text-center p-4">
+                                    <i class="bi bi-whatsapp text-celeste" style="font-size: 3rem;"></i>
+                                    <h5 class="fw-bold text-petroleo mt-3">WhatsApp</h5>
+                                    {% if contact and contact.whatsapp %}
+                                    <p class="text-muted">{{ contact.whatsapp }}</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <div class="text-center">
+                            <h4 class="fw-bold text-petroleo mb-3">¿Listo para empezar?</h4>
+                            <p class="text-muted mb-4">Escribinos y te respondemos en menos de 24 horas</p>
+                            {% if contact and contact.whatsapp %}
+                            <a href="https://wa.me/{{ contact.whatsapp }}" class="btn btn-primary btn-lg px-5"
+                                target="_blank">
+                                <i class="bi bi-whatsapp me-2"></i> Escribir por WhatsApp
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: dashboard.html
+================================================================================
+
+{% extends "base.html" %}
+
+{% block title %}Panel - DatosConsultora{% endblock %}
+
+{% block extra_css %}
+<style>
+    .card-servicio {
+        transition: all 0.3s;
+        border: 1px solid #e5e7eb;
+    }
+    .card-servicio:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0,77,92,0.15);
+        border-color: var(--azul-petroleo);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<nav class="navbar navbar-expand-lg navbar-dark" style="background-color: var(--azul-petroleo);">
+    <div class="container">
+        <a class="navbar-brand fw-bold" href="{{ url_for('dashboard.dashboard') }}">
+            <i class="bi bi-soundwave"></i> DatosConsultora
+        </a>
+        <div class="ms-auto d-flex align-items-center">
+            <span class="text-white me-3">Hola, {{ current_user.nombre }}</span>
+            <a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.logout') }}">
+                <i class="bi bi-box-arrow-right"></i> Salir
+            </a>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-5">
+    <h1 class="text-petroleo fw-bold mb-2">Bienvenido, {{ current_user.nombre }}</h1>
+    <p class="text-muted mb-5">Seleccioná una herramienta para empezar</p>
+
+    <div class="row g-4">
+        <!-- Transcripción IA -->
+        <div class="col-md-6 col-lg-4">
+            <div class="card card-servicio h-100">
+                <div class="card-body p-4">
+                    <i class="bi bi-mic-fill text-petroleo mb-3" style="font-size: 3rem;"></i>
+                    <h4 class="fw-bold">Transcripción IA</h4>
+                    <p class="text-muted">Convertí audio y video a texto con IA. Preciso y rápido.</p>
+                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary w-100">
+                        Usar Herramienta
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Asistentes IA -->
+        <div class="col-md-6 col-lg-4">
+            <div class="card card-servicio h-100 opacity-50">
+                <div class="card-body p-4">
+                    <i class="bi bi-robot text-petroleo mb-3" style="font-size: 3rem;"></i>
+                    <h4 class="fw-bold">Asistentes IA</h4>
+                    <p class="text-muted">Chatbots personalizados para tu negocio.</p>
+                    <button class="btn btn-outline-secondary w-100" disabled>
+                        Próximamente
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Automatizaciones -->
+        <div class="col-md-6 col-lg-4">
+            <div class="card card-servicio h-100 opacity-50">
+                <div class="card-body p-4">
+                    <i class="bi bi-diagram-3 text-petroleo mb-3" style="font-size: 3rem;"></i>
+                    <h4 class="fw-bold">Automatizaciones</h4>
+                    <p class="text-muted">Conectá tus apps con n8n y Zapier.</p>
+                    <button class="btn btn-outline-secondary w-100" disabled>
+                        Próximamente
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {% if current_user.is_admin %}
+        <!-- Panel Admin -->
+        <div class="col-md-6 col-lg-4">
+            <div class="card card-servicio h-100">
+                <div class="card-body p-4">
+                    <i class="bi bi-gear-fill text-petroleo mb-3" style="font-size: 3rem;"></i>
+                    <h4 class="fw-bold">Panel Administrador</h4>
+                    <p class="text-muted">Gestioná contactos, configuración y datos del sistema.</p>
+                    <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-primary w-100">
+                        Abrir Panel Admin
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: dashboard_layout.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard - DatosConsultora{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap + Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Tu styles.css -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        :root {
+            --dc-petroleo: #004d5c;
+            --dc-petroleo-dark: #012f36;
+            --dc-bg-light: #f4f5f7;
+            --dc-bg-dark: #0b1120;
+            --dc-sidebar-dark: #020617;
+            --dc-accent: #38bdf8;
+        }
+        [data-theme="light"] body {
+            background-color: var(--dc-bg-light);
+            color: #111827;
+        }
+        [data-theme="dark"] body {
+            background-color: var(--dc-bg-dark);
+            color: #e5e7eb;
+        }
+        .dc-sidebar {
+            width: 260px;
+            min-height: 100vh;
+            background: linear-gradient(180deg, var(--dc-sidebar-dark), var(--dc-petroleo-dark));
+            color: #e5e7eb;
+        }
+        .dc-sidebar .nav-link {
+            color: #9ca3af;
+            border-radius: .5rem;
+        }
+        .dc-sidebar .nav-link.active,
+        .dc-sidebar .nav-link:hover {
+            color: #e5e7eb;
+            background-color: rgba(56,189,248,0.15);
+        }
+        .dc-logo {
+            font-weight: 700;
+            letter-spacing: .04em;
+        }
+        .dc-main {
+            flex: 1;
+            min-height: 100vh;
+            background: radial-gradient(circle at top left, rgba(56,189,248,0.08), transparent),
+                        radial-gradient(circle at bottom right, rgba(0,77,92,0.15), transparent);
+        }
+        .dc-topbar {
+            border-bottom: 1px solid rgba(148,163,184,0.3);
+            backdrop-filter: blur(10px);
+        }
+        .dc-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            object-fit: cover;
+            border: 2px solid var(--dc-accent);
+        }
+        .dc-mode-toggle {
+            cursor: pointer;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+<div class="d-flex">
+    <!-- Sidebar -->
+    <aside class="dc-sidebar d-flex flex-column p-3">
+        <div class="d-flex align-items-center mb-4">
+            <i class="bi bi-soundwave fs-3 me-2 text-info"></i>
+            <span class="dc-logo">DatosConsultora</span>
+        </div>
+        <nav class="nav flex-column gap-1 mb-4">
+            <a class="nav-link {% if active_section == 'home' %}active{% endif %}"
+               href="{{ url_for('dashboard.dashboard_user') }}">
+                <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
+            </a>
+            <a class="nav-link {% if active_section == 'datos' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+            </a>
+            <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-folder2-open me-2"></i> Mis archivos
+            </a>
+            <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-mic-fill me-2"></i> Transcripciones
+            </a>
+            <a class="nav-link {% if active_section == 'asistentes' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-robot me-2"></i> Asistentes IA
+            </a>
+            <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-activity me-2"></i> Actividad
+            </a>
+            <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
+               href="#">
+                <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+            </a>
+        </nav>
+        <div class="mt-auto">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <span class="small text-gray-400">Modo</span>
+                <span class="dc-mode-toggle text-info" id="modeToggle">
+                    <i class="bi bi-moon-stars-fill"></i>
+                </span>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light w-100 btn-sm">
+                <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="dc-main">
+        <header class="dc-topbar px-4 py-3 d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0 text-petroleo">Hola, {{ current_user.nombre }}</h5>
+                <small class="text-muted">Bienvenido a tu espacio de trabajo en DatosConsultora.</small>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-end">
+                    <div class="small">{{ current_user.email }}</div>
+                    <div class="small text-muted">Cuenta corporativa</div>
+                </div>
+                <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
+                    <i class="bi bi-camera-fill"></i>
+                </button>
+                <img src="{{ current_user.profile.avatar if current_user.profile and current_user.profile.avatar else url_for('static', filename='img/default-avatar.png') }}"
+                     alt="Avatar" class="dc-avatar">
+            </div>
+        </header>
+
+        <section class="p-4">
+            {% block content %}{% endblock %}
+        </section>
+    </main>
+</div>
+
+<!-- Modal Avatar (recorte placeholder) -->
+<div class="modal fade" id="avatarModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('dashboard.dashboard_user') }}" enctype="multipart/form-data">
+                <div class="modal-header">
+                    <h5 class="modal-title">Actualizar avatar</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">
+                        Subí una imagen cuadrada. Más adelante vamos a integrar recorte real (tipo SaaS).
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Imagen</label>
+                        <input type="file" name="avatar" accept="image/*" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar avatar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const modeToggle = document.getElementById('modeToggle');
+    const htmlEl = document.documentElement;
+    modeToggle.addEventListener('click', () => {
+        const current = htmlEl.getAttribute('data-theme') || 'light';
+        const next = current === 'light' ? 'dark' : 'light';
+        htmlEl.setAttribute('data-theme', next);
+    });
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>
+
+
+
+================================================================================
+ARCHIVO: dashboard_user.html
+================================================================================
+
+<!-- templates/dashboard_user.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'home' %}
+
+{% block title %}Mi Dashboard - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+                </h5>
+                <p class="text-muted mb-3">Resumen de tu perfil corporativo.</p>
+                <ul class="list-unstyled mb-0">
+                    <li>
+                        <strong>Nombre:</strong> {{ current_user.nombre }}
+                    </li>
+                    <li>
+                        <strong>Email:</strong> {{ current_user.email }}
+                        {% if current_user.email_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
+                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">
+                                Reenviar email
+                            </a>
+                        {% endif %}
+                    </li>
+                    <li>
+                        <strong>Teléfono:</strong> {{ current_user.telefono }}
+                        {% if current_user.telefono_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
+                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">
+                                Verificar WhatsApp
+                            </a>
+                        {% endif %}
+                    </li>
+                    {% if current_user.profile %}
+                    <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
+                    <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
+                    <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
+                    {% endif %}
+                </ul>
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
+                    <i class="bi bi-pencil"></i> Editar perfil
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                </h5>
+                <p class="text-muted mb-3">
+                    Subí archivos de audio o video para convertirlos en texto.
+                </p>
+                <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">
+                    Ir a Transcripción
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-4">
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                </h6>
+                <p class="text-muted mb-0">Más adelante vamos a listar tus archivos subidos.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                </h6>
+                <p class="text-muted mb-0">Próximamente: tus asistentes personalizados.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                </h6>
+                <p class="text-muted mb-0">Por ahora: plan free. Más adelante agregamos upgrades.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Perfil -->
+<div class="modal fade" id="perfilModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('dashboard.actualizar_perfil') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Editar perfil</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Empresa</label>
+                        <input type="text" name="empresa" class="form-control"
+                               value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cargo</label>
+                        <input type="text" name="cargo" class="form-control"
+                               value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">País</label>
+                        <input type="text" name="pais" class="form-control"
+                               value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+================================================================================
+ARCHIVO: index.html
+================================================================================
+
+<!-- app/template/index.html -->
+{% extends "base.html" %}
+
+{% block title %}DatosConsultora - Transformamos Datos, Procesos y Negocios con IA{% endblock %}
+
+{% block content %}
+    <!-- Hero -->
+    <section class="hero text-center">
+        <div class="container">
+            <h1 class="display-3 fw-bold mb-4">Transformamos Datos,<br>Procesos y Negocios con IA</h1>
+            <p class="lead mb-5 fs-5">
+                Somos un equipo de ingenieros, analistas y project managers dedicados a impulsar<br class="d-none d-lg-block">
+                la transformación digital de tu empresa.
+            </p>
+            <a href="#servicios" class="btn btn-light btn-lg px-5 me-md-3 mb-3 mb-md-0">Descubrí cómo ayudarte</a>
+            <a href="#contacto" class="btn btn-outline-light btn-lg px-5">Contactanos</a>
+        </div>
+    </section>
+
+    <!-- Manifiesto -->
+    <section id="nosotros" class="seccion-oscura py-5">
+        <div class="container py-5">
+            <div class="text-center mb-5">
+                <h2 class="display-5 fw-bold mb-3">Somos un equipo que combina ingeniería,<br>estrategia y humanidad.</h2>
+                <p class="lead text-celeste">Y estamos acá para ayudarte a evolucionar.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Sobre Nosotros -->
+    <section class="py-5">
+        <div class="container py-4">
+            <div class="text-center mb-5">
+                <h2 class="display-5 fw-bold text-petroleo">
+                    <i class="bi bi-people-fill"></i> Nuestro Equipo
+                </h2>
+            </div>
+            <div class="row justify-content-center">
+                <div class="col-lg-10">
+                    <div class="p-4 mb-3 bg-white rounded borde-celeste">
+                        <p class="fs-5 mb-0">
+                            Somos un equipo multidisciplinario con más de 20 años de experiencia combinada en ingeniería,
+                            análisis de datos, gestión de proyectos y transformación digital.
+                        </p>
+                    </div>
+                    <div class="p-4 mb-3 bg-white rounded borde-celeste">
+                        <p class="fs-5 mb-0">
+                            Nos une un propósito común:
+                            <strong class="text-celeste">ayudar a las organizaciones a evolucionar</strong>,
+                            integrando tecnología, inteligencia artificial y procesos humanos que generan impacto real.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Servicios -->
+    <section id="servicios" class="py-5 bg-gris">
+        <div class="container py-4">
+            <h2 class="text-center text-petroleo fw-bold mb-3 display-5">Nuestros Servicios</h2>
+            <p class="text-center text-peltre mb-5 fs-5">
+                No solo aplicamos tecnología: la conectamos con las personas, los datos y los objetivos de negocio.
+            </p>
+            <div class="row g-4">
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-mic-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Transcripción IA</h4>
+                        <p class="text-muted mb-4">Audio y video a texto con 95%+ de precisión. Español rioplatense optimizado.</p>
+                        {% if current_user.is_authenticated %}
+                            <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">Usar ahora</a>
+                        {% else %}
+                            <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary">Acceder</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-diagram-3-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Automatizaciones</h4>
+                        <p class="text-muted mb-4">
+                            Diseñamos y desarrollamos soluciones basadas en IA y herramientas digitales personalizadas.
+                        </p>
+                        <span class="badge bg-secondary">Próximamente</span>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-4">
+                    <div class="card-servicio">
+                        <i class="bi bi-chat-dots-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Asistentes IA</h4>
+                        <p class="text-muted mb-4">
+                            Asistentes conversacionales que fortalecen procesos e instalan capacidades que perduran.
+                        </p>
+                        <span class="badge bg-secondary">Próximamente</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Misión Visión -->
+    <section class="py-5">
+        <div class="container py-4">
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="p-5 bg-white rounded border h-100">
+                        <h3 class="fw-bold text-petroleo mb-4">
+                            <i class="bi bi-bullseye text-celeste"></i> Misión
+                        </h3>
+                        <p class="fs-5 text-muted">
+                            Acompañamos a organizaciones y equipos en su evolución digital, combinando tecnología,
+                            automatización e inteligencia artificial con una mirada humana, práctica y estratégica.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="p-5 bg-white rounded border h-100">
+                        <h3 class="fw-bold text-petroleo mb-4">
+                            <i class="bi bi-stars text-celeste"></i> Visión
+                        </h3>
+                        <p class="fs-5 text-muted">
+                            Ser referentes en la transformación digital con propósito en América Latina, impulsando negocios
+                            más eficientes, humanos y escalables.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Valores -->
+    <section id="equipo" class="py-5 bg-gris">
+        <div class="container py-4">
+            <h2 class="text-center text-petroleo fw-bold mb-3 display-5">Nuestros Valores</h2>
+            <p class="text-center text-peltre mb-5 fs-5">
+                Porque no solo ofrecemos tecnología:
+                <strong class="text-petroleo">ofrecemos acompañamiento, claridad y resultados</strong>.
+            </p>
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-shield-check icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Transparencia</h4>
+                        <p class="text-muted">
+                            Te mostramos cómo, cuánto y por qué. Decimos lo que hacemos y hacemos lo que decimos.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-people-fill icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Cercanía</h4>
+                        <p class="text-muted">
+                            Entendemos tu contexto y hablamos tu idioma. Nos vinculamos desde la escucha y la empatía.
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="bg-white p-5 rounded text-center card-servicio h-100">
+                        <i class="bi bi-arrow-repeat icono-valor"></i>
+                        <h4 class="fw-bold text-petroleo mb-3">Evolución Continua</h4>
+                        <p class="text-muted">
+                            Te ayudamos a crecer, no a depender. Aprendemos, mejoramos y nos adaptamos junto a vos.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-5 seccion-oscura" id="contacto">
+        <div class="container py-5 text-center">
+            <h2 class="display-5 fw-bold mb-4">
+                Transformar no es solo digitalizar.<br>Es activar capacidades que perduran.
+            </h2>
+            <p class="lead fs-4 mb-5">¿Listo para evolucionar?</p>
+            {% if current_user.is_authenticated %}
+                <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-light btn-lg px-5">Ir al Panel</a>
+            {% else %}
+                <a href="{{ url_for('auth.login') }}" class="btn btn-light btn-lg px-5">Empezar Ahora</a>
+            {% endif %}
+        </div>
+    </section>
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: landing.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DatosConsultora - Transcripción IA para Profesionales</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --azul-petroleo: #004d5c;
+            --gris-peltre: #8a8d93;
+            --azul-claro: #006d82;
+        }
+        body { font-family: 'Segoe UI', sans-serif; }
+        .navbar { background-color: var(--azul-petroleo) !important; }
+        .btn-primary { 
+            background-color: var(--azul-petroleo); 
+            border-color: var(--azul-petroleo);
+        }
+        .btn-primary:hover { 
+            background-color: var(--azul-claro); 
+            border-color: var(--azul-claro);
+        }
+        .hero {
+            background: linear-gradient(135deg, var(--azul-petroleo) 0%, var(--azul-claro) 100%);
+            color: white;
+            padding: 100px 0;
+        }
+        .feature-icon {
+            font-size: 3rem;
+            color: var(--azul-petroleo);
+        }
+        .bg-gris { background-color: #f8f9fa; }
+        .text-petroleo { color: var(--azul-petroleo); }
+        .whatsapp-float {
+            position: fixed;
+            width: 60px;
+            height: 60px;
+            bottom: 40px;
+            right: 40px;
+            background-color: #25d366;
+            color: white;
+            border-radius: 50px;
+            text-align: center;
+            font-size: 30px;
+            z-index: 100;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+        }
+        .whatsapp-float:hover { color: white; background-color: #20ba5a; }
+        footer { background-color: var(--gris-peltre); color: white; }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="bi bi-soundwave"></i> DatosConsultora
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link" href="#servicios">Servicios</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#como-funciona">Cómo Funciona</a></li>
+                    <li class="nav-item"><a class="nav-link" href="#contacto">Contacto</a></li>
+                    <li class="nav-item"><a class="btn btn-outline-light ms-2" href="/login">Ingresar</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero text-center">
+        <div class="container">
+            <h1 class="display-4 fw-bold mb-3">Transcribí tus audios con IA en minutos</h1>
+            <p class="lead mb-4">Subí audios o videos de reuniones, entrevistas o consultas. Nosotros los convertimos en texto preciso, listo para usar.</p>
+            <a href="/login" class="btn btn-light btn-lg px-4 me-2">Probar Gratis</a>
+            <a href="#como-funciona" class="btn btn-outline-light btn-lg px-4">Ver Demo</a>
+        </div>
+    </section>
+
+    <!-- Servicios -->
+    <section id="servicios" class="py-5">
+        <div class="container">
+            <h2 class="text-center text-petroleo fw-bold mb-5">¿Qué podés hacer con DatosConsultora?</h2>
+            <div class="row g-4">
+                <div class="col-md-4 text-center">
+                    <i class="bi bi-mic-fill feature-icon mb-3"></i>
+                    <h4>Transcripción Automática</h4>
+                    <p class="text-muted">Audio y video a texto con 95%+ de precisión. Español rioplatense optimizado.</p>
+                </div>
+                <div class="col-md-4 text-center">
+                    <i class="bi bi-clock-history feature-icon mb-3"></i>
+                    <h4>Ahorrá Horas</h4>
+                    <p class="text-muted">1 hora de audio lista en 5 minutos. Dedicá tu tiempo a lo importante.</p>
+                </div>
+                <div class="col-md-4 text-center">
+                    <i class="bi bi-shield-lock-fill feature-icon mb-3"></i>
+                    <h4>100% Privado</h4>
+                    <p class="text-muted">Tus archivos no se comparten. Cada cliente tiene su panel seguro.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cómo Funciona -->
+    <section id="como-funciona" class="py-5 bg-gris">
+        <div class="container">
+            <h2 class="text-center text-petroleo fw-bold mb-5">Simple en 3 pasos</h2>
+            <div class="row g-4 align-items-center">
+                <div class="col-md-4 text-center">
+                    <div class="bg-white p-4 rounded shadow-sm h-100">
+                        <span class="badge bg-primary rounded-pill mb-2">1</span>
+                        <h5>Subí tu archivo</h5>
+                        <p class="text-muted mb-0">MP3, WAV, MP4, M4A. Desde tu compu o el celu.</p>
+                    </div>
+                </div>
+                <div class="col-md-4 text-center">
+                    <div class="bg-white p-4 rounded shadow-sm h-100">
+                        <span class="badge bg-primary rounded-pill mb-2">2</span>
+                        <h5>La IA trabaja</h5>
+                        <p class="text-muted mb-0">Whisper procesa y transcribe con timestamps.</p>
+                    </div>
+                </div>
+                <div class="col-md-4 text-center">
+                    <div class="bg-white p-4 rounded shadow-sm h-100">
+                        <span class="badge bg-primary rounded-pill mb-2">3</span>
+                        <h5>Descargá el texto</h5>
+                        <p class="text-muted mb-0">TXT, DOCX o SRT para subtítulos. Editá si querés.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="text-center mt-5">
+                <a href="/login" class="btn btn-primary btn-lg">Crear Cuenta Gratis</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contacto -->
+    <section id="contacto" class="py-5">
+        <div class="container text-center">
+            <h2 class="text-petroleo fw-bold mb-3">¿Dudas? Hablemos</h2>
+            <p class="lead text-muted mb-4">Estamos para ayudarte a integrar transcripción IA en tu trabajo.</p>
+            {% if contact and contact.email1 %}
+            <p><i class="bi bi-envelope-fill text-petroleo"></i> {{ contact.email1 }}</p>
+            {% endif %}
+            {% if contact and contact.telefono %}
+            <p><i class="bi bi-telephone-fill text-petroleo"></i> {{ contact.telefono }}</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-4">
+        <div class="container text-center">
+            <p class="mb-0">© 2026 DatosConsultora. Transcripción IA para profesionales.</p>
+        </div>
+    </footer>
+
+    <!-- Botón WhatsApp flotante -->
+    {% if contact and contact.whatsapp %}
+    <a href="https://wa.me/{{ contact.whatsapp }}" class="whatsapp-float" target="_blank">
+        <i class="bi bi-whatsapp" style="margin-top:16px;"></i>
+    </a>
+    {% endif %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+
+================================================================================
+ARCHIVO: login.html
+================================================================================
+
+<!-- templates/login.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ingresar - DatosConsultora</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+<style>
+body {
+    background: linear-gradient(135deg, #004d5c 0%, #006d82 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+}
+.login-card {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+.btn-primary {
+    background-color: #004d5c;
+    border-color: #004d5c;
+}
+.btn-primary:hover {
+    background-color: #006d82;
+    border-color: #006d82;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="login-card p-5">
+                <h2 class="text-center mb-4" style="color: #004d5c;">
+                    <i class="bi bi-soundwave"></i> DatosConsultora
+                </h2>
+                <h4 class="text-center mb-4">Ingresar al Panel</h4>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Contraseña</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Ingresar</button>
+                </form>
+
+                <div class="text-center mt-3">
+                    <p class="text-muted">¿No tenés cuenta? <a href="{{ url_for('auth.registro') }}" class="text-decoration-none">Registrate</a></p>
+                    <a href="/" class="text-muted text-decoration-none">← Volver al inicio</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+================================================================================
+ARCHIVO: nosotros.html
+================================================================================
+
+<!-- templates/nosotros.html -->
+{% extends "base.html" %}
+{% block title %}Sobre Nosotros - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5">
+    <div class="container py-5">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-petroleo">Sobre Nosotros</h1>
+            <p class="lead text-peltre">Somos un equipo que combina ingeniería, estrategia y humanidad</p>
+        </div>
+
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="p-5 mb-4 bg-white rounded borde-celeste">
+                    <h3 class="fw-bold text-petroleo mb-3">Nuestra Historia</h3>
+                    <p class="fs-5">
+                        Somos un equipo multidisciplinario con más de 20 años de experiencia combinada en ingeniería,
+                        análisis de datos, gestión de proyectos y transformación digital.
+                    </p>
+                </div>
+
+                <div class="p-5 mb-4 bg-white rounded borde-celeste">
+                    <h3 class="fw-bold text-petroleo mb-3">Nuestro Propósito</h3>
+                    <p class="fs-5">
+                        Nos une un propósito común: <strong class="text-celeste">ayudar a las organizaciones a
+                            evolucionar</strong>,
+                        integrando tecnología, inteligencia artificial y procesos humanos que generan impacto real.
+                    </p>
+                </div>
+
+                <div class="row g-4 mt-4">
+                    <div class="col-md-6">
+                        <div class="p-4 bg-white rounded border h-100">
+                            <h4 class="fw-bold text-petroleo mb-3">
+                                <i class="bi bi-bullseye text-celeste"></i> Misión
+                            </h4>
+                            <p class="text-muted">
+                                Acompañamos a organizaciones y equipos en su evolución digital, combinando tecnología,
+                                automatización e inteligencia artificial con una mirada humana, práctica y estratégica.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="p-4 bg-white rounded border h-100">
+                            <h4 class="fw-bold text-petroleo mb-3">
+                                <i class="bi bi-stars text-celeste"></i> Visión
+                            </h4>
+                            <p class="text-muted">
+                                Ser referentes en la transformación digital con propósito en América Latina, impulsando
+                                negocios
+                                más eficientes, humanos y escalables.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: registro.html
+================================================================================
+
+<!-- templates/registro.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registro - DatosConsultora</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+<style>
+body {
+    background: linear-gradient(135deg, #004d5c 0%, #006d82 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+}
+.login-card {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+.btn-primary {
+    background-color: #004d5c;
+    border-color: #004d5c;
+}
+.btn-primary:hover {
+    background-color: #006d82;
+    border-color: #006d82;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="login-card p-5">
+                <h2 class="text-center mb-4" style="color: #004d5c;">
+                    <i class="bi bi-soundwave"></i> DatosConsultora
+                </h2>
+                <h4 class="text-center mb-4">Crear Cuenta</h4>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Nombre completo</label>
+                        <input type="text" name="nombre" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Teléfono</label>
+                        <input type="tel" name="telefono" class="form-control" placeholder="54911XXXXXXXX" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Contraseña</label>
+                        <input type="password" name="password" class="form-control" required minlength="6">
+                        <small class="text-muted">Mínimo 6 caracteres</small>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Registrarme</button>
+                </form>
+
+                <div class="text-center mt-3">
+                    <p class="text-muted">¿Ya tenés cuenta? <a href="{{ url_for('auth.login') }}" class="text-decoration-none">Ingresar</a></p>
+                    <a href="/" class="text-muted text-decoration-none">← Volver al inicio</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+
+================================================================================
+ARCHIVO: servicio_transcripcion.html
+================================================================================
+
+<!-- templates/servicio_transcripcion.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'transcripciones' %}
+
+{% block title %}Transcripción IA - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">Transcripción con IA</h1>
+        <p class="text-muted">Subí tu audio o video y obtené el texto en minutos</p>
+    </div>
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
+</div>
+
+<div class="card p-5 mb-4 text-center" style="border: 2px dashed #cbd5e1;">
+    <form method="POST" enctype="multipart/form-data">
+        <i class="bi bi-cloud-upload text-petroleo" style="font-size: 4rem;"></i>
+        <h4 class="mt-3 mb-3 text-petroleo">Seleccioná tu archivo</h4>
+        <p class="text-muted mb-4">Formatos: MP3, WAV, M4A, MP4, MOV, AVI, MKV, WEBM<br>Máximo 200MB</p>
+        <input type="file" name="media" class="form-control mb-3" accept=".mp3,.wav,.m4a,.mp4,.mov,.avi,.mkv,.webm"
+            required>
+        <button type="submit" class="btn btn-primary btn-lg px-5">
+            <i class="bi bi-magic"></i> Transcribir Ahora
+        </button>
+    </form>
+</div>
+
+{% if transcript %}
+<div class="card p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="text-petroleo mb-0">
+            <i class="bi bi-file-text"></i> Resultado: {{ filename }}
+        </h4>
+        <button class="btn btn-outline-primary btn-sm" onclick="copiarTexto()">
+            <i class="bi bi-clipboard"></i> Copiar
+        </button>
+    </div>
+    <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 400px; overflow-y: auto;">
+        <pre id="transcriptText" style="white-space: pre-wrap; font-family: inherit;">{{ transcript }}</pre>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function copiarTexto() {
+        const texto = document.getElementById('transcriptText').innerText;
+        navigator.clipboard.writeText(texto).then(() => {
+            alert('Texto copiado al portapapeles');
+        });
+    }
+</script>
+{% endblock %}
+
+================================================================================
+ARCHIVO: servicios.html
+================================================================================
+
+<!-- templates/servicios.html -->
+{% extends "base.html" %}
+{% block title %}Servicios - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container py-5">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-petroleo">Nuestros Servicios</h1>
+            <p class="lead text-peltre">Soluciones de IA para transformar tu negocio</p>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="card-servicio text-center">
+                    <i class="bi bi-mic-fill icono-valor"></i>
+                    <h4 class="fw-bold text-petroleo mb-3">Transcripción IA</h4>
+                    <p class="text-muted mb-4">Convierte audio y video en texto con 95%+ de precisión. Optimizado para
+                        español rioplatense.</p>
+                    {% if current_user.is_authenticated %}
+                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">Usar ahora</a>
+                    {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary">Acceder</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card-servicio text-center">
+                    <i class="bi bi-diagram-3-fill icono-valor"></i>
+                    <h4 class="fw-bold text-petroleo mb-3">Automatizaciones</h4>
+                    <p class="text-muted mb-4">Diseñamos soluciones basadas en IA y herramientas digitales
+                        personalizadas para tu empresa.</p>
+                    <span class="badge bg-secondary">Próximamente</span>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card-servicio text-center">
+                    <i class="bi bi-chat-dots-fill icono-valor"></i>
+                    <h4 class="fw-bold text-petroleo mb-3">Asistentes IA</h4>
+                    <p class="text-muted mb-4">Asistentes conversacionales que fortalecen procesos e instalan
+                        capacidades que perduran.</p>
+                    <span class="badge bg-secondary">Próximamente</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: verificar_whatsapp.html
+================================================================================
+
+{% block content %}
+{% endblock %}
+
+
+<!-- templates/verificar_whatsapp.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'datos' %}
+
+{% block title %}Verificar WhatsApp - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-5">
+                <div class="text-center mb-4">
+                    <i class="bi bi-whatsapp text-success" style="font-size: 4rem;"></i>
+                    <h2 class="text-petroleo fw-bold mt-3">Verificar WhatsApp</h2>
+                    <p class="text-muted">Número: <strong>{{ telefono }}</strong></p>
+                </div>
+
+                <div class="alert alert-info">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-info-circle"></i> ¿Cómo funciona?</h6>
+                    <ol class="mb-0">
+                        <li>Hacé click en el botón de abajo para abrir WhatsApp</li>
+                        <li>Se abrirá un chat con un mensaje prellenado con tu código</li>
+                        <li>Enviá el mensaje</li>
+                        <li>Copiá el código de 6 dígitos y pegalo abajo</li>
+                    </ol>
+                </div>
+
+                <div class="text-center mb-4">
+                    <div class="p-4 bg-light rounded">
+                        <p class="text-muted mb-2">Tu código de verificación:</p>
+                        <h1 class="display-4 fw-bold text-petroleo mb-0" style="letter-spacing: 0.3em;">{{ codigo }}</h1>
+                    </div>
+                </div>
+
+                <div class="text-center mb-4">
+                    <a href="{{ link_whatsapp }}" target="_blank" class="btn btn-success btn-lg px-5">
+                        <i class="bi bi-whatsapp me-2"></i> Abrir WhatsApp
+                    </a>
+                </div>
+
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Ingresá el código de 6 dígitos</label>
+                        <input type="text" name="codigo" class="form-control form-control-lg text-center" 
+                               maxlength="6" pattern="[0-9]{6}" placeholder="000000" required
+                               style="letter-spacing: 0.5em; font-size: 1.5rem;">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 btn-lg">
+                        <i class="bi bi-check-circle"></i> Verificar WhatsApp
+                    </button>
+                </form>
+
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('verificacion.reenviar_codigo_whatsapp') }}" class="text-muted">
+                        <i class="bi bi-arrow-repeat"></i> Generar nuevo código
+                    </a>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> Volver al Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

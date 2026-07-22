@@ -1,0 +1,124 @@
+<!-- templates/cafecito.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'cafecito' %}
+
+{% block title %}Invitame un Cafecito - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        
+        <!-- Header con badge si tiene -->
+        <div class="text-center mb-4">
+            {% if tiene_badge %}
+            <div class="mb-3">
+                <span class="badge bg-danger fs-5 px-4 py-2">
+                    <i class="bi bi-heart-fill me-2"></i>¡Gracias por tu cafecito!
+                </span>
+            </div>
+            {% endif %}
+            
+            <div style="font-size: 5rem;">☕</div>
+            <h1 class="text-petroleo fw-bold mt-3">Invitame un Cafecito</h1>
+            <p class="lead text-muted">
+                ¿Te gusta DatosConsultora? ¡Podés invitarme un cafecito!
+            </p>
+        </div>
+        
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else ('info' if category == 'info' else 'success')) }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+        
+        <!-- Card de donación -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-5">
+                
+                <div class="text-center mb-4">
+                    <h3 class="text-petroleo fw-bold">$5.000 ARS</h3>
+                    <p class="text-muted mb-0">El valor de un cafecito para seguir construyendo</p>
+                </div>
+                
+                <form method="POST" action="{{ url_for('cafecito.donar') }}">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-chat-left-heart me-2"></i>Dejanos un mensaje (opcional)
+                        </label>
+                        <textarea name="mensaje" class="form-control" rows="3" 
+                                  placeholder="¡Gracias por esta herramienta! Me ayuda mucho en mi trabajo..."></textarea>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-danger btn-lg py-3">
+                            <i class="bi bi-heart-fill me-2"></i>Invitame un Cafecito por $5.000
+                        </button>
+                    </div>
+                    
+                    <div class="text-center mt-3">
+                        <small class="text-muted">
+                            <i class="bi bi-shield-lock-fill me-1"></i>
+                            Pago seguro con Mercado Pago
+                        </small>
+                    </div>
+                </form>
+                
+            </div>
+        </div>
+        
+        <!-- Info adicional -->
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body p-4">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-info-circle me-2"></i>¿Qué pasa después de donar?
+                </h5>
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Serás redirigido a Mercado Pago</strong> para completar el pago de forma segura
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Recibirás un badge especial</strong> en tu perfil por 30 días
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Tu mensaje aparecerá</strong> en nuestra sección de agradecimientos
+                    </li>
+                    <li>
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Ayudarás a seguir construyendo</strong> herramientas gratuitas para todos
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Estadísticas del usuario -->
+        {% if donaciones_count > 0 %}
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body p-4 text-center">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-trophy-fill text-warning me-2"></i>Tu impacto
+                </h5>
+                <p class="display-6 fw-bold text-petroleo mb-0">{{ donaciones_count }}</p>
+                <p class="text-muted">cafecito{{ 's' if donaciones_count != 1 else '' }} donado{{ 's' if donaciones_count != 1 else '' }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Volver al dashboard -->
+        <div class="text-center mt-4">
+            <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-2"></i>Volver al Dashboard
+            </a>
+        </div>
+        
+    </div>
+</div>
+{% endblock %}

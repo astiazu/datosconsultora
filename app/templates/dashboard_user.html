@@ -21,32 +21,37 @@
                     <li>
                         <strong>Email:</strong> {{ current_user.email }}
                         {% if current_user.email_verificado %}
-                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
                         {% else %}
-                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
-                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">
-                                Reenviar email
-                            </a>
+                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
+                            Pendiente</span>
+                        <a href="{{ url_for('auth.reenviar_verificacion') }}"
+                            class="btn btn-sm btn-outline-primary ms-2">
+                            Reenviar email
+                        </a>
                         {% endif %}
                     </li>
                     <li>
                         <strong>Teléfono:</strong> {{ current_user.telefono }}
                         {% if current_user.telefono_verificado %}
-                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
                         {% else %}
-                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
-                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">
-                                Verificar WhatsApp
-                            </a>
+                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
+                            Pendiente</span>
+                        <a href="{{ url_for('verificacion.verificar_whatsapp') }}"
+                            class="btn btn-sm btn-outline-success ms-2">
+                            Verificar WhatsApp
+                        </a>
                         {% endif %}
                     </li>
                     {% if current_user.profile %}
-                        <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
-                        <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
-                        <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
+                    <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
+                    <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
+                    <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
                     {% endif %}
                 </ul>
-                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal"
+                    data-bs-target="#perfilModal">
                     <i class="bi bi-pencil"></i> Editar perfil
                 </button>
             </div>
@@ -128,9 +133,12 @@
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                    <i class="bi bi-heart-fill text-danger me-2"></i>Invitame un Cafecito
                 </h6>
-                <p class="text-muted mb-0">Por ahora: plan free. Más adelante agregamos upgrades.</p>
+                <p class="text-muted mb-3">¿Te gusta DatosConsultora? ¡Invitame un cafecito!</p>
+                <a href="{{ url_for('cafecito.cafecito') }}" class="btn btn-danger btn-sm">
+                    <i class="bi bi-cup-hot-fill me-1"></i>Donar $5.000
+                </a>
             </div>
         </div>
     </div>
@@ -149,17 +157,17 @@
                     <div class="mb-3">
                         <label class="form-label">Empresa</label>
                         <input type="text" name="empresa" class="form-control"
-                               value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                            value="{{ current_user.profile.empresa if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Cargo</label>
                         <input type="text" name="cargo" class="form-control"
-                               value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                            value="{{ current_user.profile.cargo if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">País</label>
                         <input type="text" name="pais" class="form-control"
-                               value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                            value="{{ current_user.profile.pais if current_user.profile else '' }}">
                     </div>
                 </div>
                 <div class="modal-footer">

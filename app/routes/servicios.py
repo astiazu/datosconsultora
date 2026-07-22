@@ -118,11 +118,11 @@ def analisis_sentimientos():
                     
                     if contexto:
                         resultado["contexto"] = contexto
-                    resultado["red_social"] = red_social
-                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                        resultado["red_social"] = red_social
+                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
-                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                    paso = "resultado"
+                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                        paso = "resultado"
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")

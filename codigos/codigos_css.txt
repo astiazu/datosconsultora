@@ -1,0 +1,215 @@
+================================================================================
+ARCHIVO: styles.css
+================================================================================
+
+:root {
+    --azul-petroleo: #004d5c;
+    --gris-peltre: #8a8d93;
+    --azul-claro: #006d82;
+    --azul-oscuro: #002a33;
+    --gris-fondo: #f4f5f7;
+    --celeste-acento: #00b8d4;
+    --shadow: rgba(0, 77, 92, 0.15);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1a1a1a;
+    line-height: 1.6;
+    overflow-x: hidden;
+    background-color: #ffffff;
+}
+
+.navbar {
+    background-color: var(--azul-oscuro) !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    padding: 1rem 0;
+}
+
+.navbar-brand {
+    font-size: 1.6rem;
+}
+
+.navbar-dark .navbar-nav .nav-link {
+    color: rgba(255,255,255,0.9);
+}
+
+.navbar-dark .navbar-nav .nav-link:hover {
+    color: #ffffff;
+}
+
+.btn-primary {
+    background-color: var(--celeste-acento) !important;
+    border-color: var(--celeste-acento) !important;
+    color: var(--azul-oscuro) !important;
+    padding: 12px 32px;
+    font-weight: 600;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.btn-primary:hover {
+    background-color: #00a0b8 !important;
+    border-color: #00a0b8 !important;
+    color: var(--azul-oscuro) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--shadow);
+}
+
+.btn-outline-light {
+    border-width: 2px;
+    font-weight: 600;
+    border-radius: 8px;
+}
+
+.btn-outline-light:hover {
+    background-color: #fff !important;
+    color: var(--azul-petroleo) !important;
+}
+
+.hero {
+    background: linear-gradient(135deg, var(--azul-oscuro) 0%, var(--azul-petroleo) 50%, var(--azul-claro) 100%) !important;
+    color: #ffffff !important;
+    padding: 120px 0 100px 0;
+}
+
+.hero h1, .hero p, .hero .lead {
+    color: #ffffff !important;
+}
+
+.text-petroleo { color: var(--azul-petroleo) !important; }
+.text-celeste { color: var(--celeste-acento) !important; }
+.text-peltre { color: var(--gris-peltre) !important; }
+.bg-gris { background-color: var(--gris-fondo) !important; }
+
+.seccion-oscura {
+    background: linear-gradient(180deg, var(--azul-oscuro) 0%, var(--azul-petroleo) 100%) !important;
+    color: white !important;
+}
+
+.seccion-oscura h1,
+.seccion-oscura h2,
+.seccion-oscura h3,
+.seccion-oscura h4,
+.seccion-oscura p,
+.seccion-oscura .lead {
+    color: #ffffff !important;
+}
+
+.card-servicio {
+    background: #fff !important;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 2rem;
+    height: 100%;
+    transition: all 0.3s ease;
+}
+
+.card-servicio:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px var(--shadow);
+    border-color: var(--celeste-acento);
+}
+
+.icono-valor {
+    font-size: 3rem;
+    color: var(--celeste-acento);
+    margin-bottom: 1rem;
+}
+
+.manifiesto-card {
+    background: rgba(255,255,255,0.08) !important;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    color: #ffffff !important;
+}
+
+.manifiesto-card h3, .manifiesto-card p {
+    color: #ffffff !important;
+}
+
+.borde-celeste {
+    border-left: 4px solid var(--celeste-acento);
+}
+
+footer {
+    background-color: var(--azul-oscuro) !important;
+    color: #cbd5e0 !important;
+}
+
+footer a {
+    color: #cbd5e0 !important;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+footer a:hover {
+    color: #fff !important;
+}
+
+.whatsapp-float {
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    right: 40px;
+    background-color: #25d366;
+    color: white;
+    border-radius: 50%;
+    z-index: 1000;
+    box-shadow: 0 4px 16px rgba(37,211,102,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.whatsapp-float:hover {
+    color: white;
+    background-color: #20ba5a;
+    transform: scale(1.1);
+}
+
+section {
+    padding: 80px 0;
+}
+
+@media (max-width: 768px) {
+    .hero {
+        padding: 80px 0 60px 0;
+    }
+    .hero h1 {
+        font-size: 2rem;
+    }
+    .display-3 {
+        font-size: 2.5rem;
+    }
+    .display-5 {
+        font-size: 2rem;
+    }
+    section {
+        padding: 60px 0;
+    }
+    .whatsapp-float {
+        width: 50px;
+        height: 50px;
+        bottom: 20px;
+        right: 20px;
+        font-size: 24px;
+    }
+}
+
+

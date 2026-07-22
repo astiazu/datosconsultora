@@ -75,6 +75,8 @@ def create_app():
     from app.routes.admin import admin_bp
     from app.routes.servicios import servicios_bp
     from app.routes.verificacion import verificacion_bp
+    from app.routes.cafecito import cafecito_bp      
+    from app.routes.webhook import webhook_bp        
     
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -82,6 +84,8 @@ def create_app():
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(servicios_bp)
     app.register_blueprint(verificacion_bp)
+    app.register_blueprint(cafecito_bp)             
+    app.register_blueprint(webhook_bp)              
     
     return app
 
