@@ -51,7 +51,7 @@ def mercadopago_webhook():
                                 donation.mp_payment_id = payment_id
                                 db.session.commit()
                                 
-                                # Activar badge de cafecito por 30 días
+                                # Activar badge de cafecito 
                                 plan = UserPlan.query.filter_by(user_id=user_id).first()
                                 if not plan:
                                     plan = UserPlan(user_id=user_id)

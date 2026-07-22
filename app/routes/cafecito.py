@@ -78,7 +78,7 @@ def exito():
                     donation.mp_payment_id = payment_id
                     db.session.commit()
                 
-                # Activar badge de cafecito por 30 días
+                # Activar badge de cafecito 
                 plan = UserPlan.query.filter_by(user_id=current_user.id).first()
                 if not plan:
                     plan = UserPlan(user_id=current_user.id)
@@ -87,7 +87,7 @@ def exito():
                 plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
                 db.session.commit()
                 
-                flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo por 30 días.", "success")
+                flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
             else:
                 flash("El pago está pendiente de confirmación.", "warning")
                 
