@@ -58,29 +58,23 @@ class GroqLLMClient:
     
     def analizar_sentimientos(self, comentarios: list, contexto: str = "") -> dict:
         """
-        Analiza sentimientos de una lista de comentarios.
-        
-        :param comentarios: Lista de strings con los comentarios (ya limpios)
-        :param contexto: Contexto opcional del análisis
-        :return: Dict con análisis detallado
+        Analiza sentimientos de una lista de comentarios con mayor precisión.
         """
-        # Validar cantidad
         if len(comentarios) > 100:
             raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
         
         comentarios_texto = "\n".join([f"{i+1}. {c}" for i, c in enumerate(comentarios)])
+        contexto_texto = f"\nCONTEXTO ESPECÍFICO: {contexto}" if contexto else "\nCONTEXTO ESPECÍFICO: Análisis general de redes sociales sin contexto adicional."
         
-        contexto_texto = f"\nCONTEXTO: {contexto}" if contexto else ""
-        
-        prompt = f"""Eres un analista experto en sentimientos de redes sociales en español.
+        prompt = f"""Sos un analista senior de datos y sentimientos en redes sociales, especializado en el mercado y la jerga argentina. Tu objetivo es proporcionar un análisis profundo, detectando no solo el sentimiento básico, sino también ironía, sarcasmo, quejas constructivas y matices.
 
-Analizá los siguientes {len(comentarios)} comentarios y devolvé SOLO un JSON válido (sin markdown, sin texto adicional) con esta estructura EXACTA:
+Analizá los siguientes {len(comentarios)} comentarios y devolvé EXCLUSIVAMENTE un objeto JSON válido (sin markdown, sin texto antes o después, sin saltos de línea dentro de los strings) con esta estructura exacta:
 
 {{
   "analisis_individual": [
-    {{"numero": 1, "sentimiento": "positivo|neutral|negativo", "confianza": 0.95, "resumen_corto": "frase corta de máximo 10 palabras"}}
+    {{"numero": 1, "sentimiento": "positivo|neutral|negativo", "confianza": 0.95, "resumen_corto": "Explicación breve de POR QUÉ tiene ese sentimiento, detectando si hay ironía (máx 15 palabras)"}}
   ],
-  "resumen_general": "párrafo de 2-3 oraciones con el panorama general",
+  "resumen_general": "Párrafo de 2-3 oraciones que sintetice el panorama general, mencionando si hay polarización, consenso o un sentimiento predominante.",
   "estadisticas": {{
     "total": {len(comentarios)},
     "positivos": 0,
@@ -92,18 +86,19 @@ Analizá los siguientes {len(comentarios)} comentarios y devolvé SOLO un JSON v
   }},
   "temas_principales": ["tema1", "tema2", "tema3"],
   "palabras_clave": ["palabra1", "palabra2", "palabra3"],
-  "tono_general": "descripción breve del tono predominante",
-  "insights": ["insight1", "insight2", "insight3"],
-  "recomendaciones": ["recomendacion1", "recomendacion2"]
+  "tono_general": "Descripción precisa del tono (ej: 'Mayormente sarcástico con toques de frustración', 'Entusiasta y colaborativo')",
+  "insights": ["Insight accionable 1 basado en datos", "Insight accionable 2", "Insight accionable 3"],
+  "recomendaciones": ["Recomendación estratégica 1", "Recomendación estratégica 2"]
 }}
 
-REGLAS IMPORTANTES:
-- Respondé SOLO con el JSON, sin texto antes ni después
-- No uses markdown (ni ```json ni ```)
-- Escapá correctamente las comillas dentro de strings
-- Los strings NO deben contener saltos de línea
-- La suma de positivos + neutrales + negativos debe ser igual a "total"
-- Los porcentajes deben sumar 100{contexto_texto}
+REGLAS ESTRICTAS DE ANÁLISIS:
+1. SARCASMO E IRONÍA: Prestá mucha atención. Un "¡Qué genial!" en un contexto de queja es negativo. La jerga argentina (ej: "groso", "pésimo", "llayllora") debe interpretarse en su contexto cultural.
+2. COMENTARIOS MIXTOS: Si un comentario tiene aspectos positivos y negativos, clasificá según el sentimiento que predomina o el que representa el mayor dolor/valor para el usuario.
+3. CONTEXTO: Usá el "CONTEXTO ESPECÍFICO" provisto para desambiguar términos, nombres propios o situaciones del sector.
+4. MATEMÁTICAS: La suma de positivos + neutrales + negativos DEBE ser exactamente igual a "total". Los porcentajes DEBEN sumar 100. Redondeá a números enteros.
+5. FORMATO JSON: Respondé SOLO con el JSON. No uses ```json ni ```. Escapá correctamente las comillas dobles dentro de los strings. No uses saltos de línea (\n) dentro de los valores de texto.
+
+{contexto_texto}
 
 COMENTARIOS A ANALIZAR:
 {comentarios_texto}"""
@@ -123,8 +118,8 @@ COMENTARIOS A ANALIZAR:
                         },
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.2 if intento == 0 else 0.1,  # Más determinístico en retries
-                    max_tokens=3000,  # Aumentado para respuestas largas
+                    temperature=0.15 if intento == 0 else 0.05,  # Más bajo para máxima precisión y determinismo
+                    max_tokens=3500,  # Aumentado ligeramente para análisis más detallados
                 )
                 
                 contenido = response.choices[0].message.content.strip()
