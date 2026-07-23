@@ -112,7 +112,8 @@
                 <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
                     <i class="bi bi-activity me-2"></i> Actividad
                 </a>
-                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}" href="#">
+                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
+                    href="{{ url_for('planes.mi_plan') }}">
                     <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
                 </a>
                 <a class="nav-link {% if active_section == 'cafecito' %}active{% endif %}"
@@ -143,7 +144,17 @@
                 <div class="d-flex align-items-center gap-3">
                     <div class="text-end">
                         <div class="small">{{ current_user.email }}</div>
-                        <div class="small text-muted">Cuenta corporativa</div>
+                        {% set user_plan = current_user.user_plan %}
+                        {% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+                        <div class="small">
+                            {% if plan_obj %}
+                                <span class="badge bg-{{ plan_obj.color }}">
+                                    <i class="bi {{ plan_obj.icono }} me-1"></i>{{ plan_obj.display_name }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">Cuenta corporativa</span>
+                            {% endif %}
+                        </div>
                     </div>
                     <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
                         <i class="bi bi-camera-fill"></i>

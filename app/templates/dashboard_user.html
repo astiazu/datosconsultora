@@ -5,146 +5,260 @@
 {% block title %}Mi Dashboard - DatosConsultora{% endblock %}
 
 {% block content %}
-<!-- Fila 1: Mis datos + Transcripción IA -->
+{% set user_plan = current_user.user_plan %}
+{% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+
+<!-- Banner del plan actual -->
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #004d5c 0%, #006d82 100%); color: white;">
+    <div class="card-body p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi {{ plan_obj.icono if plan_obj else 'bi-award' }} fs-2 me-3"></i>
+                    <div>
+                        <h4 class="mb-0 text-white">Plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</h4>
+                        <small class="text-white-50">
+                            {% if plan_obj and plan_obj.precio_mensual == 0 %}
+                                Plan gratuito
+                            {% elif plan_obj and plan_obj.es_lifetime %}
+                                Acceso de por vida
+                            {% else %}
+                                Renovación mensual
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-light">
+                    <i class="bi bi-arrow-up-circle me-2"></i>Mejorar plan
+                </a>
+            </div>
+        </div>
+        
+        <!-- Uso del mes -->
+        <div class="row mt-4 g-3">
+            <div class="col-md-6">
+                <small class="text-white-50">Transcripciones este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_t = user_plan.consumo_transcripciones_mes() if user_plan else 0 %}
+                    {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
+                    {% set pct_t = (consumo_t / limite_t * 100) if limite_t > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else 'success' }}" style="width: {{ pct_t }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_t }} / {{ limite_t if limite_t < 999999 else '∞' }}</small>
+            </div>
+            <div class="col-md-6">
+                <small class="text-white-50">Análisis este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_a = user_plan.consumo_analisis_mes() if user_plan else 0 %}
+                    {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
+                    {% set pct_a = (consumo_a / limite_a * 100) if limite_a > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else 'success' }}" style="width: {{ pct_a }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_a }} / {{ limite_a if limite_a < 999999 else '∞' }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 1: Mis datos + Herramientas disponibles -->
 <div class="row g-4">
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h5 class="text-petroleo fw-bold mb-2">
                     <i class="bi bi-person-badge-fill me-2"></i> Mis datos
                 </h5>
-                <p class="text-muted mb-3">Resumen de tu perfil corporativo.</p>
                 <ul class="list-unstyled mb-0">
-                    <li>
-                        <strong>Nombre:</strong> {{ current_user.nombre }}
-                    </li>
+                    <li><strong>Nombre:</strong> {{ current_user.nombre }}</li>
                     <li>
                         <strong>Email:</strong> {{ current_user.email }}
                         {% if current_user.email_verificado %}
-                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
                         {% else %}
-                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
-                            Pendiente</span>
-                        <a href="{{ url_for('auth.reenviar_verificacion') }}"
-                            class="btn btn-sm btn-outline-primary ms-2">
-                            Reenviar email
-                        </a>
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">Reenviar</a>
                         {% endif %}
                     </li>
                     <li>
                         <strong>Teléfono:</strong> {{ current_user.telefono }}
                         {% if current_user.telefono_verificado %}
-                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
                         {% else %}
-                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
-                            Pendiente</span>
-                        <a href="{{ url_for('verificacion.verificar_whatsapp') }}"
-                            class="btn btn-sm btn-outline-success ms-2">
-                            Verificar WhatsApp
-                        </a>
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">Verificar</a>
                         {% endif %}
                     </li>
-                    {% if current_user.profile %}
-                    <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
-                    <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
-                    <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
-                    {% endif %}
                 </ul>
-                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal"
-                    data-bs-target="#perfilModal">
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
                     <i class="bi bi-pencil"></i> Editar perfil
                 </button>
             </div>
         </div>
     </div>
 
+    <!-- Herramientas disponibles (plan actual) -->
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                    <i class="bi bi-tools me-2"></i> Herramientas disponibles
                 </h5>
-                <p class="text-muted mb-3">
-                    Subí archivos de audio o video para convertirlos en texto.
-                </p>
-                <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">
-                    Ir a Transcripción
-                </a>
+                <p class="text-muted small">Incluidas en tu plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</p>
+                
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                    </a>
+                    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Fila 2: Análisis de Sentimientos + Asistentes IA -->
+<!-- Fila 2: Features premium (bloqueadas o desbloqueadas) -->
+<div class="row g-4 mt-2">
+    <!-- Historial -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_historial %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-folder2-open me-2 text-success"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Motor semántico -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_motor_semantico %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-diagram-3-fill me-2 text-success"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Actividad completa -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_actividad_completa %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-activity me-2 text-success"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Fila 3: Agentes IA (Oro) -->
 <div class="row g-4 mt-2">
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
-                <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
-                </h5>
-                <p class="text-muted mb-3">
-                    Analizá comentarios de redes sociales y obtené insights con IA.
-                </p>
-                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
-                    Analizar Comentarios
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-shield-fill-check me-2 text-success"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
                 </a>
             </div>
         </div>
+        {% endif %}
     </div>
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm opacity-75">
-            <div class="card-body">
-                <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-robot me-2"></i> Asistentes IA
-                </h5>
-                <p class="text-muted mb-3">
-                    Próximamente: asistentes conversacionales personalizados.
-                </p>
-                <button class="btn btn-outline-secondary" disabled>Próximamente</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Fila 3: Mis archivos + Actividad + Mi plan -->
-<div class="row g-4 mt-2">
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                    <i class="bi bi-eye-fill me-2 text-success"></i> Agente de Monitoreo
                 </h6>
-                <p class="text-muted mb-0">Más adelante vamos a listar tus archivos subidos.</p>
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
             </div>
         </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-activity me-2"></i> Mi actividad
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente de Monitoreo
                 </h6>
-                <p class="text-muted mb-0">Historial de transcripciones y análisis realizados.</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-heart-fill text-danger me-2"></i>Invitame un Cafecito
-                </h6>
-                <p class="text-muted mb-3">¿Te gusta DatosConsultora? ¡Invitame un cafecito!</p>
-                <a href="{{ url_for('cafecito.cafecito') }}" class="btn btn-danger btn-sm">
-                    <i class="bi bi-cup-hot-fill me-1"></i>Donar $5.000
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
                 </a>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 
-<!-- Modal Editar Perfil -->
+<!-- Modal Editar Perfil (sin cambios) -->
 <div class="modal fade" id="perfilModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -156,18 +270,15 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Empresa</label>
-                        <input type="text" name="empresa" class="form-control"
-                            value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                        <input type="text" name="empresa" class="form-control" value="{{ current_user.profile.empresa if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Cargo</label>
-                        <input type="text" name="cargo" class="form-control"
-                            value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                        <input type="text" name="cargo" class="form-control" value="{{ current_user.profile.cargo if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">País</label>
-                        <input type="text" name="pais" class="form-control"
-                            value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                        <input type="text" name="pais" class="form-control" value="{{ current_user.profile.pais if current_user.profile else '' }}">
                     </div>
                 </div>
                 <div class="modal-footer">

@@ -1,0 +1,141 @@
+<!-- templates/planes.html -->
+{% extends "base.html" %}
+{% block title %}Planes - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5">
+    <div class="container py-4">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-petroleo">Elegí tu plan</h1>
+            <p class="lead text-peltre">Potenciá tu transformación digital con IA</p>
+            <p class="text-muted">Todos los planes incluyen acceso a las herramientas básicas</p>
+        </div>
+
+        {% if plan_actual %}
+        <div class="alert alert-info text-center mb-4">
+            <i class="bi bi-award-fill me-2"></i>
+            Tu plan actual: <strong>{{ plan_actual.obtener_plan_obj().display_name }}</strong>
+        </div>
+        {% endif %}
+
+        <div class="row g-4">
+            {% for plan in planes %}
+            <div class="col-md-6 col-lg-3">
+                <div class="card h-100 border-0 shadow-sm position-relative 
+                            {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}border border-3 border-primary{% endif %}">
+                    
+                    {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}
+                    <div class="position-absolute top-0 end-0 m-2">
+                        <span class="badge bg-primary">Tu plan actual</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if plan.nombre == 'oro' %}
+                    <div class="position-absolute top-0 start-0 m-2">
+                        <span class="badge bg-warning text-dark">Más popular</span>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="card-body p-4 text-center">
+                        <i class="bi {{ plan.icono }} fs-1 text-{{ plan.color }} mb-3"></i>
+                        <h3 class="fw-bold text-petroleo">{{ plan.display_name }}</h3>
+                        <p class="text-muted small mb-4">{{ plan.descripcion }}</p>
+                        
+                        {% if plan.es_lifetime %}
+                            <div class="mb-4">
+                                <span class="display-6 fw-bold text-petroleo">
+                                    ${{ "{:,.0f}".format(plan.precio_lifetime).replace(",", ".") }}
+                                </span>
+                                <div class="text-muted small">Pago único</div>
+                            </div>
+                        {% elif plan.precio_mensual == 0 %}
+                            <div class="mb-4">
+                                <span class="display-5 fw-bold text-success">Gratis</span>
+                                <div class="text-muted small">Para siempre</div>
+                            </div>
+                        {% else %}
+                            <div class="mb-4">
+                                <div class="text-muted small">Desde</div>
+                                <span class="display-6 fw-bold text-petroleo">
+                                    ${{ "{:,.0f}".format(plan.precio_mensual).replace(",", ".") }}
+                                </span>
+                                <div class="text-muted small">/mes</div>
+                                <div class="text-success small mt-1">
+                                    O ${{ "{:,.0f}".format(plan.precio_anual).replace(",", ".") }}/año (ahorrás 20%)
+                                </div>
+                            </div>
+                        {% endif %}
+                        
+                        <ul class="list-unstyled text-start mb-4">
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                {{ plan.limite_transcripciones_mes if plan.limite_transcripciones_mes < 999999 else '∞' }} transcripciones/mes
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                {{ plan.limite_analisis_mes if plan.limite_analisis_mes < 999999 else '∞' }} análisis/mes
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_historial %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Historial completo</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Historial completo</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_motor_semantico %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Motor semántico avanzado</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Motor semántico avanzado</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_agentes %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Agentes IA especializados</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Agentes IA especializados</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_actividad_completa %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Actividad completa</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Actividad completa</span>
+                                {% endif %}
+                            </li>
+                        </ul>
+                        
+                        {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}
+                            <button class="btn btn-outline-secondary w-100" disabled>Plan actual</button>
+                        {% elif plan.nombre == 'bronce' and not current_user.is_authenticated %}
+                            <a href="{{ url_for('auth.registro') }}" class="btn btn-primary w-100">Empezar gratis</a>
+                        {% elif plan.nombre == 'bronce' %}
+                            <button class="btn btn-outline-primary w-100" disabled>Plan gratuito</button>
+                        {% else %}
+                            <a href="{{ url_for('planes.elegir_plan', nombre_plan=plan.nombre) }}" class="btn btn-primary w-100">
+                                Elegir {{ plan.display_name }}
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="text-center mt-5">
+            <p class="text-muted">
+                <i class="bi bi-shield-check me-2"></i>
+                Todos los pagos son procesados de forma segura por Mercado Pago
+            </p>
+        </div>
+    </div>
+</section>
+{% endblock %}

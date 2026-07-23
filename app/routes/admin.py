@@ -2,7 +2,8 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app import db
-from app.models import User, ContactSettings, ActivityLog, Role, UserRole
+from app.models import User, ContactSettings, ActivityLog, Role, UserRole, Plan
+from app.services.plan_service import inicializar_planes_por_defecto
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -184,3 +185,48 @@ def admin_logs():
         )
 
     return render_template("admin_logs.html", logs=logs, tipo=tipo)
+
+# ============================================
+# GESTIÓN DE PLANES (agregado al final del archivo)
+# ============================================
+#from app.models import Plan
+#from app.services.plan_service import inicializar_planes_por_defecto
+
+
+@admin_bp.route("/planes")
+def admin_planes():
+    inicializar_planes_por_defecto()
+    planes = Plan.query.order_by(Plan.orden).all()
+    return render_template("admin_planes.html", planes=planes)
+
+
+@admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
+def admin_plan_editar(plan_id):
+    plan = Plan.query.get_or_404(plan_id)
+    
+    plan.display_name = request.form.get("display_name", plan.display_name)
+    plan.descripcion = request.form.get("descripcion", plan.descripcion)
+    plan.precio_mensual = float(request.form.get("precio_mensual", plan.precio_mensual) or 0)
+    plan.precio_anual = float(request.form.get("precio_anual", plan.precio_anual) or 0)
+    plan.precio_lifetime = float(request.form.get("precio_lifetime", plan.precio_lifetime) or 0) if request.form.get("precio_lifetime") else plan.precio_lifetime
+    plan.limite_transcripciones_mes = int(request.form.get("limite_transcripciones_mes", plan.limite_transcripciones_mes) or 0)
+    plan.limite_analisis_mes = int(request.form.get("limite_analisis_mes", plan.limite_analisis_mes) or 0)
+    plan.incluye_historial = request.form.get("incluye_historial") == "on"
+    plan.incluye_motor_semantico = request.form.get("incluye_motor_semantico") == "on"
+    plan.incluye_agentes = request.form.get("incluye_agentes") == "on"
+    plan.incluye_actividad_completa = request.form.get("incluye_actividad_completa") == "on"
+    plan.activo = request.form.get("activo") == "on"
+    
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="plan_update",
+        detalle=f"Plan '{plan.display_name}' actualizado",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
+    return redirect(url_for("admin.admin_planes"))

@@ -1,0 +1,208 @@
+<!-- templates/mi_plan.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'plan' %}
+
+{% block title %}Mi Plan - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-credit-card-2-front me-2"></i>Mi Plan
+        </h1>
+        <p class="text-muted">Gestioná tu suscripción y conocé tus beneficios</p>
+    </div>
+    <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary">
+        <i class="bi bi-arrow-up-circle me-2"></i>Ver todos los planes
+    </a>
+</div>
+
+<!-- Plan actual destacado -->
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #004d5c 0%, #006d82 100%); color: white;">
+    <div class="card-body p-5">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <small class="text-white-50 text-uppercase">Tu plan actual</small>
+                <h2 class="text-white fw-bold mb-2">
+                    <i class="bi {{ plan_obj.icono if plan_obj else 'bi-award' }} me-2"></i>
+                    {{ plan_obj.display_name if plan_obj else 'Bronce' }}
+                </h2>
+                <p class="text-white-50 mb-0">{{ plan_obj.descripcion if plan_obj else '' }}</p>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                {% if plan_obj and plan_obj.precio_mensual == 0 %}
+                    <span class="badge bg-success fs-5 px-3 py-2">Gratis</span>
+                {% elif plan_obj and plan_obj.es_lifetime %}
+                    <span class="badge bg-warning text-dark fs-5 px-3 py-2">De por vida</span>
+                {% else %}
+                    <div class="text-white">
+                        <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan_obj.precio_mensual).replace(",", ".") }}</span>
+                        <div class="small text-white-50">/mes</div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Uso del mes -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="text-petroleo fw-bold mb-0">
+                        <i class="bi bi-mic-fill me-2"></i>Transcripciones
+                    </h5>
+                    <span class="badge bg-primary">{{ consumo_transcripciones }} / {{ plan_obj.limite_transcripciones_mes if plan_obj and plan_obj.limite_transcripciones_mes < 999999 else '∞' }}</span>
+                </div>
+                {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
+                {% set pct_t = (consumo_transcripciones / limite_t * 100) if limite_t > 0 and limite_t < 999999 else 0 %}
+                <div class="progress mb-2" style="height: 10px;">
+                    <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else ('warning' if pct_t > 50 else 'success') }}" 
+                         style="width: {{ pct_t }}%"></div>
+                </div>
+                <small class="text-muted">
+                    {% if limite_t >= 999999 %}
+                        Usos ilimitados en tu plan
+                    {% else %}
+                        Te quedan {{ limite_t - consumo_transcripciones }} este mes
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="text-petroleo fw-bold mb-0">
+                        <i class="bi bi-chat-heart-fill me-2"></i>Análisis de sentimientos
+                    </h5>
+                    <span class="badge bg-primary">{{ consumo_analisis }} / {{ plan_obj.limite_analisis_mes if plan_obj and plan_obj.limite_analisis_mes < 999999 else '∞' }}</span>
+                </div>
+                {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
+                {% set pct_a = (consumo_analisis / limite_a * 100) if limite_a > 0 and limite_a < 999999 else 0 %}
+                <div class="progress mb-2" style="height: 10px;">
+                    <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else ('warning' if pct_a > 50 else 'success') }}" 
+                         style="width: {{ pct_a }}%"></div>
+                </div>
+                <small class="text-muted">
+                    {% if limite_a >= 999999 %}
+                        Usos ilimitados en tu plan
+                    {% else %}
+                        Te quedan {{ limite_a - consumo_analisis }} este mes
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features incluidas -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-check-circle-fill text-success me-2"></i>Features incluidas en tu plan
+        </h5>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_historial %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_historial %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Historial completo</strong>
+                        <div class="small text-muted">Acceso a todos tus archivos subidos</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_motor_semantico %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_motor_semantico %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Motor semántico avanzado</strong>
+                        <div class="small text-muted">Interpretación profunda de comentarios</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_agentes %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_agentes %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Agentes IA especializados</strong>
+                        <div class="small text-muted">Judicial y Monitoreo</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_actividad_completa %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_actividad_completa %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Actividad completa</strong>
+                        <div class="small text-muted">Historial detallado de toda tu actividad</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comparativa con otros planes -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-arrow-up-circle me-2"></i>Mejorá tu plan
+        </h5>
+        <p class="text-muted mb-4">Desbloqueá más herramientas y límites superiores</p>
+        
+        <div class="row g-3">
+            {% for plan in planes %}
+                {% if plan.nombre != (plan_obj.nombre if plan_obj else 'bronce') %}
+                <div class="col-md-4">
+                    <div class="card h-100 border-2 {% if plan.nombre == 'plata' %}border-secondary{% elif plan.nombre == 'oro' %}border-warning{% elif plan.nombre == 'lifetime' %}border-danger{% else %}border-light{% endif %}">
+                        <div class="card-body text-center p-4">
+                            <i class="bi {{ plan.icono }} fs-1 text-{{ plan.color }} mb-2"></i>
+                            <h5 class="fw-bold text-petroleo">{{ plan.display_name }}</h5>
+                            {% if plan.es_lifetime %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan.precio_lifetime).replace(",", ".") }}</span>
+                                    <div class="small text-muted">Pago único</div>
+                                </div>
+                            {% elif plan.precio_mensual == 0 %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold text-success">Gratis</span>
+                                </div>
+                            {% else %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan.precio_mensual).replace(",", ".") }}</span>
+                                    <div class="small text-muted">/mes</div>
+                                </div>
+                            {% endif %}
+                            <a href="{{ url_for('planes.elegir_plan', nombre_plan=plan.nombre) }}" 
+                               class="btn btn-outline-{{ plan.color }} w-100">
+                                Elegir {{ plan.display_name }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

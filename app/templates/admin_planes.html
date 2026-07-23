@@ -1,0 +1,126 @@
+<!-- templates/admin_planes.html -->
+{% extends "base.html" %}
+{% block title %}Gestionar Planes - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-credit-card-2-front"></i> Gestionar Planes
+                </h1>
+                <p class="text-muted mb-0">Editá precios, límites y features de cada plan.</p>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+
+        {% for plan in planes %}
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-{{ plan.color }} text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi {{ plan.icono }} me-2"></i>
+                    {{ plan.display_name }}
+                    {% if plan.es_lifetime %}<span class="badge bg-dark ms-2">Lifetime</span>{% endif %}
+                </h5>
+                <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#plan{{ plan.id }}">
+                    <i class="bi bi-pencil"></i> Editar
+                </button>
+            </div>
+            <div class="collapse {% if loop.first %}show{% endif %}" id="plan{{ plan.id }}">
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('admin.admin_plan_editar', plan_id=plan.id) }}">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Nombre visible</label>
+                                <input type="text" name="display_name" class="form-control" value="{{ plan.display_name }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Descripción</label>
+                                <input type="text" name="descripcion" class="form-control" value="{{ plan.descripcion }}">
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">💰 Precios (ARS)</h6></div>
+                            
+                            <div class="col-md-4">
+                                <label class="form-label">Mensual</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_mensual" class="form-control" value="{{ plan.precio_mensual }}" step="100">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Anual</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_anual" class="form-control" value="{{ plan.precio_anual }}" step="100">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Lifetime</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_lifetime" class="form-control" value="{{ plan.precio_lifetime or 0 }}" step="100">
+                                </div>
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">📊 Límites mensuales</h6></div>
+                            
+                            <div class="col-md-6">
+                                <label class="form-label">Transcripciones por mes</label>
+                                <input type="number" name="limite_transcripciones_mes" class="form-control" value="{{ plan.limite_transcripciones_mes }}">
+                                <small class="text-muted">Usá 999999 para ilimitado</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Análisis por mes</label>
+                                <input type="number" name="limite_analisis_mes" class="form-control" value="{{ plan.limite_analisis_mes }}">
+                                <small class="text-muted">Usá 999999 para ilimitado</small>
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">✨ Features incluidas</h6></div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_historial" id="hist{{ plan.id }}" {% if plan.incluye_historial %}checked{% endif %}>
+                                    <label class="form-check-label" for="hist{{ plan.id }}">Historial completo</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_motor_semantico" id="sem{{ plan.id }}" {% if plan.incluye_motor_semantico %}checked{% endif %}>
+                                    <label class="form-check-label" for="sem{{ plan.id }}">Motor semántico avanzado</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_agentes" id="age{{ plan.id }}" {% if plan.incluye_agentes %}checked{% endif %}>
+                                    <label class="form-check-label" for="age{{ plan.id }}">Agentes IA especializados</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_actividad_completa" id="act{{ plan.id }}" {% if plan.incluye_actividad_completa %}checked{% endif %}>
+                                    <label class="form-check-label" for="act{{ plan.id }}">Actividad completa</label>
+                                </div>
+                            </div>
+                            
+                            <div class="col-12"><hr></div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="activo" id="activo{{ plan.id }}" {% if plan.activo %}checked{% endif %}>
+                                    <label class="form-check-label" for="activo{{ plan.id }}"><strong>Plan activo</strong> (visible en la página de planes)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <button type="submit" class="btn btn-primary px-4">
+                                    <i class="bi bi-check-lg"></i> Guardar cambios
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

@@ -127,20 +127,52 @@ class Assistant(db.Model):
 
 
 class UserPlan(db.Model):
+    """Plan actual de un usuario."""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-    plan = db.Column(db.String(120), default="free")
-    consumo = db.Column(db.Integer, default=0)
-    limite = db.Column(db.Integer, default=100)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'), nullable=True)
+    plan = db.Column(db.String(120), default="bronce")  # Legacy, mantener por compatibilidad
+    consumo_transcripciones = db.Column(db.Integer, default=0)
+    consumo_analisis = db.Column(db.Integer, default=0)
+    limite_transcripciones = db.Column(db.Integer, default=5)
+    limite_analisis = db.Column(db.Integer, default=3)
+    fecha_inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_fin = db.Column(db.DateTime, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
     fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
-    user = db.relationship("User", backref=db.backref("plan", uselist=False))
+    user = db.relationship('User', backref=db.backref('user_plan', uselist=False))
+    plan_obj = db.relationship('Plan')
+    
+    def obtener_plan_obj(self):
+        """Obtiene el objeto Plan del usuario (default: bronce)."""
+        if self.plan_obj:
+            return self.plan_obj
+        return Plan.query.filter_by(nombre='bronce').first()
+    
+    def puede_usar_feature(self, feature):
+        """Verifica si el usuario puede usar una feature."""
+        plan = self.obtener_plan_obj()
+        return plan.tiene_feature(feature) if plan else False
+    
     def tiene_badge_cafecito(self):
         """Verifica si el usuario tiene el badge de cafecito activo."""
         if not self.fecha_expiracion_cafecito:
             return False
-        from datetime import datetime
         return datetime.utcnow() < self.fecha_expiracion_cafecito
-
+    
+    def consumo_transcripciones_mes(self):
+        """Cuenta transcripciones del mes actual."""
+        from app.models import Transcription
+        inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return Transcription.query.filter(
+            Transcription.user_id == self.user_id,
+            Transcription.fecha >= inicio_mes
+        ).count()
+    
+    def consumo_analisis_mes(self):
+        """Cuenta análisis del mes actual (placeholder por ahora)."""
+        return 0  # TODO: implementar cuando tengamos modelo de AnalysisSession
+    
 class Donation(db.Model):
     """Registro de donaciones 'Invitame un cafecito'."""
     id = db.Column(db.Integer, primary_key=True)
@@ -153,3 +185,42 @@ class Donation(db.Model):
     mensaje = db.Column(db.String(500), default='')
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))
+
+class Plan(db.Model):
+    """Planes disponibles (editables desde el admin)."""
+    __tablename__ = 'plan'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), unique=True, nullable=False)  # bronce, plata, oro, lifetime
+    display_name = db.Column(db.String(100), nullable=False)  # "Bronce", "Plata", etc.
+    descripcion = db.Column(db.Text, default='')
+    precio_mensual = db.Column(db.Float, default=0.0)
+    precio_anual = db.Column(db.Float, default=0.0)
+    precio_lifetime = db.Column(db.Float, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
+    activo = db.Column(db.Boolean, default=True)
+    orden = db.Column(db.Integer, default=0)
+    
+    # Features incluidas
+    incluye_historial = db.Column(db.Boolean, default=False)
+    incluye_motor_semantico = db.Column(db.Boolean, default=False)
+    incluye_agentes = db.Column(db.Boolean, default=False)
+    incluye_actividad_completa = db.Column(db.Boolean, default=False)
+    
+    # Límites de uso
+    limite_transcripciones_mes = db.Column(db.Integer, default=5)
+    limite_analisis_mes = db.Column(db.Integer, default=3)
+    
+    # Icono y color para la UI
+    icono = db.Column(db.String(50), default='bi-award')
+    color = db.Column(db.String(20), default='secondary')
+    
+    def tiene_feature(self, feature):
+        """Verifica si el plan incluye una feature."""
+        features_map = {
+            'historial': self.incluye_historial,
+            'motor_semantico': self.incluye_motor_semantico,
+            'agentes': self.incluye_agentes,
+            'actividad_completa': self.incluye_actividad_completa,
+        }
+        return features_map.get(feature, False)

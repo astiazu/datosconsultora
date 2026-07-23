@@ -22,9 +22,18 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-lg-center">
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a></li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('planes.lista_planes') }}">Planes</a>
+                    </li>
                     <li class="nav-item ms-lg-3">
                         <a class="btn btn-primary" href="{{ url_for('public.contacto') }}">Contacto</a>
                     </li>

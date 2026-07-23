@@ -235,12 +235,13 @@ def registro():
 
         # Generar token y enviar email de verificación
         token = generar_token_email(user)
-        email_enviado = enviar_email_verificacion(user, token)
+        email_enviado, error_msg = enviar_email_verificacion(user, token)  # 
         
         if email_enviado:
             flash("Registro exitoso. Revisá tu email para verificar tu cuenta.", "success")
         else:
-            flash("Registro exitoso, pero no pudimos enviar el email de verificación. Contactá al administrador.", "warning")
+            # ← CAMBIO: Mostramos el error real en pantalla para debuggear
+            flash(f"Registro exitoso, pero falló el email. Error: {error_msg}", "error")
 
         # Log de registro
         log = ActivityLog(
@@ -328,6 +329,8 @@ def logout():
     return redirect(url_for("public.index"))
 
 
+# app/routes/auth.py (buscá y reemplazá esta función)
+
 @auth_bp.route("/reenviar-verificacion")
 @login_required
 def reenviar_verificacion():
@@ -336,15 +339,134 @@ def reenviar_verificacion():
         flash("Tu email ya está verificado", "success")
         return redirect(url_for("dashboard.dashboard_user"))
     
+    from app.utils.verificacion import generar_token_email, enviar_email_verificacion
     token = generar_token_email(current_user)
     email_enviado = enviar_email_verificacion(current_user, token)
     
     if email_enviado:
-        flash("Email de verificación reenviado", "success")
+        flash("✅ Email de verificación reenviado. Por favor, revisá tu bandeja de entrada y también la carpeta de Spam/Correo no deseado.", "success")
     else:
-        flash("No pudimos enviar el email. Contactá al administrador.", "error")
+        flash("❌ No pudimos enviar el email. Contactá al administrador.", "error")
     
     return redirect(url_for("dashboard.dashboard_user"))
+
+================================================================================
+ARCHIVO: cafecito.py
+================================================================================
+
+# app/routes/cafecito.py
+from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask_login import login_required, current_user
+from datetime import datetime, timedelta
+from app import db
+from app.models import Donation, UserPlan
+from app.services.mercadopago_service import MercadoPagoService
+
+cafecito_bp = Blueprint("cafecito", __name__)
+
+
+@cafecito_bp.route("/cafecito")
+@login_required
+def cafecito():
+    """Página de donación 'Invitame un cafecito'."""
+    # Verificar si el usuario ya tiene el badge activo
+    plan = UserPlan.query.filter_by(user_id=current_user.id).first()
+    tiene_badge = plan and plan.tiene_badge_cafecito()
+    
+    # Contar donaciones del usuario
+    donaciones_count = Donation.query.filter_by(user_id=current_user.id, estado='approved').count()
+    
+    return render_template(
+        "cafecito.html",
+        tiene_badge=tiene_badge,
+        donaciones_count=donaciones_count
+    )
+
+
+@cafecito_bp.route("/cafecito/donar", methods=["POST"])
+@login_required
+def donar():
+    """Crea preferencia de pago y redirige a Mercado Pago."""
+    mensaje = request.form.get("mensaje", "").strip()
+    monto = 5000.0  # Monto fijo de $5.000 ARS
+    
+    try:
+        mp_service = MercadoPagoService()
+        preference = mp_service.crear_preferencia_pago(current_user, monto, mensaje)
+        
+        # Guardar donación pendiente en BD
+        donation = Donation(
+            user_id=current_user.id,
+            monto=monto,
+            moneda='ARS',
+            mp_preference_id=preference["preference_id"],
+            estado='pending',
+            mensaje=mensaje
+        )
+        db.session.add(donation)
+        db.session.commit()
+        
+        # Redirigir a Mercado Pago
+        return redirect(preference["init_point"])
+        
+    except Exception as e:
+        flash(f"Error al crear la preferencia de pago: {str(e)}", "error")
+        return redirect(url_for("cafecito.cafecito"))
+
+
+@cafecito_bp.route("/cafecito/exito")
+@login_required
+def exito():
+    """Página de éxito después de pagar."""
+    payment_id = request.args.get("payment_id")
+    
+    if payment_id:
+        # Verificar el pago
+        try:
+            mp_service = MercadoPagoService()
+            pago_info = mp_service.verificar_pago(payment_id)
+            
+            if pago_info["status"] == "approved":
+                # Actualizar donación
+                donation = Donation.query.filter_by(mp_payment_id=payment_id).first()
+                if donation:
+                    donation.estado = 'approved'
+                    donation.mp_payment_id = payment_id
+                    db.session.commit()
+                
+                # Activar badge de cafecito 
+                plan = UserPlan.query.filter_by(user_id=current_user.id).first()
+                if not plan:
+                    plan = UserPlan(user_id=current_user.id)
+                    db.session.add(plan)
+                
+                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                db.session.commit()
+                
+                flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
+            else:
+                flash("El pago está pendiente de confirmación.", "warning")
+                
+        except Exception as e:
+            flash(f"Error verificando el pago: {str(e)}", "error")
+    
+    return redirect(url_for("cafecito.cafecito"))
+
+
+@cafecito_bp.route("/cafecito/fallo")
+@login_required
+def fallo():
+    """Página de fallo después de intentar pagar."""
+    flash("El pago no se pudo completar. Podés intentar de nuevo.", "error")
+    return redirect(url_for("cafecito.cafecito"))
+
+
+@cafecito_bp.route("/cafecito/pendiente")
+@login_required
+def pendiente():
+    """Página de pago pendiente."""
+    flash("Tu pago está siendo procesado. Te avisaremos cuando se confirme.", "info")
+    return redirect(url_for("cafecito.cafecito"))
 
 ================================================================================
 ARCHIVO: dashboard.py
@@ -452,16 +574,21 @@ def contacto():
 ARCHIVO: servicios.py
 ================================================================================
 
-# app/routes/servicios.py
 import os
+import json
 from flask import Blueprint, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
+
 from app import db
 from app.models import UserFile, Transcription
+from app.services.analysis import GroqLLMClient
+from app.services.analysis.text_cleaner import limpiar_comentarios
+from app.services.transcription.groq_backend import GroqBackend
 
+# ✅ CORREGIDO: __name__ y sin espacios en las extensiones (solo audio por ahora)
 servicios_bp = Blueprint("servicios", __name__)
-ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm"}
+ALLOWED_EXT = {"mp3", "wav", "m4a"}
 
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
@@ -469,7 +596,7 @@ ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm"}
 def servicio_transcripcion():
     transcript = None
     filename = None
-
+    
     if request.method == "POST":
         f = request.files.get("media")
         if f and f.filename:
@@ -478,33 +605,115 @@ def servicio_transcripcion():
                 filename = secure_filename(f.filename)
                 path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
                 f.save(path)
-
-                # Guardar archivo en BD
+                
                 user_file = UserFile(
                     user_id=current_user.id,
                     filename=filename,
                     filepath=path,
-                    tipo="audio" if ext in ["mp3", "wav", "m4a"] else "video",
+                    tipo="audio",
                 )
                 db.session.add(user_file)
                 db.session.commit()
-
-                # TODO: Integrar Whisper aquí
-                transcript = f"[DEMO] Archivo '{filename}' recibido. Conectá Whisper para transcribir."
-
-                transcription = Transcription(
-                    user_id=current_user.id,
-                    file_id=user_file.id,
-                    texto=transcript,
-                )
-                db.session.add(transcription)
-                db.session.commit()
+                
+                try:
+                    # ✅ LLAMADA REAL A GROQ WHISPER
+                    backend = GroqBackend()
+                    transcript = backend.transcribe(path, language="es")
+                    
+                    transcription = Transcription(
+                        user_id=current_user.id,
+                        file_id=user_file.id,
+                        texto=transcript,
+                    )
+                    db.session.add(transcription)
+                    db.session.commit()
+                    
+                    flash("✅ Transcripción completada con éxito.", "success")
+                except ValueError as e:
+                    flash(f"❌ Error de configuración: {str(e)}", "error")
+                    current_app.logger.error(f"Error de configuración Groq: {e}")
+                except Exception as e:
+                    flash(f"❌ Error transcribiendo el archivo: {str(e)}", "error")
+                    current_app.logger.error(f"Error en transcripción: {e}")
             else:
-                flash("Formato no permitido", "error")
+                flash("❌ Formato no permitido. Usá MP3, WAV o M4A.", "error")
         else:
-            flash("No seleccionaste ningún archivo", "error")
-
+            flash("❌ No seleccionaste ningún archivo", "error")
+            
     return render_template("servicio_transcripcion.html", transcript=transcript, filename=filename)
+
+
+@servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
+@login_required
+def analisis_sentimientos():
+    resultado = None
+    comentarios_raw = ""
+    comentarios_limpios = []
+    red_social = "desconocido"
+    error_msg = None
+    paso = "input"  # input | preview | resultado
+    
+    if request.method == "POST":
+        action = request.form.get("action", "analizar")
+        comentarios_raw = request.form.get("comentarios", "").strip()
+        contexto = request.form.get("contexto", "").strip()
+        
+        if action == "limpiar":
+            try:
+                comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                if not comentarios_limpios:
+                    flash("⚠️ No se encontraron comentarios válidos. Verificá el texto copiado.", "warning")
+                    paso = "input"
+                else:
+                    flash(f"✅ Se detectaron {len(comentarios_limpios)} comentarios ({red_social})", "success")
+                    paso = "preview"
+            except Exception as e:
+                flash(f"❌ Error limpiando comentarios: {str(e)}", "error")
+                paso = "input"
+                
+        elif action == "analizar":
+            try:
+                if request.form.get("comentarios_limpios_json"):
+                    comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
+                else:
+                    comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                    
+                if not comentarios_limpios:
+                    flash("⚠️ No hay comentarios válidos para analizar", "warning")
+                    paso = "input"
+                elif len(comentarios_limpios) > 100:
+                    flash(f"⚠️ Máximo 100 comentarios. Tenés {len(comentarios_limpios)}.", "warning")
+                    paso = "input"
+                else:
+                    comentarios_texto = [
+                        f"[{c['usuario']}]: {c['texto']}" 
+                        for c in comentarios_limpios
+                    ]
+                    client = GroqLLMClient()
+                    resultado = client.analizar_sentimientos(comentarios_texto, contexto)
+                    
+                    if contexto:
+                        resultado["contexto"] = contexto
+                        resultado["red_social"] = red_social
+                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                    
+                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                        paso = "resultado"
+            except Exception as e:
+                error_msg = str(e)
+                flash(f"❌ Error en el análisis: {error_msg}", "error")
+                current_app.logger.error(f"Error en análisis: {error_msg}")
+                paso = "input"
+                
+    return render_template(
+        "analisis_sentimientos.html",
+        resultado=resultado,
+        comentarios_raw=comentarios_raw,
+        comentarios_limpios=comentarios_limpios,
+        red_social=red_social,
+        paso=paso,
+        error_msg=error_msg
+    )
 
 ================================================================================
 ARCHIVO: verificacion.py
@@ -599,4 +808,82 @@ def reenviar_codigo_whatsapp():
     codigo = generar_codigo_whatsapp(current_user)
     flash(f"Nuevo código generado: {codigo}", "success")
     return redirect(url_for("verificacion.verificar_whatsapp"))
+
+================================================================================
+ARCHIVO: webhook.py
+================================================================================
+
+# app/routes/webhook.py
+from flask import Blueprint, request, jsonify
+from datetime import datetime, timedelta
+from app import db
+from app.models import Donation, User, UserPlan
+from app.services.mercadopago_service import MercadoPagoService
+
+webhook_bp = Blueprint("webhook", __name__)
+
+
+@webhook_bp.route("/webhook/mercadopago", methods=["POST"])
+def mercadopago_webhook():
+    """
+    Webhook para recibir notificaciones de Mercado Pago.
+    MP envía POST a esta URL cuando hay un cambio en el estado del pago.
+    """
+    try:
+        # Mercado Pago envía diferentes tipos de notificaciones
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"status": "ok"}), 200
+        
+        # Filtrar solo notificaciones de pagos
+        if data.get("type") == "payment":
+            payment_id = data.get("data", {}).get("id")
+            
+            if payment_id:
+                # Verificar el pago
+                mp_service = MercadoPagoService()
+                pago_info = mp_service.verificar_pago(payment_id)
+                
+                if pago_info["status"] == "approved":
+                    # Buscar la donación por external_reference
+                    external_ref = pago_info.get("external_reference", "")
+                    
+                    # Extraer user_id del external_reference (formato: "user-{id}-{timestamp}")
+                    if external_ref.startswith("user-"):
+                        parts = external_ref.split("-")
+                        if len(parts) >= 2:
+                            user_id = int(parts[1])
+                            
+                            # Actualizar donación
+                            donation = Donation.query.filter_by(
+                                mp_preference_id=payment_id,
+                                user_id=user_id
+                            ).first()
+                            
+                            if donation:
+                                donation.estado = 'approved'
+                                donation.mp_payment_id = payment_id
+                                db.session.commit()
+                                
+                                # Activar badge de cafecito 
+                                plan = UserPlan.query.filter_by(user_id=user_id).first()
+                                if not plan:
+                                    plan = UserPlan(user_id=user_id)
+                                    db.session.add(plan)
+                                
+                                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                                db.session.commit()
+                                
+                                print(f"✅ Donación confirmada para user_id={user_id}")
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        print(f"❌ Error en webhook: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
+
 

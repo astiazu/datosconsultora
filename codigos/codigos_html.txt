@@ -478,6 +478,386 @@ ARCHIVO: admin_usuarios.html
 
 
 ================================================================================
+ARCHIVO: analisis_sentimientos.html
+================================================================================
+
+<!-- templates/analisis_sentimientos.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'analisis' %}
+
+{% block title %}Análisis de Sentimientos - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+        </h1>
+        <p class="text-muted">Analizá comentarios de X, Facebook o Instagram con IA</p>
+    </div>
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
+</div>
+
+{% if paso == 'input' or paso == 'preview' %}
+<!-- PASO 1: Entrada de comentarios -->
+<div class="card p-4 mb-4 border-0 shadow-sm">
+    <form method="POST" id="analisisForm">
+        <div class="mb-3">
+            <label class="form-label fw-bold">
+                <i class="bi bi-chat-left-text me-2"></i>Pegá los comentarios
+            </label>
+            <textarea name="comentarios" class="form-control" rows="10" required
+                      placeholder="Copiá los comentarios directamente de X, Facebook o Instagram.&#10;&#10;Ejemplo:&#10;Usuario X&#10;Payaso te manda, sos un títere del gobierno&#10;1 día&#10;Responder&#10;&#10;Usuario Y&#10;Las internas partidarias no deben verse como una amenaza...&#10;2 h&#10;Responder">{{ comentarios_raw }}</textarea>
+            <small class="text-muted">
+                <i class="bi bi-info-circle"></i> 
+                Copiá los comentarios tal cual aparecen en la red social. 
+                El sistema detecta automáticamente la plataforma y limpia la metadata.
+            </small>
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label fw-bold">
+                <i class="bi bi-tag me-2"></i>Contexto (opcional)
+            </label>
+            <input type="text" name="contexto" class="form-control" 
+                   placeholder="Ej: Comentarios de Instagram sobre el debate en Córdoba">
+            <small class="text-muted">Ayuda a la IA a entender mejor el contexto del análisis.</small>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <button type="submit" name="action" value="limpiar" class="btn btn-outline-primary btn-lg px-4">
+                <i class="bi bi-funnel me-2"></i>Limpiar y previsualizar
+            </button>
+            <button type="submit" name="action" value="analizar" class="btn btn-primary btn-lg px-4">
+                <i class="bi bi-graph-up me-2"></i>Analizar directamente
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Info de redes soportadas -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-twitter-x fs-1 text-petroleo"></i>
+                <h6 class="fw-bold mt-2">X (Twitter)</h6>
+                <small class="text-muted">Copiá los replies de un tweet</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-facebook fs-1 text-primary"></i>
+                <h6 class="fw-bold mt-2">Facebook</h6>
+                <small class="text-muted">Copiá los comentarios de una publicación</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-instagram fs-1 text-danger"></i>
+                <h6 class="fw-bold mt-2">Instagram</h6>
+                <small class="text-muted">Copiá los comentarios de un post</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if paso == 'preview' and comentarios_limpios %}
+<!-- PASO 2: Vista previa de comentarios limpios -->
+<div class="card p-4 mb-4 border-0 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="text-petroleo fw-bold mb-0">
+            <i class="bi bi-check-circle-fill text-success me-2"></i>
+            Comentarios limpios ({{ comentarios_limpios|length }})
+        </h5>
+        <span class="badge bg-info fs-6">Red detectada: {{ red_social|upper }}</span>
+    </div>
+    
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>
+        Revisá los comentarios limpios. Si están bien, hacé click en <strong>"Analizar"</strong>.
+    </div>
+    
+    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+        <table class="table table-hover align-middle">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <th style="width: 50px;">#</th>
+                    <th style="width: 200px;">Usuario</th>
+                    <th>Comentario</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in comentarios_limpios %}
+                <tr>
+                    <td><strong>{{ loop.index }}</strong></td>
+                    <td><span class="text-petroleo fw-bold">{{ c.usuario }}</span></td>
+                    <td>{{ c.texto }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <form method="POST" class="mt-3">
+        <input type="hidden" name="comentarios" value="{{ comentarios_raw }}">
+        <input type="hidden" name="contexto" value="{{ request.form.get('contexto', '') }}">
+        <input type="hidden" name="comentarios_limpios_json" value='{{ comentarios_limpios | tojson | e }}'>
+        <div class="d-flex gap-2 justify-content-end">
+            <button type="submit" name="action" value="limpiar" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-repeat me-2"></i>Re-limpiar
+            </button>
+            <button type="submit" name="action" value="analizar" class="btn btn-primary btn-lg px-5">
+                <i class="bi bi-graph-up me-2"></i>Analizar {{ comentarios_limpios|length }} comentarios
+            </button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% if paso == 'resultado' and resultado %}
+<!-- PASO 3: Resultados del análisis -->
+<div class="row g-4">
+    
+    <!-- Estadísticas -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-pie-chart-fill me-2"></i>Estadísticas
+                </h5>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-success fw-bold">
+                            <i class="bi bi-emoji-smile-fill"></i> Positivos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ resultado.estadisticas.porcentaje_positivo }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-secondary fw-bold">
+                            <i class="bi bi-emoji-neutral-fill"></i> Neutrales
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-secondary" style="width: {{ resultado.estadisticas.porcentaje_neutral }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-danger fw-bold">
+                            <i class="bi bi-emoji-frown-fill"></i> Negativos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-danger" style="width: {{ resultado.estadisticas.porcentaje_negativo }}%"></div>
+                    </div>
+                </div>
+                
+                <hr>
+                <p class="text-muted mb-0">
+                    <strong>Total analizado:</strong> {{ resultado.estadisticas.total }} comentarios<br>
+                    <small>Red social: {{ resultado.red_social|upper }}</small>
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Resumen general -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-journal-text me-2"></i>Resumen General
+                </h5>
+                <p class="fs-5">{{ resultado.resumen_general }}</p>
+                
+                {% if resultado.tono_general %}
+                <div class="mt-3 p-3 bg-light rounded">
+                    <strong class="text-petroleo">Tono general:</strong>
+                    <span class="text-muted">{{ resultado.tono_general }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Temas y palabras clave -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-tags-fill me-2"></i>Temas Principales
+                </h5>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for tema in resultado.temas_principales %}
+                    <span class="badge bg-info text-dark fs-6">{{ tema }}</span>
+                    {% endfor %}
+                </div>
+                
+                {% if resultado.palabras_clave %}
+                <h6 class="text-petroleo fw-bold mt-4 mb-2">
+                    <i class="bi bi-key-fill me-2"></i>Palabras Clave
+                </h6>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for palabra in resultado.palabras_clave %}
+                    <span class="badge bg-light text-dark border">{{ palabra }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Insights y recomendaciones -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-lightbulb-fill me-2"></i>Insights
+                </h5>
+                <ul class="list-unstyled mb-4">
+                    {% for insight in resultado.insights %}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>{{ insight }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                
+                {% if resultado.recomendaciones %}
+                <h6 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-rocket-takeoff-fill me-2"></i>Recomendaciones
+                </h6>
+                <ul class="list-unstyled mb-0">
+                    {% for rec in resultado.recomendaciones %}
+                    <li class="mb-2">
+                        <i class="bi bi-arrow-right-circle-fill text-primary me-2"></i>{{ rec }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Análisis individual -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-list-check me-2"></i>Análisis Detallado
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th>Sentimiento</th>
+                                <th>Resumen</th>
+                                <th style="width: 120px;">Confianza</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in resultado.analisis_individual %}
+                            <tr>
+                                <td><strong>{{ item.numero }}</strong></td>
+                                <td>
+                                    {% if item.sentimiento == 'positivo' %}
+                                        <span class="badge bg-success">
+                                            <i class="bi bi-emoji-smile-fill"></i> Positivo
+                                        </span>
+                                    {% elif item.sentimiento == 'negativo' %}
+                                        <span class="badge bg-danger">
+                                            <i class="bi bi-emoji-frown-fill"></i> Negativo
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">
+                                            <i class="bi bi-emoji-neutral-fill"></i> Neutral
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.resumen_corto }}</td>
+                                <td>
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar 
+                                            {% if item.sentimiento == 'positivo' %}bg-success
+                                            {% elif item.sentimiento == 'negativo' %}bg-danger
+                                            {% else %}bg-secondary{% endif %}"
+                                            style="width: {{ (item.confianza * 100)|int }}%"></div>
+                                    </div>
+                                    <small class="text-muted">{{ (item.confianza * 100)|int }}%</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Botones de acción -->
+    <div class="col-12">
+        <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-outline-primary" onclick="exportarResultado()">
+                <i class="bi bi-download me-2"></i>Exportar JSON
+            </button>
+            <button class="btn btn-outline-secondary" onclick="window.print()">
+                <i class="bi bi-printer me-2"></i>Imprimir
+            </button>
+            <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                <i class="bi bi-arrow-repeat me-2"></i>Nuevo Análisis
+            </a>
+        </div>
+    </div>
+</div>
+
+<script id="resultado-data" type="application/json">
+{{ resultado | tojson | safe }}
+</script>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Loading al enviar
+document.getElementById('analisisForm').addEventListener('submit', function() {
+    const btns = this.querySelectorAll('button[type="submit"]');
+    btns.forEach(btn => btn.disabled = true);
+});
+
+function exportarResultado() {
+    const data = document.getElementById('resultado-data').textContent;
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analisis_sentimientos.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}
+
+================================================================================
 ARCHIVO: base.html
 ================================================================================
 
@@ -587,6 +967,135 @@ ARCHIVO: base.html
 
 
 ================================================================================
+ARCHIVO: cafecito.html
+================================================================================
+
+<!-- templates/cafecito.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'cafecito' %}
+
+{% block title %}Invitame un Cafecito - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        
+        <!-- Header con badge si tiene -->
+        <div class="text-center mb-4">
+            {% if tiene_badge %}
+            <div class="mb-3">
+                <span class="badge bg-danger fs-5 px-4 py-2">
+                    <i class="bi bi-heart-fill me-2"></i>¡Gracias por tu cafecito!
+                </span>
+            </div>
+            {% endif %}
+            
+            <div style="font-size: 5rem;">☕</div>
+            <h1 class="text-petroleo fw-bold mt-3">Invitame un Cafecito</h1>
+            <p class="lead text-muted">
+                ¿Te gusta DatosConsultora? ¡Podés invitarme un cafecito!
+            </p>
+        </div>
+        
+        <!-- Flash messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else ('info' if category == 'info' else 'success')) }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+        
+        <!-- Card de donación -->
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-5">
+                
+                <div class="text-center mb-4">
+                    <h3 class="text-petroleo fw-bold">$5.000 ARS</h3>
+                    <p class="text-muted mb-0">El valor de un cafecito para seguir construyendo</p>
+                </div>
+                
+                <form method="POST" action="{{ url_for('cafecito.donar') }}">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-chat-left-heart me-2"></i>Dejanos un mensaje (opcional)
+                        </label>
+                        <textarea name="mensaje" class="form-control" rows="3" 
+                                  placeholder="¡Gracias por esta herramienta! Me ayuda mucho en mi trabajo..."></textarea>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-danger btn-lg py-3">
+                            <i class="bi bi-heart-fill me-2"></i>Invitame un Cafecito por $5.000
+                        </button>
+                    </div>
+                    
+                    <div class="text-center mt-3">
+                        <small class="text-muted">
+                            <i class="bi bi-shield-lock-fill me-1"></i>
+                            Pago seguro con Mercado Pago
+                        </small>
+                    </div>
+                </form>
+                
+            </div>
+        </div>
+        
+        <!-- Info adicional -->
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body p-4">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-info-circle me-2"></i>¿Qué pasa después de donar?
+                </h5>
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Serás redirigido a Mercado Pago</strong> para completar el pago de forma segura
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Recibirás un badge especial</strong> en tu perfil
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Tu mensaje aparecerá</strong> en nuestra sección de agradecimientos
+                    </li>
+                    <li>
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <strong>Ayudarás a seguir construyendo</strong> herramientas para todos
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Estadísticas del usuario -->
+        {% if donaciones_count > 0 %}
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body p-4 text-center">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-trophy-fill text-warning me-2"></i>Tu impacto
+                </h5>
+                <p class="display-6 fw-bold text-petroleo mb-0">{{ donaciones_count }}</p>
+                <p class="text-muted">cafecito{{ 's' if donaciones_count != 1 else '' }} donado{{ 's' if donaciones_count != 1 else '' }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Volver al dashboard -->
+        <div class="text-center mt-4">
+            <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left me-2"></i>Volver al Dashboard
+            </a>
+        </div>
+        
+    </div>
+</div>
+{% endblock %}
+
+================================================================================
 ARCHIVO: contacto.html
 ================================================================================
 
@@ -647,115 +1156,12 @@ ARCHIVO: contacto.html
 {% endblock %}
 
 ================================================================================
-ARCHIVO: dashboard.html
-================================================================================
-
-{% extends "base.html" %}
-
-{% block title %}Panel - DatosConsultora{% endblock %}
-
-{% block extra_css %}
-<style>
-    .card-servicio {
-        transition: all 0.3s;
-        border: 1px solid #e5e7eb;
-    }
-    .card-servicio:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 20px rgba(0,77,92,0.15);
-        border-color: var(--azul-petroleo);
-    }
-</style>
-{% endblock %}
-
-{% block content %}
-<nav class="navbar navbar-expand-lg navbar-dark" style="background-color: var(--azul-petroleo);">
-    <div class="container">
-        <a class="navbar-brand fw-bold" href="{{ url_for('dashboard.dashboard') }}">
-            <i class="bi bi-soundwave"></i> DatosConsultora
-        </a>
-        <div class="ms-auto d-flex align-items-center">
-            <span class="text-white me-3">Hola, {{ current_user.nombre }}</span>
-            <a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.logout') }}">
-                <i class="bi bi-box-arrow-right"></i> Salir
-            </a>
-        </div>
-    </div>
-</nav>
-
-<div class="container py-5">
-    <h1 class="text-petroleo fw-bold mb-2">Bienvenido, {{ current_user.nombre }}</h1>
-    <p class="text-muted mb-5">Seleccioná una herramienta para empezar</p>
-
-    <div class="row g-4">
-        <!-- Transcripción IA -->
-        <div class="col-md-6 col-lg-4">
-            <div class="card card-servicio h-100">
-                <div class="card-body p-4">
-                    <i class="bi bi-mic-fill text-petroleo mb-3" style="font-size: 3rem;"></i>
-                    <h4 class="fw-bold">Transcripción IA</h4>
-                    <p class="text-muted">Convertí audio y video a texto con IA. Preciso y rápido.</p>
-                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary w-100">
-                        Usar Herramienta
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Asistentes IA -->
-        <div class="col-md-6 col-lg-4">
-            <div class="card card-servicio h-100 opacity-50">
-                <div class="card-body p-4">
-                    <i class="bi bi-robot text-petroleo mb-3" style="font-size: 3rem;"></i>
-                    <h4 class="fw-bold">Asistentes IA</h4>
-                    <p class="text-muted">Chatbots personalizados para tu negocio.</p>
-                    <button class="btn btn-outline-secondary w-100" disabled>
-                        Próximamente
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Automatizaciones -->
-        <div class="col-md-6 col-lg-4">
-            <div class="card card-servicio h-100 opacity-50">
-                <div class="card-body p-4">
-                    <i class="bi bi-diagram-3 text-petroleo mb-3" style="font-size: 3rem;"></i>
-                    <h4 class="fw-bold">Automatizaciones</h4>
-                    <p class="text-muted">Conectá tus apps con n8n y Zapier.</p>
-                    <button class="btn btn-outline-secondary w-100" disabled>
-                        Próximamente
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        {% if current_user.is_admin %}
-        <!-- Panel Admin -->
-        <div class="col-md-6 col-lg-4">
-            <div class="card card-servicio h-100">
-                <div class="card-body p-4">
-                    <i class="bi bi-gear-fill text-petroleo mb-3" style="font-size: 3rem;"></i>
-                    <h4 class="fw-bold">Panel Administrador</h4>
-                    <p class="text-muted">Gestioná contactos, configuración y datos del sistema.</p>
-                    <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-primary w-100">
-                        Abrir Panel Admin
-                    </a>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-    </div>
-</div>
-{% endblock %}
-
-
-================================================================================
 ARCHIVO: dashboard_layout.html
 ================================================================================
 
 <!DOCTYPE html>
 <html lang="es" data-theme="light">
+
 <head>
     <meta charset="UTF-8">
     <title>{% block title %}Dashboard - DatosConsultora{% endblock %}</title>
@@ -774,43 +1180,52 @@ ARCHIVO: dashboard_layout.html
             --dc-sidebar-dark: #020617;
             --dc-accent: #38bdf8;
         }
+
         [data-theme="light"] body {
             background-color: var(--dc-bg-light);
             color: #111827;
         }
+
         [data-theme="dark"] body {
             background-color: var(--dc-bg-dark);
             color: #e5e7eb;
         }
+
         .dc-sidebar {
             width: 260px;
             min-height: 100vh;
             background: linear-gradient(180deg, var(--dc-sidebar-dark), var(--dc-petroleo-dark));
             color: #e5e7eb;
         }
+
         .dc-sidebar .nav-link {
             color: #9ca3af;
             border-radius: .5rem;
         }
+
         .dc-sidebar .nav-link.active,
         .dc-sidebar .nav-link:hover {
             color: #e5e7eb;
-            background-color: rgba(56,189,248,0.15);
+            background-color: rgba(56, 189, 248, 0.15);
         }
+
         .dc-logo {
             font-weight: 700;
             letter-spacing: .04em;
         }
+
         .dc-main {
             flex: 1;
             min-height: 100vh;
-            background: radial-gradient(circle at top left, rgba(56,189,248,0.08), transparent),
-                        radial-gradient(circle at bottom right, rgba(0,77,92,0.15), transparent);
+            background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent),
+                radial-gradient(circle at bottom right, rgba(0, 77, 92, 0.15), transparent);
         }
+
         .dc-topbar {
-            border-bottom: 1px solid rgba(148,163,184,0.3);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.3);
             backdrop-filter: blur(10px);
         }
+
         .dc-avatar {
             width: 40px;
             height: 40px;
@@ -818,131 +1233,142 @@ ARCHIVO: dashboard_layout.html
             object-fit: cover;
             border: 2px solid var(--dc-accent);
         }
+
         .dc-mode-toggle {
             cursor: pointer;
         }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
+
 <body>
-<div class="d-flex">
-    <!-- Sidebar -->
-    <aside class="dc-sidebar d-flex flex-column p-3">
-        <div class="d-flex align-items-center mb-4">
-            <i class="bi bi-soundwave fs-3 me-2 text-info"></i>
-            <span class="dc-logo">DatosConsultora</span>
-        </div>
-        <nav class="nav flex-column gap-1 mb-4">
-            <a class="nav-link {% if active_section == 'home' %}active{% endif %}"
-               href="{{ url_for('dashboard.dashboard_user') }}">
-                <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
-            </a>
-            <a class="nav-link {% if active_section == 'datos' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-person-badge-fill me-2"></i> Mis datos
-            </a>
-            <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-folder2-open me-2"></i> Mis archivos
-            </a>
-            <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-mic-fill me-2"></i> Transcripciones
-            </a>
-            <a class="nav-link {% if active_section == 'asistentes' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-robot me-2"></i> Asistentes IA
-            </a>
-            <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-activity me-2"></i> Actividad
-            </a>
-            <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
-               href="#">
-                <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
-            </a>
-        </nav>
-        <div class="mt-auto">
-            <div class="d-flex align-items-center justify-content-between mb-3">
-                <span class="small text-gray-400">Modo</span>
-                <span class="dc-mode-toggle text-info" id="modeToggle">
-                    <i class="bi bi-moon-stars-fill"></i>
-                </span>
+    <div class="d-flex">
+        <!-- Sidebar -->
+        <aside class="dc-sidebar d-flex flex-column p-3">
+            <div class="d-flex align-items-center mb-4">
+                <i class="bi bi-soundwave fs-3 me-2 text-info"></i>
+                <span class="dc-logo">DatosConsultora</span>
             </div>
-            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light w-100 btn-sm">
-                <i class="bi bi-box-arrow-right"></i> Cerrar sesión
-            </a>
-        </div>
-    </aside>
-
-    <!-- Main -->
-    <main class="dc-main">
-        <header class="dc-topbar px-4 py-3 d-flex justify-content-between align-items-center">
-            <div>
-                <h5 class="mb-0 text-petroleo">Hola, {{ current_user.nombre }}</h5>
-                <small class="text-muted">Bienvenido a tu espacio de trabajo en DatosConsultora.</small>
-            </div>
-            <div class="d-flex align-items-center gap-3">
-                <div class="text-end">
-                    <div class="small">{{ current_user.email }}</div>
-                    <div class="small text-muted">Cuenta corporativa</div>
+            <nav class="nav flex-column gap-1 mb-4">
+                <a class="nav-link {% if active_section == 'home' %}active{% endif %}"
+                    href="{{ url_for('dashboard.dashboard_user') }}">
+                    <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
+                </a>
+                <a class="nav-link {% if active_section == 'datos' %}active{% endif %}" href="#">
+                    <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+                </a>
+                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="#">
+                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                </a>
+                <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}" href="#">
+                    <i class="bi bi-mic-fill me-2"></i> Transcripciones
+                </a>
+                <a class="nav-link {% if active_section == 'analisis' %}active{% endif %}"
+                    href="{{ url_for('servicios.analisis_sentimientos') }}">
+                    <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+                </a>
+                <a class="nav-link {% if active_section == 'asistentes' %}active{% endif %}" href="#">
+                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                </a>
+                <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
+                    <i class="bi bi-activity me-2"></i> Actividad
+                </a>
+                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}" href="#">
+                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                </a>
+                <a class="nav-link {% if active_section == 'cafecito' %}active{% endif %}"
+                    href="{{ url_for('cafecito.cafecito') }}">
+                    <i class="bi bi-heart-fill me-2 text-danger"></i> Cafecito
+                </a>
+            </nav>
+            <div class="mt-auto">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <span class="small text-gray-400">Modo</span>
+                    <span class="dc-mode-toggle text-info" id="modeToggle">
+                        <i class="bi bi-moon-stars-fill"></i>
+                    </span>
                 </div>
-                <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
-                    <i class="bi bi-camera-fill"></i>
-                </button>
-                <img src="{{ current_user.profile.avatar if current_user.profile and current_user.profile.avatar else url_for('static', filename='img/default-avatar.png') }}"
-                     alt="Avatar" class="dc-avatar">
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light w-100 btn-sm">
+                    <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+                </a>
             </div>
-        </header>
+        </aside>
 
-        <section class="p-4">
-            {% block content %}{% endblock %}
-        </section>
-    </main>
-</div>
-
-<!-- Modal Avatar (recorte placeholder) -->
-<div class="modal fade" id="avatarModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <form method="post" action="{{ url_for('dashboard.dashboard_user') }}" enctype="multipart/form-data">
-                <div class="modal-header">
-                    <h5 class="modal-title">Actualizar avatar</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <!-- Main -->
+        <main class="dc-main">
+            <header class="dc-topbar px-4 py-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0 text-petroleo">Hola, {{ current_user.nombre }}</h5>
+                    <small class="text-muted">Bienvenido a tu espacio de trabajo en DatosConsultora.</small>
                 </div>
-                <div class="modal-body">
-                    <p class="text-muted">
-                        Subí una imagen cuadrada. Más adelante vamos a integrar recorte real (tipo SaaS).
-                    </p>
-                    <div class="mb-3">
-                        <label class="form-label">Imagen</label>
-                        <input type="file" name="avatar" accept="image/*" class="form-control">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-end">
+                        <div class="small">{{ current_user.email }}</div>
+                        <div class="small text-muted">Cuenta corporativa</div>
                     </div>
+                    <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
+                        <i class="bi bi-camera-fill"></i>
+                    </button>
+                    {% if current_user.profile and current_user.profile.avatar %}
+                    <img src="{{ current_user.profile.avatar }}" alt="Avatar de {{ current_user.nombre }}"
+                        class="rounded-circle border" width="40" height="40" style="object-fit: cover;">
+                    {% else %}
+                    <!-- Ícono de Bootstrap como fallback (nunca da 404) -->
+                    <div class="rounded-circle bg-light d-flex align-items-center justify-content-center border"
+                        style="width: 40px; height: 40px;">
+                        <i class="bi bi-person-fill text-secondary" style="font-size: 1.5rem;"></i>
+                    </div>
+                    {% endif %}
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Guardar avatar</button>
-                </div>
-            </form>
+            </header>
+
+            <section class="p-4">
+                {% block content %}{% endblock %}
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal Avatar (recorte placeholder) -->
+    <div class="modal fade" id="avatarModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="POST" action="{{ url_for('dashboard.actualizar_avatar') }}" enctype="multipart/form-data">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Actualizar avatar</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted">
+                            Subí una imagen cuadrada. Más adelante vamos a integrar recorte real (tipo SaaS).
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-label">Imagen</label>
+                            <input type="file" name="avatar" accept="image/*" class="form-control">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar avatar</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-    const modeToggle = document.getElementById('modeToggle');
-    const htmlEl = document.documentElement;
-    modeToggle.addEventListener('click', () => {
-        const current = htmlEl.getAttribute('data-theme') || 'light';
-        const next = current === 'light' ? 'dark' : 'light';
-        htmlEl.setAttribute('data-theme', next);
-    });
-</script>
-{% block extra_js %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const modeToggle = document.getElementById('modeToggle');
+        const htmlEl = document.documentElement;
+        modeToggle.addEventListener('click', () => {
+            const current = htmlEl.getAttribute('data-theme') || 'light';
+            const next = current === 'light' ? 'dark' : 'light';
+            htmlEl.setAttribute('data-theme', next);
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
 </body>
+
 </html>
-
-
 
 ================================================================================
 ARCHIVO: dashboard_user.html
@@ -955,6 +1381,7 @@ ARCHIVO: dashboard_user.html
 {% block title %}Mi Dashboard - DatosConsultora{% endblock %}
 
 {% block content %}
+<!-- Fila 1: Mis datos + Transcripción IA -->
 <div class="row g-4">
     <div class="col-lg-6">
         <div class="card border-0 shadow-sm">
@@ -970,23 +1397,27 @@ ARCHIVO: dashboard_user.html
                     <li>
                         <strong>Email:</strong> {{ current_user.email }}
                         {% if current_user.email_verificado %}
-                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
                         {% else %}
-                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
-                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">
-                                Reenviar email
-                            </a>
+                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
+                            Pendiente</span>
+                        <a href="{{ url_for('auth.reenviar_verificacion') }}"
+                            class="btn btn-sm btn-outline-primary ms-2">
+                            Reenviar email
+                        </a>
                         {% endif %}
                     </li>
                     <li>
                         <strong>Teléfono:</strong> {{ current_user.telefono }}
                         {% if current_user.telefono_verificado %}
-                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
                         {% else %}
-                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i> Pendiente</span>
-                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">
-                                Verificar WhatsApp
-                            </a>
+                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
+                            Pendiente</span>
+                        <a href="{{ url_for('verificacion.verificar_whatsapp') }}"
+                            class="btn btn-sm btn-outline-success ms-2">
+                            Verificar WhatsApp
+                        </a>
                         {% endif %}
                     </li>
                     {% if current_user.profile %}
@@ -995,7 +1426,8 @@ ARCHIVO: dashboard_user.html
                     <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
                     {% endif %}
                 </ul>
-                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal"
+                    data-bs-target="#perfilModal">
                     <i class="bi bi-pencil"></i> Editar perfil
                 </button>
             </div>
@@ -1019,7 +1451,40 @@ ARCHIVO: dashboard_user.html
     </div>
 </div>
 
-<div class="row g-4 mt-4">
+<!-- Fila 2: Análisis de Sentimientos + Asistentes IA -->
+<div class="row g-4 mt-2">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
+                </h5>
+                <p class="text-muted mb-3">
+                    Analizá comentarios de redes sociales y obtené insights con IA.
+                </p>
+                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                    Analizar Comentarios
+                </a>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm opacity-75">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                </h5>
+                <p class="text-muted mb-3">
+                    Próximamente: asistentes conversacionales personalizados.
+                </p>
+                <button class="btn btn-outline-secondary" disabled>Próximamente</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 3: Mis archivos + Actividad + Mi plan -->
+<div class="row g-4 mt-2">
     <div class="col-lg-4">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
@@ -1034,9 +1499,9 @@ ARCHIVO: dashboard_user.html
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                    <i class="bi bi-activity me-2"></i> Mi actividad
                 </h6>
-                <p class="text-muted mb-0">Próximamente: tus asistentes personalizados.</p>
+                <p class="text-muted mb-0">Historial de transcripciones y análisis realizados.</p>
             </div>
         </div>
     </div>
@@ -1044,9 +1509,12 @@ ARCHIVO: dashboard_user.html
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                    <i class="bi bi-heart-fill text-danger me-2"></i>Invitame un Cafecito
                 </h6>
-                <p class="text-muted mb-0">Por ahora: plan free. Más adelante agregamos upgrades.</p>
+                <p class="text-muted mb-3">¿Te gusta DatosConsultora? ¡Invitame un cafecito!</p>
+                <a href="{{ url_for('cafecito.cafecito') }}" class="btn btn-danger btn-sm">
+                    <i class="bi bi-cup-hot-fill me-1"></i>Donar $5.000
+                </a>
             </div>
         </div>
     </div>
@@ -1065,17 +1533,17 @@ ARCHIVO: dashboard_user.html
                     <div class="mb-3">
                         <label class="form-label">Empresa</label>
                         <input type="text" name="empresa" class="form-control"
-                               value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                            value="{{ current_user.profile.empresa if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Cargo</label>
                         <input type="text" name="cargo" class="form-control"
-                               value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                            value="{{ current_user.profile.cargo if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">País</label>
                         <input type="text" name="pais" class="form-control"
-                               value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                            value="{{ current_user.profile.pais if current_user.profile else '' }}">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -1279,183 +1747,6 @@ ARCHIVO: index.html
     </section>
 {% endblock %}
 
-
-================================================================================
-ARCHIVO: landing.html
-================================================================================
-
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DatosConsultora - Transcripción IA para Profesionales</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <style>
-        :root {
-            --azul-petroleo: #004d5c;
-            --gris-peltre: #8a8d93;
-            --azul-claro: #006d82;
-        }
-        body { font-family: 'Segoe UI', sans-serif; }
-        .navbar { background-color: var(--azul-petroleo) !important; }
-        .btn-primary { 
-            background-color: var(--azul-petroleo); 
-            border-color: var(--azul-petroleo);
-        }
-        .btn-primary:hover { 
-            background-color: var(--azul-claro); 
-            border-color: var(--azul-claro);
-        }
-        .hero {
-            background: linear-gradient(135deg, var(--azul-petroleo) 0%, var(--azul-claro) 100%);
-            color: white;
-            padding: 100px 0;
-        }
-        .feature-icon {
-            font-size: 3rem;
-            color: var(--azul-petroleo);
-        }
-        .bg-gris { background-color: #f8f9fa; }
-        .text-petroleo { color: var(--azul-petroleo); }
-        .whatsapp-float {
-            position: fixed;
-            width: 60px;
-            height: 60px;
-            bottom: 40px;
-            right: 40px;
-            background-color: #25d366;
-            color: white;
-            border-radius: 50px;
-            text-align: center;
-            font-size: 30px;
-            z-index: 100;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
-        }
-        .whatsapp-float:hover { color: white; background-color: #20ba5a; }
-        footer { background-color: var(--gris-peltre); color: white; }
-    </style>
-</head>
-<body>
-    <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="/">
-                <i class="bi bi-soundwave"></i> DatosConsultora
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item"><a class="nav-link" href="#servicios">Servicios</a></li>
-                    <li class="nav-item"><a class="nav-link" href="#como-funciona">Cómo Funciona</a></li>
-                    <li class="nav-item"><a class="nav-link" href="#contacto">Contacto</a></li>
-                    <li class="nav-item"><a class="btn btn-outline-light ms-2" href="/login">Ingresar</a></li>
-                </ul>
-            </div>
-        </div>
-    </nav>
-
-    <!-- Hero -->
-    <section class="hero text-center">
-        <div class="container">
-            <h1 class="display-4 fw-bold mb-3">Transcribí tus audios con IA en minutos</h1>
-            <p class="lead mb-4">Subí audios o videos de reuniones, entrevistas o consultas. Nosotros los convertimos en texto preciso, listo para usar.</p>
-            <a href="/login" class="btn btn-light btn-lg px-4 me-2">Probar Gratis</a>
-            <a href="#como-funciona" class="btn btn-outline-light btn-lg px-4">Ver Demo</a>
-        </div>
-    </section>
-
-    <!-- Servicios -->
-    <section id="servicios" class="py-5">
-        <div class="container">
-            <h2 class="text-center text-petroleo fw-bold mb-5">¿Qué podés hacer con DatosConsultora?</h2>
-            <div class="row g-4">
-                <div class="col-md-4 text-center">
-                    <i class="bi bi-mic-fill feature-icon mb-3"></i>
-                    <h4>Transcripción Automática</h4>
-                    <p class="text-muted">Audio y video a texto con 95%+ de precisión. Español rioplatense optimizado.</p>
-                </div>
-                <div class="col-md-4 text-center">
-                    <i class="bi bi-clock-history feature-icon mb-3"></i>
-                    <h4>Ahorrá Horas</h4>
-                    <p class="text-muted">1 hora de audio lista en 5 minutos. Dedicá tu tiempo a lo importante.</p>
-                </div>
-                <div class="col-md-4 text-center">
-                    <i class="bi bi-shield-lock-fill feature-icon mb-3"></i>
-                    <h4>100% Privado</h4>
-                    <p class="text-muted">Tus archivos no se comparten. Cada cliente tiene su panel seguro.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Cómo Funciona -->
-    <section id="como-funciona" class="py-5 bg-gris">
-        <div class="container">
-            <h2 class="text-center text-petroleo fw-bold mb-5">Simple en 3 pasos</h2>
-            <div class="row g-4 align-items-center">
-                <div class="col-md-4 text-center">
-                    <div class="bg-white p-4 rounded shadow-sm h-100">
-                        <span class="badge bg-primary rounded-pill mb-2">1</span>
-                        <h5>Subí tu archivo</h5>
-                        <p class="text-muted mb-0">MP3, WAV, MP4, M4A. Desde tu compu o el celu.</p>
-                    </div>
-                </div>
-                <div class="col-md-4 text-center">
-                    <div class="bg-white p-4 rounded shadow-sm h-100">
-                        <span class="badge bg-primary rounded-pill mb-2">2</span>
-                        <h5>La IA trabaja</h5>
-                        <p class="text-muted mb-0">Whisper procesa y transcribe con timestamps.</p>
-                    </div>
-                </div>
-                <div class="col-md-4 text-center">
-                    <div class="bg-white p-4 rounded shadow-sm h-100">
-                        <span class="badge bg-primary rounded-pill mb-2">3</span>
-                        <h5>Descargá el texto</h5>
-                        <p class="text-muted mb-0">TXT, DOCX o SRT para subtítulos. Editá si querés.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="text-center mt-5">
-                <a href="/login" class="btn btn-primary btn-lg">Crear Cuenta Gratis</a>
-            </div>
-        </div>
-    </section>
-
-    <!-- Contacto -->
-    <section id="contacto" class="py-5">
-        <div class="container text-center">
-            <h2 class="text-petroleo fw-bold mb-3">¿Dudas? Hablemos</h2>
-            <p class="lead text-muted mb-4">Estamos para ayudarte a integrar transcripción IA en tu trabajo.</p>
-            {% if contact and contact.email1 %}
-            <p><i class="bi bi-envelope-fill text-petroleo"></i> {{ contact.email1 }}</p>
-            {% endif %}
-            {% if contact and contact.telefono %}
-            <p><i class="bi bi-telephone-fill text-petroleo"></i> {{ contact.telefono }}</p>
-            {% endif %}
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="py-4">
-        <div class="container text-center">
-            <p class="mb-0">© 2026 DatosConsultora. Transcripción IA para profesionales.</p>
-        </div>
-    </footer>
-
-    <!-- Botón WhatsApp flotante -->
-    {% if contact and contact.whatsapp %}
-    <a href="https://wa.me/{{ contact.whatsapp }}" class="whatsapp-float" target="_blank">
-        <i class="bi bi-whatsapp" style="margin-top:16px;"></i>
-    </a>
-    {% endif %}
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
 
 ================================================================================
 ARCHIVO: login.html
@@ -1693,51 +1984,62 @@ body {
 ARCHIVO: servicio_transcripcion.html
 ================================================================================
 
-<!-- templates/servicio_transcripcion.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'transcripciones' %}
 
 {% block title %}Transcripción IA - DatosConsultora{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="text-petroleo fw-bold mb-1">Transcripción con IA</h1>
-        <p class="text-muted">Subí tu audio o video y obtené el texto en minutos</p>
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Transcripción con IA</h2>
+        <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Volver al Panel
+        </a>
     </div>
-    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
-        <i class="bi bi-arrow-left"></i> Volver al Panel
-    </a>
-</div>
 
-<div class="card p-5 mb-4 text-center" style="border: 2px dashed #cbd5e1;">
-    <form method="POST" enctype="multipart/form-data">
-        <i class="bi bi-cloud-upload text-petroleo" style="font-size: 4rem;"></i>
-        <h4 class="mt-3 mb-3 text-petroleo">Seleccioná tu archivo</h4>
-        <p class="text-muted mb-4">Formatos: MP3, WAV, M4A, MP4, MOV, AVI, MKV, WEBM<br>Máximo 200MB</p>
-        <input type="file" name="media" class="form-control mb-3" accept=".mp3,.wav,.m4a,.mp4,.mov,.avi,.mkv,.webm"
-            required>
-        <button type="submit" class="btn btn-primary btn-lg px-5">
-            <i class="bi bi-magic"></i> Transcribir Ahora
-        </button>
-    </form>
-</div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <p class="text-muted mb-3">Subí tu audio y obtené el texto en minutos.</p>
+            
+            <!-- ✅ CORREGIDO: Se agregó enctype="multipart/form-data" -->
+            <form method="POST" action="{{ url_for('servicios.servicio_transcripcion') }}" enctype="multipart/form-data" id="transcriptForm">
+                <div class="mb-3">
+                    <label for="media" class="form-label fw-bold">Seleccioná tu archivo</label>
+                    <input class="form-control" type="file" id="media" name="media" accept=".mp3,.wav,.m4a" required>
+                    <div class="form-text">Formatos: MP3, WAV, M4A. Máximo 25MB (límite de Groq API).</div>
+                </div>
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    <i class="bi bi-mic"></i> Transcribir Ahora
+                </button>
+            </form>
+        </div>
+    </div>
 
-{% if transcript %}
-<div class="card p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="text-petroleo mb-0">
-            <i class="bi bi-file-text"></i> Resultado: {{ filename }}
-        </h4>
-        <button class="btn btn-outline-primary btn-sm" onclick="copiarTexto()">
-            <i class="bi bi-clipboard"></i> Copiar
-        </button>
+    {% if transcript %}
+    <div class="card shadow-sm border-success">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-check-circle"></i> Resultado: {{ filename }}</h5>
+            <div>
+                <button class="btn btn-sm btn-light me-2" onclick="copiarTexto()">
+                    <i class="bi bi-clipboard"></i> Copiar
+                </button>
+                <a href="data:text/plain;charset=utf-8,{{ transcript | urlencode }}" download="{{ filename }}.txt" class="btn btn-sm btn-light">
+                    <i class="bi bi-download"></i> Descargar TXT
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="transcriptText">
+                {{ transcript }}
+            </div>
+            <div class="mt-3 text-muted small">
+                <i class="bi bi-info-circle"></i> La transcripción fue procesada con IA y puede contener errores menores. Revisá el texto antes de usarlo.
+            </div>
+        </div>
     </div>
-    <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 400px; overflow-y: auto;">
-        <pre id="transcriptText" style="white-space: pre-wrap; font-family: inherit;">{{ transcript }}</pre>
-    </div>
+    {% endif %}
 </div>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -1745,9 +2047,15 @@ ARCHIVO: servicio_transcripcion.html
     function copiarTexto() {
         const texto = document.getElementById('transcriptText').innerText;
         navigator.clipboard.writeText(texto).then(() => {
-            alert('Texto copiado al portapapeles');
+            alert('¡Texto copiado al portapapeles!');
         });
     }
+
+    document.getElementById('transcriptForm').addEventListener('submit', function() {
+        const btn = document.getElementById('submitBtn');
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
+        btn.disabled = true;
+    });
 </script>
 {% endblock %}
 
@@ -1809,10 +2117,6 @@ ARCHIVO: servicios.html
 ARCHIVO: verificar_whatsapp.html
 ================================================================================
 
-{% block content %}
-{% endblock %}
-
-
 <!-- templates/verificar_whatsapp.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'datos' %}
@@ -1824,58 +2128,85 @@ ARCHIVO: verificar_whatsapp.html
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm">
             <div class="card-body p-5">
+
+                <!-- Header -->
                 <div class="text-center mb-4">
-                    <i class="bi bi-whatsapp text-success" style="font-size: 4rem;"></i>
-                    <h2 class="text-petroleo fw-bold mt-3">Verificar WhatsApp</h2>
+                    <div style="width:80px; height:80px; border-radius:50%; background:#25d366; display:inline-flex; align-items:center; justify-content:center;">
+                        <i class="bi bi-whatsapp text-white" style="font-size: 2.5rem;"></i>
+                    </div>
+                    <h2 class="text-petroleo fw-bold mt-3 mb-1">Verificar WhatsApp</h2>
                     <p class="text-muted">Número: <strong>{{ telefono }}</strong></p>
                 </div>
 
-                <div class="alert alert-info">
-                    <h6 class="fw-bold mb-2"><i class="bi bi-info-circle"></i> ¿Cómo funciona?</h6>
-                    <ol class="mb-0">
-                        <li>Hacé click en el botón de abajo para abrir WhatsApp</li>
-                        <li>Se abrirá un chat con un mensaje prellenado con tu código</li>
-                        <li>Enviá el mensaje</li>
-                        <li>Copiá el código de 6 dígitos y pegalo abajo</li>
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else 'success') }} alert-dismissible fade show">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                <!-- Instrucciones -->
+                <div class="alert alert-light border mb-4">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-info-circle text-primary"></i> ¿Cómo funciona?</h6>
+                    <ol class="mb-0 ps-3">
+                        <li class="mb-1">Hacé click en <strong>"Abrir WhatsApp"</strong> (abajo)</li>
+                        <li class="mb-1">Se abre un chat con un mensaje que incluye tu código</li>
+                        <li class="mb-1"><strong>Enviá ese mensaje</strong> (así queda registro)</li>
+                        <li class="mb-1">Copiá el <strong>código de 6 dígitos</strong> y pegalo abajo</li>
+                        <li class="mb-0">Click en <strong>"Verificar"</strong></li>
                     </ol>
                 </div>
 
+                <!-- Código -->
                 <div class="text-center mb-4">
-                    <div class="p-4 bg-light rounded">
-                        <p class="text-muted mb-2">Tu código de verificación:</p>
-                        <h1 class="display-4 fw-bold text-petroleo mb-0" style="letter-spacing: 0.3em;">{{ codigo }}</h1>
+                    <div class="p-4 rounded-3" style="background: linear-gradient(135deg, #f0fdf4, #ecfdf5); border: 2px solid #25d366;">
+                        <p class="text-muted mb-2 small fw-bold text-uppercase">Tu código de verificación</p>
+                        <h1 class="fw-bold mb-0" style="letter-spacing: 0.4em; color: #004d5c; font-size: 2.8rem;">
+                            {{ codigo }}
+                        </h1>
                     </div>
                 </div>
 
+                <!-- Botón WhatsApp -->
                 <div class="text-center mb-4">
-                    <a href="{{ link_whatsapp }}" target="_blank" class="btn btn-success btn-lg px-5">
-                        <i class="bi bi-whatsapp me-2"></i> Abrir WhatsApp
+                    <a href="{{ link_whatsapp }}" target="_blank" class="btn btn-lg px-5 text-white" style="background-color: #25d366; border-color: #25d366;">
+                        <i class="bi bi-whatsapp me-2" style="font-size: 1.3rem;"></i> Abrir WhatsApp y enviar código
                     </a>
                 </div>
 
+                <hr class="my-4">
+
+                <!-- Formulario de verificación -->
                 <form method="POST">
                     <div class="mb-3">
                         <label class="form-label fw-bold">Ingresá el código de 6 dígitos</label>
-                        <input type="text" name="codigo" class="form-control form-control-lg text-center" 
-                               maxlength="6" pattern="[0-9]{6}" placeholder="000000" required
-                               style="letter-spacing: 0.5em; font-size: 1.5rem;">
+                        <input type="text" name="codigo"
+                               class="form-control form-control-lg text-center"
+                               maxlength="6" pattern="[0-9]{6}"
+                               placeholder="000000" required
+                               style="letter-spacing: 0.5em; font-size: 1.5rem; font-weight: 600;">
+                        <small class="text-muted">Escribí el mismo código que aparece arriba</small>
                     </div>
                     <button type="submit" class="btn btn-primary w-100 btn-lg">
-                        <i class="bi bi-check-circle"></i> Verificar WhatsApp
+                        <i class="bi bi-check-circle me-2"></i> Verificar WhatsApp
                     </button>
                 </form>
 
-                <div class="text-center mt-3">
-                    <a href="{{ url_for('verificacion.reenviar_codigo_whatsapp') }}" class="text-muted">
+                <!-- Acciones secundarias -->
+                <div class="d-flex justify-content-between mt-3">
+                    <a href="{{ url_for('verificacion.reenviar_codigo_whatsapp') }}" class="text-decoration-none small">
                         <i class="bi bi-arrow-repeat"></i> Generar nuevo código
                     </a>
-                </div>
-
-                <div class="text-center mt-4">
-                    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+                    <a href="{{ url_for('dashboard.dashboard_user') }}" class="text-decoration-none small text-muted">
                         <i class="bi bi-arrow-left"></i> Volver al Dashboard
                     </a>
                 </div>
+
             </div>
         </div>
     </div>
