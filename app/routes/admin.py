@@ -1,5 +1,5 @@
 # app/routes/admin.py
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
 from app import db
 from app.models import User, ContactSettings, ActivityLog, Role, UserRole, Plan
@@ -117,25 +117,68 @@ def admin_usuario_reset_password(user_id):
 @admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
 def admin_usuario_delete(user_id):
     user = User.query.get_or_404(user_id)
-
+    
     if user.id == current_user.id:
         flash("No podés eliminarte a vos mismo", "error")
         return redirect(url_for("admin.admin_usuarios"))
-
+    
     email = user.email
-    db.session.delete(user)
-    db.session.commit()
-
-    log = ActivityLog(
-        user_id=current_user.id,
-        accion="borrar_usuario",
-        detalle=f"Usuario {email} eliminado",
-        ip=request.remote_addr,
-    )
-    db.session.add(log)
-    db.session.commit()
-
-    flash("Usuario eliminado", "success")
+    
+    try:
+        # Eliminar registros relacionados manualmente (en orden)
+        from app.models import (
+            UserProfile, UserFile, Transcription, Assistant,
+            ActivityLog, UserRole, EmailVerificationToken,
+            PasswordResetToken, WhatsAppVerification, UserPlan
+        )
+        
+        # 1. Eliminar archivos subidos (y sus transcripciones)
+        for user_file in UserFile.query.filter_by(user_id=user.id).all():
+            Transcription.query.filter_by(file_id=user_file.id).delete()
+        UserFile.query.filter_by(user_id=user.id).delete()
+        
+        # 2. Eliminar otros registros relacionados
+        UserProfile.query.filter_by(user_id=user.id).delete()
+        Assistant.query.filter_by(user_id=user.id).delete()
+        ActivityLog.query.filter_by(user_id=user.id).delete()
+        UserRole.query.filter_by(user_id=user.id).delete()
+        EmailVerificationToken.query.filter_by(user_id=user.id).delete()
+        PasswordResetToken.query.filter_by(user_id=user.id).delete()
+        WhatsAppVerification.query.filter_by(user_id=user.id).delete()
+        
+        # UserPlan (puede no existir para todos los usuarios)
+        user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+        if user_plan:
+            db.session.delete(user_plan)
+        
+        # Si existe Donation (del sistema de cafecito)
+        try:
+            from app.models import Donation
+            Donation.query.filter_by(user_id=user.id).delete()
+        except:
+            pass
+        
+        # 3. Ahora sí eliminar el usuario
+        db.session.delete(user)
+        db.session.commit()
+        
+        # 4. Registrar el log (con user_id=None porque el usuario ya no existe)
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="borrar_usuario",
+            detalle=f"Usuario {email} eliminado con todos sus datos asociados",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash(f"Usuario {email} eliminado correctamente", "success")
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al eliminar usuario: {str(e)}", "error")
+        current_app.logger.error(f"Error eliminando usuario {email}: {str(e)}")
+    
     return redirect(url_for("admin.admin_usuarios"))
 
 
