@@ -12,9 +12,6 @@ class GroqBackend:
         self.client = Groq(api_key=api_key)
     
     def transcribe(self, file_path: str, language: str = None) -> dict:
-        """
-        Transcribe un archivo de audio o video.
-        """
         try:
             with open(file_path, "rb") as file:
                 kwargs = {

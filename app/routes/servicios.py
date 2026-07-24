@@ -4,19 +4,17 @@ import json
 from flask import Blueprint, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
-
-from app.services.analysis import GroqLLMClient
-from app.services.analysis.text_cleaner import limpiar_comentarios
-from app.services.transcription.groq_backend import GroqBackend
 from app import db
 from app.models import UserFile, Transcription
 from app.services.transcription.groq_backend import GroqBackend
-from app.services.translation_service import TranslationService
+from app.services.analysis import GroqLLMClient
+from app.services.analysis.text_cleaner import limpiar_comentarios
 
 servicios_bp = Blueprint("servicios", __name__)
 
-# Groq soporta nativamente estos formatos (incluyendo video)
+# Sin espacios en las extensiones
 ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
+
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
@@ -36,7 +34,6 @@ def servicio_transcripcion():
                 path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
                 f.save(path)
                 
-                # Determinar si es video o audio
                 es_video = ext in {"mp4", "mov", "avi", "mkv", "webm"}
                 tipo_archivo = "video" if es_video else "audio"
                 
@@ -50,8 +47,10 @@ def servicio_transcripcion():
                 db.session.commit()
                 
                 try:
+                    # Instanciar la CLASE, no el módulo
                     backend = GroqBackend()
-                    # Enviamos el archivo directamente a Groq (soporta video nativamente)
+                    
+                    # Groq soporta video nativamente. Se envía directo.
                     resultado = backend.transcribe(path)
                     
                     transcript = resultado.get("text", "")
@@ -61,6 +60,7 @@ def servicio_transcripcion():
                     # Si el idioma detectado NO es español, traducir
                     if idioma_detectado and idioma_detectado != "es" and transcript:
                         try:
+                            from app.services.translation_service import TranslationService
                             translator = TranslationService()
                             transcript_traducido = translator.traducir(
                                 transcript, 
@@ -104,6 +104,7 @@ def servicio_transcripcion():
         idioma_detectado=idioma_detectado,
         duracion_total=duracion_total
     )
+
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
