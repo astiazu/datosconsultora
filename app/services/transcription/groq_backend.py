@@ -2,9 +2,8 @@
 import os
 from groq import Groq
 
-
 class GroqBackend:
-    """Backend de transcripción usando Groq Whisper API."""
+    """Backend de transcripción usando Groq Whisper API (soporta audio y video nativamente)."""
     
     def __init__(self):
         api_key = os.environ.get("GROQ_API_KEY")
@@ -14,28 +13,21 @@ class GroqBackend:
     
     def transcribe(self, file_path: str, language: str = None) -> dict:
         """
-        Transcribe un archivo de audio.
-        
-        :param file_path: Ruta al archivo de audio
-        :param language: Código de idioma ('es', 'en', None para auto-detectar)
-        :return: Dict con 'text', 'language', 'duration'
+        Transcribe un archivo de audio o video.
         """
         try:
             with open(file_path, "rb") as file:
-                # Usar verbose_json para obtener idioma detectado y duración
                 kwargs = {
                     "model": "whisper-large-v3",
                     "file": file,
                     "response_format": "verbose_json",
                     "temperature": 0.0,
                 }
-                
                 if language:
                     kwargs["language"] = language
                 
                 transcription = self.client.audio.transcriptions.create(**kwargs)
                 
-                # La respuesta puede ser un objeto o dict dependiendo de la versión del SDK
                 if hasattr(transcription, 'text'):
                     return {
                         "text": transcription.text or "",
@@ -43,13 +35,11 @@ class GroqBackend:
                         "duration": getattr(transcription, 'duration', 0),
                     }
                 else:
-                    # Si es string directo (response_format="text")
                     return {
                         "text": str(transcription),
                         "language": language or "es",
                         "duration": 0,
                     }
-                    
         except Exception as e:
             raise Exception(f"Error transcribiendo con Groq: {str(e)}")
     

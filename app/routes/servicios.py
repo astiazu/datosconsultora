@@ -1,35 +1,22 @@
+# app/routes/servicios.py
 import os
 import json
 from flask import Blueprint, render_template, request, flash, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from app import db
-from app.models import UserFile, Transcription
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.transcription.groq_backend import GroqBackend
-
-# ✅ CORREGIDO: __name__ y sin espacios en las extensiones (solo audio por ahora)
-servicios_bp = Blueprint("servicios", __name__)
-ALLOWED_EXT = {"mp3", "wav", "m4a"}
-
-
-# app/routes/servicios.py
-import os
-from flask import Blueprint, render_template, request, flash, current_app
-from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
 from app import db
 from app.models import UserFile, Transcription
 from app.services.transcription.groq_backend import GroqBackend
-from app.services.transcription.audio_utils import prepare_for_transcription, is_video_file
 from app.services.translation_service import TranslationService
 
 servicios_bp = Blueprint("servicios", __name__)
 
+# Groq soporta nativamente estos formatos (incluyendo video)
 ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
-
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
@@ -39,7 +26,6 @@ def servicio_transcripcion():
     filename = None
     idioma_detectado = None
     duracion_total = 0
-    num_chunks = 1
     
     if request.method == "POST":
         f = request.files.get("media")
@@ -50,9 +36,10 @@ def servicio_transcripcion():
                 path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
                 f.save(path)
                 
-                tipo_archivo = "video" if is_video_file(path) else "audio"
+                # Determinar si es video o audio
+                es_video = ext in {"mp4", "mov", "avi", "mkv", "webm"}
+                tipo_archivo = "video" if es_video else "audio"
                 
-                # Guardar archivo en BD
                 user_file = UserFile(
                     user_id=current_user.id,
                     filename=filename,
@@ -64,35 +51,15 @@ def servicio_transcripcion():
                 
                 try:
                     backend = GroqBackend()
+                    # Enviamos el archivo directamente a Groq (soporta video nativamente)
+                    resultado = backend.transcribe(path)
                     
-                    # Preparar archivo (extraer audio si es video, dividir si es grande)
-                    files_to_transcribe = prepare_for_transcription(path)
-                    num_chunks = len(files_to_transcribe)
-                    
-                    # Transcribir cada chunk
-                    transcripts = []
-                    idioma = None
-                    duracion = 0
-                    
-                    for i, chunk_path in enumerate(files_to_transcribe):
-                        print(f"🎙️ Transcribiendo chunk {i+1}/{len(files_to_transcribe)}...")
-                        resultado = backend.transcribe(chunk_path)
-                        transcripts.append(resultado["text"])
-                        
-                        # Capturar idioma del primer chunk
-                        if idioma is None and resultado.get("language"):
-                            idioma = resultado["language"]
-                        
-                        # Sumar duración
-                        duracion += resultado.get("duration", 0)
-                    
-                    # Concatenar transcripciones
-                    transcript = " ".join(transcripts)
-                    idioma_detectado = idioma or "es"
-                    duracion_total = round(duracion, 1)
+                    transcript = resultado.get("text", "")
+                    idioma_detectado = resultado.get("language", "es")
+                    duracion_total = resultado.get("duration", 0)
                     
                     # Si el idioma detectado NO es español, traducir
-                    if idioma_detectado != "es" and transcript:
+                    if idioma_detectado and idioma_detectado != "es" and transcript:
                         try:
                             translator = TranslationService()
                             transcript_traducido = translator.traducir(
@@ -104,7 +71,6 @@ def servicio_transcripcion():
                             print(f"⚠️ Error en traducción: {e}")
                             transcript_traducido = None
                     
-                    # Guardar transcripción en BD
                     transcription = Transcription(
                         user_id=current_user.id,
                         file_id=user_file.id,
@@ -113,11 +79,7 @@ def servicio_transcripcion():
                     db.session.add(transcription)
                     db.session.commit()
                     
-                    # Mensaje de éxito
-                    tipo_texto = "video" if tipo_archivo == "video" else "audio"
                     msg = f"✅ Transcripción completada ({backend.get_name()})"
-                    if num_chunks > 1:
-                        msg += f" - Procesado en {num_chunks} partes"
                     if idioma_detectado and idioma_detectado != "es":
                         nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
                         nombre_idioma = nombres.get(idioma_detectado, idioma_detectado)
@@ -140,8 +102,7 @@ def servicio_transcripcion():
         transcript_traducido=transcript_traducido,
         filename=filename,
         idioma_detectado=idioma_detectado,
-        duracion_total=duracion_total,
-        num_chunks=num_chunks
+        duracion_total=duracion_total
     )
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
