@@ -10,9 +10,10 @@ from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
 
+# 1. CORREGIDO: __name__ en lugar de name
 servicios_bp = Blueprint("servicios", __name__)
 
-# Sin espacios en las extensiones
+# 2. CORREGIDO: Sin espacios en las extensiones
 ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
 
 
@@ -47,7 +48,7 @@ def servicio_transcripcion():
                 db.session.commit()
                 
                 try:
-                    # Instanciar la CLASE, no el módulo
+                    # 3. CORREGIDO: Instanciar la CLASE, no el módulo
                     backend = GroqBackend()
                     
                     # Groq soporta video nativamente. Se envía directo.
@@ -114,7 +115,7 @@ def analisis_sentimientos():
     comentarios_limpios = []
     red_social = "desconocido"
     error_msg = None
-    paso = "input"  # input | preview | resultado
+    paso = "input"
     
     if request.method == "POST":
         action = request.form.get("action", "analizar")
@@ -140,7 +141,7 @@ def analisis_sentimientos():
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
                 else:
                     comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
-                    
+                
                 if not comentarios_limpios:
                     flash("⚠️ No hay comentarios válidos para analizar", "warning")
                     paso = "input"
@@ -152,22 +153,24 @@ def analisis_sentimientos():
                         f"[{c['usuario']}]: {c['texto']}" 
                         for c in comentarios_limpios
                     ]
+                    
                     client = GroqLLMClient()
                     resultado = client.analizar_sentimientos(comentarios_texto, contexto)
                     
                     if contexto:
                         resultado["contexto"] = contexto
-                        resultado["red_social"] = red_social
-                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                    resultado["red_social"] = red_social
+                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
-                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                        paso = "resultado"
+                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                    paso = "resultado"
+                    
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
                 current_app.logger.error(f"Error en análisis: {error_msg}")
                 paso = "input"
-                
+    
     return render_template(
         "analisis_sentimientos.html",
         resultado=resultado,
