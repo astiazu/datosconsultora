@@ -3,10 +3,11 @@ ARCHIVO: admin.py
 ================================================================================
 
 # app/routes/admin.py
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import User, ContactSettings, ActivityLog, Role, UserRole
+from app.models import User, ContactSettings, ActivityLog, Role, UserRole, Plan
+from app.services.plan_service import inicializar_planes_por_defecto
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -120,25 +121,68 @@ def admin_usuario_reset_password(user_id):
 @admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
 def admin_usuario_delete(user_id):
     user = User.query.get_or_404(user_id)
-
+    
     if user.id == current_user.id:
         flash("No podés eliminarte a vos mismo", "error")
         return redirect(url_for("admin.admin_usuarios"))
-
+    
     email = user.email
-    db.session.delete(user)
-    db.session.commit()
-
-    log = ActivityLog(
-        user_id=current_user.id,
-        accion="borrar_usuario",
-        detalle=f"Usuario {email} eliminado",
-        ip=request.remote_addr,
-    )
-    db.session.add(log)
-    db.session.commit()
-
-    flash("Usuario eliminado", "success")
+    
+    try:
+        # Eliminar registros relacionados manualmente (en orden)
+        from app.models import (
+            UserProfile, UserFile, Transcription, Assistant,
+            ActivityLog, UserRole, EmailVerificationToken,
+            PasswordResetToken, WhatsAppVerification, UserPlan
+        )
+        
+        # 1. Eliminar archivos subidos (y sus transcripciones)
+        for user_file in UserFile.query.filter_by(user_id=user.id).all():
+            Transcription.query.filter_by(file_id=user_file.id).delete()
+        UserFile.query.filter_by(user_id=user.id).delete()
+        
+        # 2. Eliminar otros registros relacionados
+        UserProfile.query.filter_by(user_id=user.id).delete()
+        Assistant.query.filter_by(user_id=user.id).delete()
+        ActivityLog.query.filter_by(user_id=user.id).delete()
+        UserRole.query.filter_by(user_id=user.id).delete()
+        EmailVerificationToken.query.filter_by(user_id=user.id).delete()
+        PasswordResetToken.query.filter_by(user_id=user.id).delete()
+        WhatsAppVerification.query.filter_by(user_id=user.id).delete()
+        
+        # UserPlan (puede no existir para todos los usuarios)
+        user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+        if user_plan:
+            db.session.delete(user_plan)
+        
+        # Si existe Donation (del sistema de cafecito)
+        try:
+            from app.models import Donation
+            Donation.query.filter_by(user_id=user.id).delete()
+        except:
+            pass
+        
+        # 3. Ahora sí eliminar el usuario
+        db.session.delete(user)
+        db.session.commit()
+        
+        # 4. Registrar el log (con user_id=None porque el usuario ya no existe)
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="borrar_usuario",
+            detalle=f"Usuario {email} eliminado con todos sus datos asociados",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash(f"Usuario {email} eliminado correctamente", "success")
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al eliminar usuario: {str(e)}", "error")
+        current_app.logger.error(f"Error eliminando usuario {email}: {str(e)}")
+    
     return redirect(url_for("admin.admin_usuarios"))
 
 
@@ -188,6 +232,51 @@ def admin_logs():
         )
 
     return render_template("admin_logs.html", logs=logs, tipo=tipo)
+
+# ============================================
+# GESTIÓN DE PLANES (agregado al final del archivo)
+# ============================================
+#from app.models import Plan
+#from app.services.plan_service import inicializar_planes_por_defecto
+
+
+@admin_bp.route("/planes")
+def admin_planes():
+    inicializar_planes_por_defecto()
+    planes = Plan.query.order_by(Plan.orden).all()
+    return render_template("admin_planes.html", planes=planes)
+
+
+@admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
+def admin_plan_editar(plan_id):
+    plan = Plan.query.get_or_404(plan_id)
+    
+    plan.display_name = request.form.get("display_name", plan.display_name)
+    plan.descripcion = request.form.get("descripcion", plan.descripcion)
+    plan.precio_mensual = float(request.form.get("precio_mensual", plan.precio_mensual) or 0)
+    plan.precio_anual = float(request.form.get("precio_anual", plan.precio_anual) or 0)
+    plan.precio_lifetime = float(request.form.get("precio_lifetime", plan.precio_lifetime) or 0) if request.form.get("precio_lifetime") else plan.precio_lifetime
+    plan.limite_transcripciones_mes = int(request.form.get("limite_transcripciones_mes", plan.limite_transcripciones_mes) or 0)
+    plan.limite_analisis_mes = int(request.form.get("limite_analisis_mes", plan.limite_analisis_mes) or 0)
+    plan.incluye_historial = request.form.get("incluye_historial") == "on"
+    plan.incluye_motor_semantico = request.form.get("incluye_motor_semantico") == "on"
+    plan.incluye_agentes = request.form.get("incluye_agentes") == "on"
+    plan.incluye_actividad_completa = request.form.get("incluye_actividad_completa") == "on"
+    plan.activo = request.form.get("activo") == "on"
+    
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="plan_update",
+        detalle=f"Plan '{plan.display_name}' actualizado",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
+    return redirect(url_for("admin.admin_planes"))
 
 ================================================================================
 ARCHIVO: auth.py
@@ -542,6 +631,65 @@ def actualizar_avatar():
     return redirect(url_for("dashboard.dashboard_user"))
 
 ================================================================================
+ARCHIVO: planes.py
+================================================================================
+
+# app/routes/planes.py
+from flask import Blueprint, render_template, flash, redirect, url_for
+from flask_login import login_required, current_user
+from app.services.plan_service import (
+    obtener_plan_usuario,
+    obtener_todos_los_planes,
+    inicializar_planes_por_defecto
+)
+
+planes_bp = Blueprint("planes", __name__)
+
+
+@planes_bp.route("/planes")
+def lista_planes():
+    """Página pública con comparativa de planes."""
+    inicializar_planes_por_defecto()
+    planes = obtener_todos_los_planes()
+    
+    plan_actual = None
+    if current_user.is_authenticated:
+        plan_actual = obtener_plan_usuario(current_user)
+    
+    return render_template(
+        "planes.html",
+        planes=planes,
+        plan_actual=plan_actual
+    )
+
+
+@planes_bp.route("/planes/mi-plan")
+@login_required
+def mi_plan():
+    """Página del plan actual del usuario."""
+    inicializar_planes_por_defecto()
+    user_plan = obtener_plan_usuario(current_user)
+    plan_obj = user_plan.obtener_plan_obj()
+    planes = obtener_todos_los_planes()
+    
+    return render_template(
+        "mi_plan.html",
+        user_plan=user_plan,
+        plan_obj=plan_obj,
+        planes=planes,
+        consumo_transcripciones=user_plan.consumo_transcripciones_mes(),
+        consumo_analisis=user_plan.consumo_analisis_mes()
+    )
+
+
+@planes_bp.route("/planes/elegir/<nombre_plan>")
+@login_required
+def elegir_plan(nombre_plan):
+    """Por ahora solo muestra mensaje 'Próximamente'."""
+    flash(f"🚧 La suscripción al plan {nombre_plan} estará disponible próximamente. ¡Gracias por tu interés!", "info")
+    return redirect(url_for("planes.lista_planes"))
+
+================================================================================
 ARCHIVO: public.py
 ================================================================================
 
@@ -574,74 +722,87 @@ def contacto():
 ARCHIVO: servicios.py
 ================================================================================
 
+# app/routes/servicios.py
 import os
 import json
-from flask import Blueprint, render_template, request, flash, current_app
+from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
-
 from app import db
 from app.models import UserFile, Transcription
+from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
-from app.services.transcription.groq_backend import GroqBackend
+from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
 
-# ✅ CORREGIDO: __name__ y sin espacios en las extensiones (solo audio por ahora)
 servicios_bp = Blueprint("servicios", __name__)
-ALLOWED_EXT = {"mp3", "wav", "m4a"}
-
+ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
 def servicio_transcripcion():
     transcript = None
+    transcript_traducido = None
     filename = None
+    idioma_detectado = "es"
+    duracion_total = 0
+    num_chunks = 1
     
     if request.method == "POST":
         f = request.files.get("media")
         if f and f.filename:
             ext = f.filename.rsplit(".", 1)[-1].lower()
             if ext in ALLOWED_EXT:
+                puede_usar, uso_actual, limite = puede_transcribir(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
                 filename = secure_filename(f.filename)
                 path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
                 f.save(path)
                 
-                user_file = UserFile(
-                    user_id=current_user.id,
-                    filename=filename,
-                    filepath=path,
-                    tipo="audio",
-                )
+                tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
+                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
                 db.session.add(user_file)
                 db.session.commit()
                 
                 try:
-                    # ✅ LLAMADA REAL A GROQ WHISPER
                     backend = GroqBackend()
-                    transcript = backend.transcribe(path, language="es")
+                    resultado = backend.transcribe(path)
+                    transcript = resultado.get("text", "")
+                    idioma_detectado = resultado.get("language", "es")
+                    duracion_total = resultado.get("duration", 0)
                     
-                    transcription = Transcription(
-                        user_id=current_user.id,
-                        file_id=user_file.id,
-                        texto=transcript,
-                    )
+                    if idioma_detectado and idioma_detectado != "es" and transcript:
+                        try:
+                            from app.services.translation_service import TranslationService
+                            translator = TranslationService()
+                            transcript_traducido = translator.traducir(transcript, idioma_origen=idioma_detectado, idioma_destino="es")
+                        except Exception as e:
+                            print(f"⚠️ Error en traducción: {e}")
+                            transcript_traducido = None
+                    
+                    transcription = Transcription(user_id=current_user.id, file_id=user_file.id, texto=transcript)
                     db.session.add(transcription)
                     db.session.commit()
                     
-                    flash("✅ Transcripción completada con éxito.", "success")
-                except ValueError as e:
-                    flash(f"❌ Error de configuración: {str(e)}", "error")
-                    current_app.logger.error(f"Error de configuración Groq: {e}")
+                    registrar_uso_transcripcion(current_user)
+                    
+                    msg = f"✅ Transcripción completada ({backend.get_name()})"
+                    if idioma_detectado and idioma_detectado != "es":
+                        nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
+                        msg += f" - Idioma detectado: {nombres.get(idioma_detectado, idioma_detectado)}"
+                    flash(msg, "success")
                 except Exception as e:
-                    flash(f"❌ Error transcribiendo el archivo: {str(e)}", "error")
-                    current_app.logger.error(f"Error en transcripción: {e}")
+                    flash(f"❌ Error en la transcripción: {str(e)}", "error")
+                    current_app.logger.error(f"Error transcribiendo: {str(e)}")
             else:
-                flash("❌ Formato no permitido. Usá MP3, WAV o M4A.", "error")
+                flash(f"❌ Formato no permitido. Usá: {', '.join(sorted(ALLOWED_EXT))}", "error")
         else:
             flash("❌ No seleccionaste ningún archivo", "error")
-            
-    return render_template("servicio_transcripcion.html", transcript=transcript, filename=filename)
-
+    
+    return render_template("servicio_transcripcion.html", transcript=transcript, transcript_traducido=transcript_traducido, filename=filename, idioma_detectado=idioma_detectado, duracion_total=duracion_total, num_chunks=num_chunks)
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
@@ -651,7 +812,7 @@ def analisis_sentimientos():
     comentarios_limpios = []
     red_social = "desconocido"
     error_msg = None
-    paso = "input"  # input | preview | resultado
+    paso = "input"
     
     if request.method == "POST":
         action = request.form.get("action", "analizar")
@@ -662,58 +823,46 @@ def analisis_sentimientos():
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 if not comentarios_limpios:
-                    flash("⚠️ No se encontraron comentarios válidos. Verificá el texto copiado.", "warning")
+                    flash("⚠️ No se encontraron comentarios válidos.", "warning")
                     paso = "input"
                 else:
                     flash(f"✅ Se detectaron {len(comentarios_limpios)} comentarios ({red_social})", "success")
                     paso = "preview"
             except Exception as e:
-                flash(f"❌ Error limpiando comentarios: {str(e)}", "error")
+                flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
-                
         elif action == "analizar":
             try:
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
                 if request.form.get("comentarios_limpios_json"):
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
                 else:
                     comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
-                    
+                
                 if not comentarios_limpios:
-                    flash("⚠️ No hay comentarios válidos para analizar", "warning")
-                    paso = "input"
-                elif len(comentarios_limpios) > 100:
-                    flash(f"⚠️ Máximo 100 comentarios. Tenés {len(comentarios_limpios)}.", "warning")
+                    flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    comentarios_texto = [
-                        f"[{c['usuario']}]: {c['texto']}" 
-                        for c in comentarios_limpios
-                    ]
+                    comentarios_texto = [f"[{c['usuario']}]: {c['texto']}" for c in comentarios_limpios]
                     client = GroqLLMClient()
                     resultado = client.analizar_sentimientos(comentarios_texto, contexto)
+                    if contexto: resultado["contexto"] = contexto
+                    resultado["red_social"] = red_social
+                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
-                    if contexto:
-                        resultado["contexto"] = contexto
-                        resultado["red_social"] = red_social
-                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
-                    
-                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                        paso = "resultado"
+                    registrar_uso_analisis(current_user)
+                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                    paso = "resultado"
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
-                current_app.logger.error(f"Error en análisis: {error_msg}")
                 paso = "input"
-                
-    return render_template(
-        "analisis_sentimientos.html",
-        resultado=resultado,
-        comentarios_raw=comentarios_raw,
-        comentarios_limpios=comentarios_limpios,
-        red_social=red_social,
-        paso=paso,
-        error_msg=error_msg
-    )
+    
+    return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
 
 ================================================================================
 ARCHIVO: verificacion.py

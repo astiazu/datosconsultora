@@ -233,6 +233,19 @@ ARCHIVO: admin_panel.html
                     </div>
                 </div>
             </div>
+            <div class="col-md-4">
+                <div class="card card-servicio h-100">
+                    <div class="card-body">
+                        <h5 class="fw-bold text-petroleo mb-2">
+                            <i class="bi bi-credit-card-2-front"></i> Planes
+                        </h5>
+                        <p class="text-muted mb-3">Editá precios, límites y features de cada plan.</p>
+                        <a href="{{ url_for('admin.admin_planes') }}" class="btn btn-primary w-100">
+                            Gestionar Planes
+                        </a>
+                    </div>
+                </div>
+            </div>            
         </div>
 
         <h4 class="text-petroleo fw-bold mb-3">
@@ -270,6 +283,137 @@ ARCHIVO: admin_panel.html
 </section>
 {% endblock %}
 
+
+================================================================================
+ARCHIVO: admin_planes.html
+================================================================================
+
+<!-- templates/admin_planes.html -->
+{% extends "base.html" %}
+{% block title %}Gestionar Planes - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5 bg-gris">
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h1 class="text-petroleo fw-bold mb-1">
+                    <i class="bi bi-credit-card-2-front"></i> Gestionar Planes
+                </h1>
+                <p class="text-muted mb-0">Editá precios, límites y features de cada plan.</p>
+            </div>
+            <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-left"></i> Volver al Panel
+            </a>
+        </div>
+
+        {% for plan in planes %}
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-{{ plan.color }} text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi {{ plan.icono }} me-2"></i>
+                    {{ plan.display_name }}
+                    {% if plan.es_lifetime %}<span class="badge bg-dark ms-2">Lifetime</span>{% endif %}
+                </h5>
+                <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#plan{{ plan.id }}">
+                    <i class="bi bi-pencil"></i> Editar
+                </button>
+            </div>
+            <div class="collapse {% if loop.first %}show{% endif %}" id="plan{{ plan.id }}">
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('admin.admin_plan_editar', plan_id=plan.id) }}">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Nombre visible</label>
+                                <input type="text" name="display_name" class="form-control" value="{{ plan.display_name }}">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Descripción</label>
+                                <input type="text" name="descripcion" class="form-control" value="{{ plan.descripcion }}">
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">💰 Precios (ARS)</h6></div>
+                            
+                            <div class="col-md-4">
+                                <label class="form-label">Mensual</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_mensual" class="form-control" value="{{ plan.precio_mensual }}" step="100">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Anual</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_anual" class="form-control" value="{{ plan.precio_anual }}" step="100">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Lifetime</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" name="precio_lifetime" class="form-control" value="{{ plan.precio_lifetime or 0 }}" step="100">
+                                </div>
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">📊 Límites mensuales</h6></div>
+                            
+                            <div class="col-md-6">
+                                <label class="form-label">Transcripciones por mes</label>
+                                <input type="number" name="limite_transcripciones_mes" class="form-control" value="{{ plan.limite_transcripciones_mes }}">
+                                <small class="text-muted">Usá 999999 para ilimitado</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Análisis por mes</label>
+                                <input type="number" name="limite_analisis_mes" class="form-control" value="{{ plan.limite_analisis_mes }}">
+                                <small class="text-muted">Usá 999999 para ilimitado</small>
+                            </div>
+                            
+                            <div class="col-12"><hr><h6 class="fw-bold">✨ Features incluidas</h6></div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_historial" id="hist{{ plan.id }}" {% if plan.incluye_historial %}checked{% endif %}>
+                                    <label class="form-check-label" for="hist{{ plan.id }}">Historial completo</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_motor_semantico" id="sem{{ plan.id }}" {% if plan.incluye_motor_semantico %}checked{% endif %}>
+                                    <label class="form-check-label" for="sem{{ plan.id }}">Motor semántico avanzado</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_agentes" id="age{{ plan.id }}" {% if plan.incluye_agentes %}checked{% endif %}>
+                                    <label class="form-check-label" for="age{{ plan.id }}">Agentes IA especializados</label>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="incluye_actividad_completa" id="act{{ plan.id }}" {% if plan.incluye_actividad_completa %}checked{% endif %}>
+                                    <label class="form-check-label" for="act{{ plan.id }}">Actividad completa</label>
+                                </div>
+                            </div>
+                            
+                            <div class="col-12"><hr></div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" name="activo" id="activo{{ plan.id }}" {% if plan.activo %}checked{% endif %}>
+                                    <label class="form-check-label" for="activo{{ plan.id }}"><strong>Plan activo</strong> (visible en la página de planes)</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <button type="submit" class="btn btn-primary px-4">
+                                    <i class="bi bi-check-lg"></i> Guardar cambios
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
 
 ================================================================================
 ARCHIVO: admin_usuarios.html
@@ -885,9 +1029,18 @@ ARCHIVO: base.html
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto align-items-lg-center">
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a></li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.index') }}#nosotros">Sobre Nosotros</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.servicios') }}">Servicios</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('public.index') }}#equipo">Equipo</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('planes.lista_planes') }}">Planes</a>
+                    </li>
                     <li class="nav-item ms-lg-3">
                         <a class="btn btn-primary" href="{{ url_for('public.contacto') }}">Contacto</a>
                     </li>
@@ -1057,7 +1210,7 @@ ARCHIVO: cafecito.html
                     </li>
                     <li class="mb-2">
                         <i class="bi bi-check-circle-fill text-success me-2"></i>
-                        <strong>Recibirás un badge especial</strong> en tu perfil
+                        <strong>Recibirás un badge especial</strong> en tu perfil por 30 días
                     </li>
                     <li class="mb-2">
                         <i class="bi bi-check-circle-fill text-success me-2"></i>
@@ -1065,7 +1218,7 @@ ARCHIVO: cafecito.html
                     </li>
                     <li>
                         <i class="bi bi-check-circle-fill text-success me-2"></i>
-                        <strong>Ayudarás a seguir construyendo</strong> herramientas para todos
+                        <strong>Ayudarás a seguir construyendo</strong> herramientas gratuitas para todos
                     </li>
                 </ul>
             </div>
@@ -1273,7 +1426,8 @@ ARCHIVO: dashboard_layout.html
                 <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
                     <i class="bi bi-activity me-2"></i> Actividad
                 </a>
-                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}" href="#">
+                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
+                    href="{{ url_for('planes.mi_plan') }}">
                     <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
                 </a>
                 <a class="nav-link {% if active_section == 'cafecito' %}active{% endif %}"
@@ -1304,7 +1458,17 @@ ARCHIVO: dashboard_layout.html
                 <div class="d-flex align-items-center gap-3">
                     <div class="text-end">
                         <div class="small">{{ current_user.email }}</div>
-                        <div class="small text-muted">Cuenta corporativa</div>
+                        {% set user_plan = current_user.user_plan %}
+                        {% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+                        <div class="small">
+                            {% if plan_obj %}
+                                <span class="badge bg-{{ plan_obj.color }}">
+                                    <i class="bi {{ plan_obj.icono }} me-1"></i>{{ plan_obj.display_name }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">Cuenta corporativa</span>
+                            {% endif %}
+                        </div>
                     </div>
                     <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
                         <i class="bi bi-camera-fill"></i>
@@ -1381,146 +1545,260 @@ ARCHIVO: dashboard_user.html
 {% block title %}Mi Dashboard - DatosConsultora{% endblock %}
 
 {% block content %}
-<!-- Fila 1: Mis datos + Transcripción IA -->
+{% set user_plan = current_user.user_plan %}
+{% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+
+<!-- Banner del plan actual -->
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #004d5c 0%, #006d82 100%); color: white;">
+    <div class="card-body p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi {{ plan_obj.icono if plan_obj else 'bi-award' }} fs-2 me-3"></i>
+                    <div>
+                        <h4 class="mb-0 text-white">Plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</h4>
+                        <small class="text-white-50">
+                            {% if plan_obj and plan_obj.precio_mensual == 0 %}
+                                Plan gratuito
+                            {% elif plan_obj and plan_obj.es_lifetime %}
+                                Acceso de por vida
+                            {% else %}
+                                Renovación mensual
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-light">
+                    <i class="bi bi-arrow-up-circle me-2"></i>Mejorar plan
+                </a>
+            </div>
+        </div>
+        
+        <!-- Uso del mes -->
+        <div class="row mt-4 g-3">
+            <div class="col-md-6">
+                <small class="text-white-50">Transcripciones este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_t = user_plan.consumo_transcripciones_mes() if user_plan else 0 %}
+                    {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
+                    {% set pct_t = (consumo_t / limite_t * 100) if limite_t > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else 'success' }}" style="width: {{ pct_t }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_t }} / {{ limite_t if limite_t < 999999 else '∞' }}</small>
+            </div>
+            <div class="col-md-6">
+                <small class="text-white-50">Análisis este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_a = user_plan.consumo_analisis_mes() if user_plan else 0 %}
+                    {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
+                    {% set pct_a = (consumo_a / limite_a * 100) if limite_a > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else 'success' }}" style="width: {{ pct_a }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_a }} / {{ limite_a if limite_a < 999999 else '∞' }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 1: Mis datos + Herramientas disponibles -->
 <div class="row g-4">
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h5 class="text-petroleo fw-bold mb-2">
                     <i class="bi bi-person-badge-fill me-2"></i> Mis datos
                 </h5>
-                <p class="text-muted mb-3">Resumen de tu perfil corporativo.</p>
                 <ul class="list-unstyled mb-0">
-                    <li>
-                        <strong>Nombre:</strong> {{ current_user.nombre }}
-                    </li>
+                    <li><strong>Nombre:</strong> {{ current_user.nombre }}</li>
                     <li>
                         <strong>Email:</strong> {{ current_user.email }}
                         {% if current_user.email_verificado %}
-                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
                         {% else %}
-                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
-                            Pendiente</span>
-                        <a href="{{ url_for('auth.reenviar_verificacion') }}"
-                            class="btn btn-sm btn-outline-primary ms-2">
-                            Reenviar email
-                        </a>
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">Reenviar</a>
                         {% endif %}
                     </li>
                     <li>
                         <strong>Teléfono:</strong> {{ current_user.telefono }}
                         {% if current_user.telefono_verificado %}
-                        <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i> Verificado</span>
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
                         {% else %}
-                        <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i>
-                            Pendiente</span>
-                        <a href="{{ url_for('verificacion.verificar_whatsapp') }}"
-                            class="btn btn-sm btn-outline-success ms-2">
-                            Verificar WhatsApp
-                        </a>
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">Verificar</a>
                         {% endif %}
                     </li>
-                    {% if current_user.profile %}
-                    <li><strong>Empresa:</strong> {{ current_user.profile.empresa or '-' }}</li>
-                    <li><strong>Cargo:</strong> {{ current_user.profile.cargo or '-' }}</li>
-                    <li><strong>País:</strong> {{ current_user.profile.pais or '-' }}</li>
-                    {% endif %}
                 </ul>
-                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal"
-                    data-bs-target="#perfilModal">
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
                     <i class="bi bi-pencil"></i> Editar perfil
                 </button>
             </div>
         </div>
     </div>
 
+    <!-- Herramientas disponibles (plan actual) -->
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                    <i class="bi bi-tools me-2"></i> Herramientas disponibles
                 </h5>
-                <p class="text-muted mb-3">
-                    Subí archivos de audio o video para convertirlos en texto.
-                </p>
-                <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">
-                    Ir a Transcripción
-                </a>
+                <p class="text-muted small">Incluidas en tu plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</p>
+                
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                    </a>
+                    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
+                    </a>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Fila 2: Análisis de Sentimientos + Asistentes IA -->
+<!-- Fila 2: Features premium (bloqueadas o desbloqueadas) -->
+<div class="row g-4 mt-2">
+    <!-- Historial -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_historial %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-folder2-open me-2 text-success"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Motor semántico -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_motor_semantico %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-diagram-3-fill me-2 text-success"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Actividad completa -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_actividad_completa %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-activity me-2 text-success"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Fila 3: Agentes IA (Oro) -->
 <div class="row g-4 mt-2">
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
-                <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
-                </h5>
-                <p class="text-muted mb-3">
-                    Analizá comentarios de redes sociales y obtené insights con IA.
-                </p>
-                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
-                    Analizar Comentarios
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-shield-fill-check me-2 text-success"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
                 </a>
             </div>
         </div>
+        {% endif %}
     </div>
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm opacity-75">
-            <div class="card-body">
-                <h5 class="text-petroleo fw-bold mb-2">
-                    <i class="bi bi-robot me-2"></i> Asistentes IA
-                </h5>
-                <p class="text-muted mb-3">
-                    Próximamente: asistentes conversacionales personalizados.
-                </p>
-                <button class="btn btn-outline-secondary" disabled>Próximamente</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Fila 3: Mis archivos + Actividad + Mi plan -->
-<div class="row g-4 mt-2">
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                    <i class="bi bi-eye-fill me-2 text-success"></i> Agente de Monitoreo
                 </h6>
-                <p class="text-muted mb-0">Más adelante vamos a listar tus archivos subidos.</p>
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
             </div>
         </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
             <div class="card-body">
                 <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-activity me-2"></i> Mi actividad
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente de Monitoreo
                 </h6>
-                <p class="text-muted mb-0">Historial de transcripciones y análisis realizados.</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-4">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-heart-fill text-danger me-2"></i>Invitame un Cafecito
-                </h6>
-                <p class="text-muted mb-3">¿Te gusta DatosConsultora? ¡Invitame un cafecito!</p>
-                <a href="{{ url_for('cafecito.cafecito') }}" class="btn btn-danger btn-sm">
-                    <i class="bi bi-cup-hot-fill me-1"></i>Donar $5.000
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
                 </a>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 
-<!-- Modal Editar Perfil -->
+<!-- Modal Editar Perfil (sin cambios) -->
 <div class="modal fade" id="perfilModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -1532,18 +1810,15 @@ ARCHIVO: dashboard_user.html
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Empresa</label>
-                        <input type="text" name="empresa" class="form-control"
-                            value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                        <input type="text" name="empresa" class="form-control" value="{{ current_user.profile.empresa if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Cargo</label>
-                        <input type="text" name="cargo" class="form-control"
-                            value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                        <input type="text" name="cargo" class="form-control" value="{{ current_user.profile.cargo if current_user.profile else '' }}">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">País</label>
-                        <input type="text" name="pais" class="form-control"
-                            value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                        <input type="text" name="pais" class="form-control" value="{{ current_user.profile.pais if current_user.profile else '' }}">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -1569,7 +1844,7 @@ ARCHIVO: index.html
     <!-- Hero -->
     <section class="hero text-center">
         <div class="container">
-            <h1 class="display-3 fw-bold mb-4">Transformamos Datos,<br>Procesos y Negocios con IA</h1>
+            <h1 class="display-3 fw-bold mb-4">Ayudamos a PyMES e industrias argentinas <br>a ahorrar tiempo mediante <br> automatización e IA.</h1>
             <p class="lead mb-5 fs-5">
                 Somos un equipo de ingenieros, analistas y project managers dedicados a impulsar<br class="d-none d-lg-block">
                 la transformación digital de tu empresa.
@@ -1828,6 +2103,219 @@ body {
 </html>
 
 ================================================================================
+ARCHIVO: mi_plan.html
+================================================================================
+
+<!-- templates/mi_plan.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'plan' %}
+
+{% block title %}Mi Plan - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-credit-card-2-front me-2"></i>Mi Plan
+        </h1>
+        <p class="text-muted">Gestioná tu suscripción y conocé tus beneficios</p>
+    </div>
+    <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary">
+        <i class="bi bi-arrow-up-circle me-2"></i>Ver todos los planes
+    </a>
+</div>
+
+<!-- Plan actual destacado -->
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #004d5c 0%, #006d82 100%); color: white;">
+    <div class="card-body p-5">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <small class="text-white-50 text-uppercase">Tu plan actual</small>
+                <h2 class="text-white fw-bold mb-2">
+                    <i class="bi {{ plan_obj.icono if plan_obj else 'bi-award' }} me-2"></i>
+                    {{ plan_obj.display_name if plan_obj else 'Bronce' }}
+                </h2>
+                <p class="text-white-50 mb-0">{{ plan_obj.descripcion if plan_obj else '' }}</p>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                {% if plan_obj and plan_obj.precio_mensual == 0 %}
+                    <span class="badge bg-success fs-5 px-3 py-2">Gratis</span>
+                {% elif plan_obj and plan_obj.es_lifetime %}
+                    <span class="badge bg-warning text-dark fs-5 px-3 py-2">De por vida</span>
+                {% else %}
+                    <div class="text-white">
+                        <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan_obj.precio_mensual).replace(",", ".") }}</span>
+                        <div class="small text-white-50">/mes</div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Uso del mes -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="text-petroleo fw-bold mb-0">
+                        <i class="bi bi-mic-fill me-2"></i>Transcripciones
+                    </h5>
+                    <span class="badge bg-primary">{{ consumo_transcripciones }} / {{ plan_obj.limite_transcripciones_mes if plan_obj and plan_obj.limite_transcripciones_mes < 999999 else '∞' }}</span>
+                </div>
+                {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
+                {% set pct_t = (consumo_transcripciones / limite_t * 100) if limite_t > 0 and limite_t < 999999 else 0 %}
+                <div class="progress mb-2" style="height: 10px;">
+                    <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else ('warning' if pct_t > 50 else 'success') }}" 
+                         style="width: {{ pct_t }}%"></div>
+                </div>
+                <small class="text-muted">
+                    {% if limite_t >= 999999 %}
+                        Usos ilimitados en tu plan
+                    {% else %}
+                        Te quedan {{ limite_t - consumo_transcripciones }} este mes
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="text-petroleo fw-bold mb-0">
+                        <i class="bi bi-chat-heart-fill me-2"></i>Análisis de sentimientos
+                    </h5>
+                    <span class="badge bg-primary">{{ consumo_analisis }} / {{ plan_obj.limite_analisis_mes if plan_obj and plan_obj.limite_analisis_mes < 999999 else '∞' }}</span>
+                </div>
+                {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
+                {% set pct_a = (consumo_analisis / limite_a * 100) if limite_a > 0 and limite_a < 999999 else 0 %}
+                <div class="progress mb-2" style="height: 10px;">
+                    <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else ('warning' if pct_a > 50 else 'success') }}" 
+                         style="width: {{ pct_a }}%"></div>
+                </div>
+                <small class="text-muted">
+                    {% if limite_a >= 999999 %}
+                        Usos ilimitados en tu plan
+                    {% else %}
+                        Te quedan {{ limite_a - consumo_analisis }} este mes
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features incluidas -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-check-circle-fill text-success me-2"></i>Features incluidas en tu plan
+        </h5>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_historial %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_historial %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Historial completo</strong>
+                        <div class="small text-muted">Acceso a todos tus archivos subidos</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_motor_semantico %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_motor_semantico %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Motor semántico avanzado</strong>
+                        <div class="small text-muted">Interpretación profunda de comentarios</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_agentes %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_agentes %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Agentes IA especializados</strong>
+                        <div class="small text-muted">Judicial y Monitoreo</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center p-3 rounded {% if plan_obj and plan_obj.incluye_actividad_completa %}bg-light{% else %}bg-light opacity-50{% endif %}">
+                    {% if plan_obj and plan_obj.incluye_actividad_completa %}
+                        <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-muted fs-4 me-3"></i>
+                    {% endif %}
+                    <div>
+                        <strong>Actividad completa</strong>
+                        <div class="small text-muted">Historial detallado de toda tu actividad</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comparativa con otros planes -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-arrow-up-circle me-2"></i>Mejorá tu plan
+        </h5>
+        <p class="text-muted mb-4">Desbloqueá más herramientas y límites superiores</p>
+        
+        <div class="row g-3">
+            {% for plan in planes %}
+                {% if plan.nombre != (plan_obj.nombre if plan_obj else 'bronce') %}
+                <div class="col-md-4">
+                    <div class="card h-100 border-2 {% if plan.nombre == 'plata' %}border-secondary{% elif plan.nombre == 'oro' %}border-warning{% elif plan.nombre == 'lifetime' %}border-danger{% else %}border-light{% endif %}">
+                        <div class="card-body text-center p-4">
+                            <i class="bi {{ plan.icono }} fs-1 text-{{ plan.color }} mb-2"></i>
+                            <h5 class="fw-bold text-petroleo">{{ plan.display_name }}</h5>
+                            {% if plan.es_lifetime %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan.precio_lifetime).replace(",", ".") }}</span>
+                                    <div class="small text-muted">Pago único</div>
+                                </div>
+                            {% elif plan.precio_mensual == 0 %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold text-success">Gratis</span>
+                                </div>
+                            {% else %}
+                                <div class="mb-3">
+                                    <span class="fs-4 fw-bold">${{ "{:,.0f}".format(plan.precio_mensual).replace(",", ".") }}</span>
+                                    <div class="small text-muted">/mes</div>
+                                </div>
+                            {% endif %}
+                            <a href="{{ url_for('planes.elegir_plan', nombre_plan=plan.nombre) }}" 
+                               class="btn btn-outline-{{ plan.color }} w-100">
+                                Elegir {{ plan.display_name }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+================================================================================
 ARCHIVO: nosotros.html
 ================================================================================
 
@@ -1887,6 +2375,152 @@ ARCHIVO: nosotros.html
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: planes.html
+================================================================================
+
+<!-- templates/planes.html -->
+{% extends "base.html" %}
+{% block title %}Planes - DatosConsultora{% endblock %}
+
+{% block content %}
+<section class="py-5">
+    <div class="container py-4">
+        <div class="text-center mb-5">
+            <h1 class="display-4 fw-bold text-petroleo">Elegí tu plan</h1>
+            <p class="lead text-peltre">Potenciá tu transformación digital con IA</p>
+            <p class="text-muted">Todos los planes incluyen acceso a las herramientas básicas</p>
+        </div>
+
+        {% if plan_actual %}
+        <div class="alert alert-info text-center mb-4">
+            <i class="bi bi-award-fill me-2"></i>
+            Tu plan actual: <strong>{{ plan_actual.obtener_plan_obj().display_name }}</strong>
+        </div>
+        {% endif %}
+
+        <div class="row g-4">
+            {% for plan in planes %}
+            <div class="col-md-6 col-lg-3">
+                <div class="card h-100 border-0 shadow-sm position-relative 
+                            {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}border border-3 border-primary{% endif %}">
+                    
+                    {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}
+                    <div class="position-absolute top-0 end-0 m-2">
+                        <span class="badge bg-primary">Tu plan actual</span>
+                    </div>
+                    {% endif %}
+                    
+                    {% if plan.nombre == 'oro' %}
+                    <div class="position-absolute top-0 start-0 m-2">
+                        <span class="badge bg-warning text-dark">Más popular</span>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="card-body p-4 text-center">
+                        <i class="bi {{ plan.icono }} fs-1 text-{{ plan.color }} mb-3"></i>
+                        <h3 class="fw-bold text-petroleo">{{ plan.display_name }}</h3>
+                        <p class="text-muted small mb-4">{{ plan.descripcion }}</p>
+                        
+                        {% if plan.es_lifetime %}
+                            <div class="mb-4">
+                                <span class="display-6 fw-bold text-petroleo">
+                                    ${{ "{:,.0f}".format(plan.precio_lifetime).replace(",", ".") }}
+                                </span>
+                                <div class="text-muted small">Pago único</div>
+                            </div>
+                        {% elif plan.precio_mensual == 0 %}
+                            <div class="mb-4">
+                                <span class="display-5 fw-bold text-success">Gratis</span>
+                                <div class="text-muted small">Para siempre</div>
+                            </div>
+                        {% else %}
+                            <div class="mb-4">
+                                <div class="text-muted small">Desde</div>
+                                <span class="display-6 fw-bold text-petroleo">
+                                    ${{ "{:,.0f}".format(plan.precio_mensual).replace(",", ".") }}
+                                </span>
+                                <div class="text-muted small">/mes</div>
+                                <div class="text-success small mt-1">
+                                    O ${{ "{:,.0f}".format(plan.precio_anual).replace(",", ".") }}/año (ahorrás 20%)
+                                </div>
+                            </div>
+                        {% endif %}
+                        
+                        <ul class="list-unstyled text-start mb-4">
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                {{ plan.limite_transcripciones_mes if plan.limite_transcripciones_mes < 999999 else '∞' }} transcripciones/mes
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                {{ plan.limite_analisis_mes if plan.limite_analisis_mes < 999999 else '∞' }} análisis/mes
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_historial %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Historial completo</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Historial completo</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_motor_semantico %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Motor semántico avanzado</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Motor semántico avanzado</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_agentes %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Agentes IA especializados</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Agentes IA especializados</span>
+                                {% endif %}
+                            </li>
+                            <li class="mb-2">
+                                {% if plan.incluye_actividad_completa %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <span>Actividad completa</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-muted me-2"></i>
+                                    <span class="text-muted">Actividad completa</span>
+                                {% endif %}
+                            </li>
+                        </ul>
+                        
+                        {% if plan_actual and plan_actual.plan_obj and plan_actual.plan_obj.nombre == plan.nombre %}
+                            <button class="btn btn-outline-secondary w-100" disabled>Plan actual</button>
+                        {% elif plan.nombre == 'bronce' and not current_user.is_authenticated %}
+                            <a href="{{ url_for('auth.registro') }}" class="btn btn-primary w-100">Empezar gratis</a>
+                        {% elif plan.nombre == 'bronce' %}
+                            <button class="btn btn-outline-primary w-100" disabled>Plan gratuito</button>
+                        {% else %}
+                            <a href="{{ url_for('planes.elegir_plan', nombre_plan=plan.nombre) }}" class="btn btn-primary w-100">
+                                Elegir {{ plan.display_name }}
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="text-center mt-5">
+            <p class="text-muted">
+                <i class="bi bi-shield-check me-2"></i>
+                Todos los pagos son procesados de forma segura por Mercado Pago
+            </p>
         </div>
     </div>
 </section>
@@ -1984,78 +2618,207 @@ body {
 ARCHIVO: servicio_transcripcion.html
 ================================================================================
 
+<!-- templates/servicio_transcripcion.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'transcripciones' %}
 
 {% block title %}Transcripción IA - DatosConsultora{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">Transcripción con IA</h2>
-        <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i> Volver al Panel
-        </a>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-mic-fill me-2"></i>Transcripción con IA
+        </h1>
+        <p class="text-muted">Subí tu audio o video y obtené el texto en minutos</p>
     </div>
-
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-            <p class="text-muted mb-3">Subí tu audio y obtené el texto en minutos.</p>
-            
-            <!-- ✅ CORREGIDO: Se agregó enctype="multipart/form-data" -->
-            <form method="POST" action="{{ url_for('servicios.servicio_transcripcion') }}" enctype="multipart/form-data" id="transcriptForm">
-                <div class="mb-3">
-                    <label for="media" class="form-label fw-bold">Seleccioná tu archivo</label>
-                    <input class="form-control" type="file" id="media" name="media" accept=".mp3,.wav,.m4a" required>
-                    <div class="form-text">Formatos: MP3, WAV, M4A. Máximo 25MB (límite de Groq API).</div>
-                </div>
-                <button type="submit" class="btn btn-primary" id="submitBtn">
-                    <i class="bi bi-mic"></i> Transcribir Ahora
-                </button>
-            </form>
-        </div>
-    </div>
-
-    {% if transcript %}
-    <div class="card shadow-sm border-success">
-        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="bi bi-check-circle"></i> Resultado: {{ filename }}</h5>
-            <div>
-                <button class="btn btn-sm btn-light me-2" onclick="copiarTexto()">
-                    <i class="bi bi-clipboard"></i> Copiar
-                </button>
-                <a href="data:text/plain;charset=utf-8,{{ transcript | urlencode }}" download="{{ filename }}.txt" class="btn btn-sm btn-light">
-                    <i class="bi bi-download"></i> Descargar TXT
-                </a>
-            </div>
-        </div>
-        <div class="card-body">
-            <div class="bg-light p-3 rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap;" id="transcriptText">
-                {{ transcript }}
-            </div>
-            <div class="mt-3 text-muted small">
-                <i class="bi bi-info-circle"></i> La transcripción fue procesada con IA y puede contener errores menores. Revisá el texto antes de usarlo.
-            </div>
-        </div>
-    </div>
-    {% endif %}
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
 </div>
+
+<!-- Card de subida -->
+<div class="card p-5 mb-4 text-center" style="border: 2px dashed #cbd5e1;">
+    <form method="POST" enctype="multipart/form-data" id="uploadForm">
+        <i class="bi bi-cloud-upload text-petroleo" style="font-size: 4rem;"></i>
+        <h4 class="mt-3 mb-3 text-petroleo">Seleccioná tu archivo</h4>
+        <p class="text-muted mb-4">
+            <strong>Audio:</strong> MP3, WAV, M4A, FLAC, OGG<br>
+            <strong>Video:</strong> MP4, MOV, AVI, MKV, WEBM<br>
+            <small>🌐 Detecta automáticamente español, inglés y más.<br>
+            Si el audio es en inglés, te mostramos la transcripción original + traducción al español.</small>
+        </p>
+        <input type="file" name="media" class="form-control mb-3" 
+               accept=".mp3,.wav,.m4a,.mp4,.mov,.avi,.mkv,.webm,.flac,.ogg" required>
+        <button type="submit" class="btn btn-primary btn-lg px-5" id="submitBtn">
+            <i class="bi bi-magic"></i> Transcribir Ahora
+        </button>
+    </form>
+    
+    <!-- Loading indicator -->
+    <div id="loadingIndicator" class="mt-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Procesando...</span>
+        </div>
+        <p class="mt-3 text-muted">
+            <strong>Procesando...</strong><br>
+            <small id="loadingText">Esto puede tardar unos minutos dependiendo del tamaño del archivo.</small>
+        </p>
+    </div>
+</div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for category, message in messages %}
+<div class="alert alert-{{ 'danger' if category == 'error' else ('warning' if category == 'warning' else 'success') }} alert-dismissible fade show">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<!-- Resultado -->
+{% if transcript %}
+<!-- Info del archivo -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <h5 class="text-petroleo mb-0">
+                    <i class="bi bi-file-earmark-play me-2"></i>{{ filename }}
+                </h5>
+            </div>
+            <div class="col-md-6 text-md-end mt-2 mt-md-0">
+                {% if idioma_detectado %}
+                <span class="badge bg-info me-2">
+                    <i class="bi bi-translate me-1"></i>
+                    {% if idioma_detectado == 'es' %}Español
+                    {% elif idioma_detectado == 'en' %}Inglés
+                    {% elif idioma_detectado == 'pt' %}Portugués
+                    {% else %}{{ idioma_detectado }}{% endif %}
+                </span>
+                {% endif %}
+                {% if duracion_total > 0 %}
+                <span class="badge bg-secondary me-2">
+                    <i class="bi bi-clock me-1"></i>{{ (duracion_total / 60)|int }}:{{ "%02d"|format((duracion_total % 60)|int) }} min
+                </span>
+                {% endif %}
+                {% if num_chunks > 1 %}
+                <span class="badge bg-warning text-dark">
+                    <i class="bi bi-layers me-1"></i>{{ num_chunks }} partes
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Transcripción original -->
+<div class="card p-4 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="text-petroleo mb-0">
+            {% if idioma_detectado and idioma_detectado != 'es' %}
+                <i class="bi bi-file-text me-2"></i>Transcripción Original ({{ idioma_detectado|upper }})
+            {% else %}
+                <i class="bi bi-file-text me-2"></i>Transcripción
+            {% endif %}
+        </h5>
+        <div>
+            <button class="btn btn-outline-primary btn-sm me-2" onclick="copiarTexto('transcriptText')">
+                <i class="bi bi-clipboard"></i> Copiar
+            </button>
+            <button class="btn btn-outline-success btn-sm" onclick="descargarTexto('transcriptText', '{{ filename }}_original.txt')">
+                <i class="bi bi-download"></i> Descargar
+            </button>
+        </div>
+    </div>
+    <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 400px; overflow-y: auto;">
+        <pre id="transcriptText" style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ transcript }}</pre>
+    </div>
+</div>
+
+<!-- Traducción al español (si aplica) -->
+{% if transcript_traducido %}
+<div class="card p-4 mb-3" style="border-left: 4px solid #004d5c;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="text-petroleo mb-0">
+            <i class="bi bi-translate me-2"></i>Traducción al Español
+        </h5>
+        <div>
+            <button class="btn btn-outline-primary btn-sm me-2" onclick="copiarTexto('translatedText')">
+                <i class="bi bi-clipboard"></i> Copiar
+            </button>
+            <button class="btn btn-outline-success btn-sm" onclick="descargarTexto('translatedText', '{{ filename }}_traducido.txt')">
+                <i class="bi bi-download"></i> Descargar
+            </button>
+        </div>
+    </div>
+    <div class="p-4 rounded" style="background-color: #f0fdf4; max-height: 400px; overflow-y: auto;">
+        <pre id="translatedText" style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ transcript_traducido }}</pre>
+    </div>
+    <div class="mt-2 text-muted small">
+        <i class="bi bi-info-circle"></i> Traducción generada con IA (Llama 3.3). Revisá antes de usar.
+    </div>
+</div>
+{% endif %}
+
+<!-- Nota final -->
+<div class="text-muted small mt-3">
+    <i class="bi bi-info-circle"></i> 
+    La transcripción fue procesada con Groq Whisper y puede contener errores menores. 
+    Revisá el texto antes de usarlo.
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    function copiarTexto() {
-        const texto = document.getElementById('transcriptText').innerText;
-        navigator.clipboard.writeText(texto).then(() => {
-            alert('¡Texto copiado al portapapeles!');
-        });
+// Mostrar loading al enviar formulario
+document.getElementById('uploadForm').addEventListener('submit', function() {
+    const fileInput = this.querySelector('input[type="file"]');
+    const file = fileInput.files[0];
+    
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('loadingIndicator').style.display = 'block';
+    
+    if (file) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(file.name);
+        
+        let loadingText = `Procesando archivo de ${sizeMB} MB...`;
+        if (isVideo) {
+            loadingText += ' Primero se extraerá el audio del video.';
+        }
+        if (sizeMB > 25) {
+            loadingText += ' El archivo se dividirá en partes para procesar.';
+        }
+        document.getElementById('loadingText').textContent = loadingText;
     }
+});
 
-    document.getElementById('transcriptForm').addEventListener('submit', function() {
-        const btn = document.getElementById('submitBtn');
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Procesando...';
-        btn.disabled = true;
+// Copiar texto al portapapeles
+function copiarTexto(elementId) {
+    const texto = document.getElementById(elementId).innerText;
+    navigator.clipboard.writeText(texto).then(() => {
+        alert('Texto copiado al portapapeles');
     });
+}
+
+// Descargar texto como archivo
+function descargarTexto(elementId, filename) {
+    const texto = document.getElementById(elementId).innerText;
+    const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'transcripcion.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
 </script>
 {% endblock %}
 

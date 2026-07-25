@@ -81,7 +81,8 @@ def create_app():
     from app.routes.verificacion import verificacion_bp
     from app.routes.cafecito import cafecito_bp      
     from app.routes.webhook import webhook_bp        
-    
+    from app.routes.planes import planes_bp
+
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -90,6 +91,7 @@ def create_app():
     app.register_blueprint(verificacion_bp)
     app.register_blueprint(cafecito_bp)             
     app.register_blueprint(webhook_bp)              
+    app.register_blueprint(planes_bp)
     
     return app
 
@@ -264,20 +266,52 @@ class Assistant(db.Model):
 
 
 class UserPlan(db.Model):
+    """Plan actual de un usuario."""
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-    plan = db.Column(db.String(120), default="free")
-    consumo = db.Column(db.Integer, default=0)
-    limite = db.Column(db.Integer, default=100)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'), nullable=True)
+    plan = db.Column(db.String(120), default="bronce")  # Legacy, mantener por compatibilidad
+    consumo_transcripciones = db.Column(db.Integer, default=0)
+    consumo_analisis = db.Column(db.Integer, default=0)
+    limite_transcripciones = db.Column(db.Integer, default=5)
+    limite_analisis = db.Column(db.Integer, default=3)
+    fecha_inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_fin = db.Column(db.DateTime, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
     fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
-    user = db.relationship("User", backref=db.backref("plan", uselist=False))
+    user = db.relationship('User', backref=db.backref('user_plan', uselist=False))
+    plan_obj = db.relationship('Plan')
+    
+    def obtener_plan_obj(self):
+        """Obtiene el objeto Plan del usuario (default: bronce)."""
+        if self.plan_obj:
+            return self.plan_obj
+        return Plan.query.filter_by(nombre='bronce').first()
+    
+    def puede_usar_feature(self, feature):
+        """Verifica si el usuario puede usar una feature."""
+        plan = self.obtener_plan_obj()
+        return plan.tiene_feature(feature) if plan else False
+    
     def tiene_badge_cafecito(self):
         """Verifica si el usuario tiene el badge de cafecito activo."""
         if not self.fecha_expiracion_cafecito:
             return False
-        from datetime import datetime
         return datetime.utcnow() < self.fecha_expiracion_cafecito
-
+    
+    def consumo_transcripciones_mes(self):
+        """Cuenta transcripciones del mes actual."""
+        from app.models import Transcription
+        inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return Transcription.query.filter(
+            Transcription.user_id == self.user_id,
+            Transcription.fecha >= inicio_mes
+        ).count()
+    
+    def consumo_analisis_mes(self):
+        """Cuenta análisis del mes actual (placeholder por ahora)."""
+        return 0  # TODO: implementar cuando tengamos modelo de AnalysisSession
+    
 class Donation(db.Model):
     """Registro de donaciones 'Invitame un cafecito'."""
     id = db.Column(db.Integer, primary_key=True)
@@ -291,16 +325,56 @@ class Donation(db.Model):
     fecha = db.Column(db.DateTime, default=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))
 
+class Plan(db.Model):
+    """Planes disponibles (editables desde el admin)."""
+    __tablename__ = 'plan'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), unique=True, nullable=False)  # bronce, plata, oro, lifetime
+    display_name = db.Column(db.String(100), nullable=False)  # "Bronce", "Plata", etc.
+    descripcion = db.Column(db.Text, default='')
+    precio_mensual = db.Column(db.Float, default=0.0)
+    precio_anual = db.Column(db.Float, default=0.0)
+    precio_lifetime = db.Column(db.Float, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
+    activo = db.Column(db.Boolean, default=True)
+    orden = db.Column(db.Integer, default=0)
+    
+    # Features incluidas
+    incluye_historial = db.Column(db.Boolean, default=False)
+    incluye_motor_semantico = db.Column(db.Boolean, default=False)
+    incluye_agentes = db.Column(db.Boolean, default=False)
+    incluye_actividad_completa = db.Column(db.Boolean, default=False)
+    
+    # Límites de uso
+    limite_transcripciones_mes = db.Column(db.Integer, default=5)
+    limite_analisis_mes = db.Column(db.Integer, default=3)
+    
+    # Icono y color para la UI
+    icono = db.Column(db.String(50), default='bi-award')
+    color = db.Column(db.String(20), default='secondary')
+    
+    def tiene_feature(self, feature):
+        """Verifica si el plan incluye una feature."""
+        features_map = {
+            'historial': self.incluye_historial,
+            'motor_semantico': self.incluye_motor_semantico,
+            'agentes': self.incluye_agentes,
+            'actividad_completa': self.incluye_actividad_completa,
+        }
+        return features_map.get(feature, False)
+
 
 ================================================================================
 ARCHIVO: routes\admin.py
 ================================================================================
 
 # app/routes/admin.py
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
 from app import db
-from app.models import User, ContactSettings, ActivityLog, Role, UserRole
+from app.models import User, ContactSettings, ActivityLog, Role, UserRole, Plan
+from app.services.plan_service import inicializar_planes_por_defecto
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -414,25 +488,68 @@ def admin_usuario_reset_password(user_id):
 @admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
 def admin_usuario_delete(user_id):
     user = User.query.get_or_404(user_id)
-
+    
     if user.id == current_user.id:
         flash("No podés eliminarte a vos mismo", "error")
         return redirect(url_for("admin.admin_usuarios"))
-
+    
     email = user.email
-    db.session.delete(user)
-    db.session.commit()
-
-    log = ActivityLog(
-        user_id=current_user.id,
-        accion="borrar_usuario",
-        detalle=f"Usuario {email} eliminado",
-        ip=request.remote_addr,
-    )
-    db.session.add(log)
-    db.session.commit()
-
-    flash("Usuario eliminado", "success")
+    
+    try:
+        # Eliminar registros relacionados manualmente (en orden)
+        from app.models import (
+            UserProfile, UserFile, Transcription, Assistant,
+            ActivityLog, UserRole, EmailVerificationToken,
+            PasswordResetToken, WhatsAppVerification, UserPlan
+        )
+        
+        # 1. Eliminar archivos subidos (y sus transcripciones)
+        for user_file in UserFile.query.filter_by(user_id=user.id).all():
+            Transcription.query.filter_by(file_id=user_file.id).delete()
+        UserFile.query.filter_by(user_id=user.id).delete()
+        
+        # 2. Eliminar otros registros relacionados
+        UserProfile.query.filter_by(user_id=user.id).delete()
+        Assistant.query.filter_by(user_id=user.id).delete()
+        ActivityLog.query.filter_by(user_id=user.id).delete()
+        UserRole.query.filter_by(user_id=user.id).delete()
+        EmailVerificationToken.query.filter_by(user_id=user.id).delete()
+        PasswordResetToken.query.filter_by(user_id=user.id).delete()
+        WhatsAppVerification.query.filter_by(user_id=user.id).delete()
+        
+        # UserPlan (puede no existir para todos los usuarios)
+        user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+        if user_plan:
+            db.session.delete(user_plan)
+        
+        # Si existe Donation (del sistema de cafecito)
+        try:
+            from app.models import Donation
+            Donation.query.filter_by(user_id=user.id).delete()
+        except:
+            pass
+        
+        # 3. Ahora sí eliminar el usuario
+        db.session.delete(user)
+        db.session.commit()
+        
+        # 4. Registrar el log (con user_id=None porque el usuario ya no existe)
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="borrar_usuario",
+            detalle=f"Usuario {email} eliminado con todos sus datos asociados",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash(f"Usuario {email} eliminado correctamente", "success")
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al eliminar usuario: {str(e)}", "error")
+        current_app.logger.error(f"Error eliminando usuario {email}: {str(e)}")
+    
     return redirect(url_for("admin.admin_usuarios"))
 
 
@@ -482,6 +599,51 @@ def admin_logs():
         )
 
     return render_template("admin_logs.html", logs=logs, tipo=tipo)
+
+# ============================================
+# GESTIÓN DE PLANES (agregado al final del archivo)
+# ============================================
+#from app.models import Plan
+#from app.services.plan_service import inicializar_planes_por_defecto
+
+
+@admin_bp.route("/planes")
+def admin_planes():
+    inicializar_planes_por_defecto()
+    planes = Plan.query.order_by(Plan.orden).all()
+    return render_template("admin_planes.html", planes=planes)
+
+
+@admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
+def admin_plan_editar(plan_id):
+    plan = Plan.query.get_or_404(plan_id)
+    
+    plan.display_name = request.form.get("display_name", plan.display_name)
+    plan.descripcion = request.form.get("descripcion", plan.descripcion)
+    plan.precio_mensual = float(request.form.get("precio_mensual", plan.precio_mensual) or 0)
+    plan.precio_anual = float(request.form.get("precio_anual", plan.precio_anual) or 0)
+    plan.precio_lifetime = float(request.form.get("precio_lifetime", plan.precio_lifetime) or 0) if request.form.get("precio_lifetime") else plan.precio_lifetime
+    plan.limite_transcripciones_mes = int(request.form.get("limite_transcripciones_mes", plan.limite_transcripciones_mes) or 0)
+    plan.limite_analisis_mes = int(request.form.get("limite_analisis_mes", plan.limite_analisis_mes) or 0)
+    plan.incluye_historial = request.form.get("incluye_historial") == "on"
+    plan.incluye_motor_semantico = request.form.get("incluye_motor_semantico") == "on"
+    plan.incluye_agentes = request.form.get("incluye_agentes") == "on"
+    plan.incluye_actividad_completa = request.form.get("incluye_actividad_completa") == "on"
+    plan.activo = request.form.get("activo") == "on"
+    
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="plan_update",
+        detalle=f"Plan '{plan.display_name}' actualizado",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
+    return redirect(url_for("admin.admin_planes"))
 
 ================================================================================
 ARCHIVO: routes\auth.py
@@ -836,6 +998,65 @@ def actualizar_avatar():
     return redirect(url_for("dashboard.dashboard_user"))
 
 ================================================================================
+ARCHIVO: routes\planes.py
+================================================================================
+
+# app/routes/planes.py
+from flask import Blueprint, render_template, flash, redirect, url_for
+from flask_login import login_required, current_user
+from app.services.plan_service import (
+    obtener_plan_usuario,
+    obtener_todos_los_planes,
+    inicializar_planes_por_defecto
+)
+
+planes_bp = Blueprint("planes", __name__)
+
+
+@planes_bp.route("/planes")
+def lista_planes():
+    """Página pública con comparativa de planes."""
+    inicializar_planes_por_defecto()
+    planes = obtener_todos_los_planes()
+    
+    plan_actual = None
+    if current_user.is_authenticated:
+        plan_actual = obtener_plan_usuario(current_user)
+    
+    return render_template(
+        "planes.html",
+        planes=planes,
+        plan_actual=plan_actual
+    )
+
+
+@planes_bp.route("/planes/mi-plan")
+@login_required
+def mi_plan():
+    """Página del plan actual del usuario."""
+    inicializar_planes_por_defecto()
+    user_plan = obtener_plan_usuario(current_user)
+    plan_obj = user_plan.obtener_plan_obj()
+    planes = obtener_todos_los_planes()
+    
+    return render_template(
+        "mi_plan.html",
+        user_plan=user_plan,
+        plan_obj=plan_obj,
+        planes=planes,
+        consumo_transcripciones=user_plan.consumo_transcripciones_mes(),
+        consumo_analisis=user_plan.consumo_analisis_mes()
+    )
+
+
+@planes_bp.route("/planes/elegir/<nombre_plan>")
+@login_required
+def elegir_plan(nombre_plan):
+    """Por ahora solo muestra mensaje 'Próximamente'."""
+    flash(f"🚧 La suscripción al plan {nombre_plan} estará disponible próximamente. ¡Gracias por tu interés!", "info")
+    return redirect(url_for("planes.lista_planes"))
+
+================================================================================
 ARCHIVO: routes\public.py
 ================================================================================
 
@@ -868,74 +1089,87 @@ def contacto():
 ARCHIVO: routes\servicios.py
 ================================================================================
 
+# app/routes/servicios.py
 import os
 import json
-from flask import Blueprint, render_template, request, flash, current_app
+from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
-
 from app import db
 from app.models import UserFile, Transcription
+from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
-from app.services.transcription.groq_backend import GroqBackend
+from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
 
-# ✅ CORREGIDO: __name__ y sin espacios en las extensiones (solo audio por ahora)
 servicios_bp = Blueprint("servicios", __name__)
-ALLOWED_EXT = {"mp3", "wav", "m4a"}
-
+ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
 def servicio_transcripcion():
     transcript = None
+    transcript_traducido = None
     filename = None
+    idioma_detectado = "es"
+    duracion_total = 0
+    num_chunks = 1
     
     if request.method == "POST":
         f = request.files.get("media")
         if f and f.filename:
             ext = f.filename.rsplit(".", 1)[-1].lower()
             if ext in ALLOWED_EXT:
+                puede_usar, uso_actual, limite = puede_transcribir(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
                 filename = secure_filename(f.filename)
                 path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
                 f.save(path)
                 
-                user_file = UserFile(
-                    user_id=current_user.id,
-                    filename=filename,
-                    filepath=path,
-                    tipo="audio",
-                )
+                tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
+                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
                 db.session.add(user_file)
                 db.session.commit()
                 
                 try:
-                    # ✅ LLAMADA REAL A GROQ WHISPER
                     backend = GroqBackend()
-                    transcript = backend.transcribe(path, language="es")
+                    resultado = backend.transcribe(path)
+                    transcript = resultado.get("text", "")
+                    idioma_detectado = resultado.get("language", "es")
+                    duracion_total = resultado.get("duration", 0)
                     
-                    transcription = Transcription(
-                        user_id=current_user.id,
-                        file_id=user_file.id,
-                        texto=transcript,
-                    )
+                    if idioma_detectado and idioma_detectado != "es" and transcript:
+                        try:
+                            from app.services.translation_service import TranslationService
+                            translator = TranslationService()
+                            transcript_traducido = translator.traducir(transcript, idioma_origen=idioma_detectado, idioma_destino="es")
+                        except Exception as e:
+                            print(f"⚠️ Error en traducción: {e}")
+                            transcript_traducido = None
+                    
+                    transcription = Transcription(user_id=current_user.id, file_id=user_file.id, texto=transcript)
                     db.session.add(transcription)
                     db.session.commit()
                     
-                    flash("✅ Transcripción completada con éxito.", "success")
-                except ValueError as e:
-                    flash(f"❌ Error de configuración: {str(e)}", "error")
-                    current_app.logger.error(f"Error de configuración Groq: {e}")
+                    registrar_uso_transcripcion(current_user)
+                    
+                    msg = f"✅ Transcripción completada ({backend.get_name()})"
+                    if idioma_detectado and idioma_detectado != "es":
+                        nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
+                        msg += f" - Idioma detectado: {nombres.get(idioma_detectado, idioma_detectado)}"
+                    flash(msg, "success")
                 except Exception as e:
-                    flash(f"❌ Error transcribiendo el archivo: {str(e)}", "error")
-                    current_app.logger.error(f"Error en transcripción: {e}")
+                    flash(f"❌ Error en la transcripción: {str(e)}", "error")
+                    current_app.logger.error(f"Error transcribiendo: {str(e)}")
             else:
-                flash("❌ Formato no permitido. Usá MP3, WAV o M4A.", "error")
+                flash(f"❌ Formato no permitido. Usá: {', '.join(sorted(ALLOWED_EXT))}", "error")
         else:
             flash("❌ No seleccionaste ningún archivo", "error")
-            
-    return render_template("servicio_transcripcion.html", transcript=transcript, filename=filename)
-
+    
+    return render_template("servicio_transcripcion.html", transcript=transcript, transcript_traducido=transcript_traducido, filename=filename, idioma_detectado=idioma_detectado, duracion_total=duracion_total, num_chunks=num_chunks)
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
@@ -945,7 +1179,7 @@ def analisis_sentimientos():
     comentarios_limpios = []
     red_social = "desconocido"
     error_msg = None
-    paso = "input"  # input | preview | resultado
+    paso = "input"
     
     if request.method == "POST":
         action = request.form.get("action", "analizar")
@@ -956,58 +1190,46 @@ def analisis_sentimientos():
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 if not comentarios_limpios:
-                    flash("⚠️ No se encontraron comentarios válidos. Verificá el texto copiado.", "warning")
+                    flash("⚠️ No se encontraron comentarios válidos.", "warning")
                     paso = "input"
                 else:
                     flash(f"✅ Se detectaron {len(comentarios_limpios)} comentarios ({red_social})", "success")
                     paso = "preview"
             except Exception as e:
-                flash(f"❌ Error limpiando comentarios: {str(e)}", "error")
+                flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
-                
         elif action == "analizar":
             try:
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
                 if request.form.get("comentarios_limpios_json"):
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
                 else:
                     comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
-                    
+                
                 if not comentarios_limpios:
-                    flash("⚠️ No hay comentarios válidos para analizar", "warning")
-                    paso = "input"
-                elif len(comentarios_limpios) > 100:
-                    flash(f"⚠️ Máximo 100 comentarios. Tenés {len(comentarios_limpios)}.", "warning")
+                    flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    comentarios_texto = [
-                        f"[{c['usuario']}]: {c['texto']}" 
-                        for c in comentarios_limpios
-                    ]
+                    comentarios_texto = [f"[{c['usuario']}]: {c['texto']}" for c in comentarios_limpios]
                     client = GroqLLMClient()
                     resultado = client.analizar_sentimientos(comentarios_texto, contexto)
+                    if contexto: resultado["contexto"] = contexto
+                    resultado["red_social"] = red_social
+                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
-                    if contexto:
-                        resultado["contexto"] = contexto
-                        resultado["red_social"] = red_social
-                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
-                    
-                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                        paso = "resultado"
+                    registrar_uso_analisis(current_user)
+                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                    paso = "resultado"
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
-                current_app.logger.error(f"Error en análisis: {error_msg}")
                 paso = "input"
-                
-    return render_template(
-        "analisis_sentimientos.html",
-        resultado=resultado,
-        comentarios_raw=comentarios_raw,
-        comentarios_limpios=comentarios_limpios,
-        red_social=red_social,
-        paso=paso,
-        error_msg=error_msg
-    )
+    
+    return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
 
 ================================================================================
 ARCHIVO: routes\verificacion.py
@@ -1267,6 +1489,139 @@ class MercadoPagoService:
             raise Exception(f"Error verificando pago: {str(e)}")
 
 ================================================================================
+ARCHIVO: services\plan_service.py
+================================================================================
+
+# app/services/plan_service.py
+from app import db
+from app.models import Plan, UserPlan, User
+from datetime import datetime
+
+def inicializar_planes_por_defecto():
+    if Plan.query.count() > 0:
+        return
+    
+    planes = [
+        Plan(nombre='bronce', display_name='Bronce', descripcion='Plan gratuito para empezar.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=0.0, es_lifetime=False, activo=True, orden=1, incluye_historial=False, incluye_motor_semantico=False, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=5, limite_analisis_mes=3, icono='bi-award-fill', color='warning'),
+        Plan(nombre='plata', display_name='Plata', descripcion='Para profesionales.', precio_mensual=15000.0, precio_anual=144000.0, precio_lifetime=250000.0, es_lifetime=False, activo=True, orden=2, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=100, limite_analisis_mes=50, icono='bi-award-fill', color='secondary'),
+        Plan(nombre='oro', display_name='Oro', descripcion='Para empresas.', precio_mensual=35000.0, precio_anual=336000.0, precio_lifetime=600000.0, es_lifetime=False, activo=True, orden=3, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=500, limite_analisis_mes=200, icono='bi-trophy-fill', color='warning'),
+        Plan(nombre='lifetime', display_name='Lifetime', descripcion='Acceso de por vida.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=900000.0, es_lifetime=True, activo=True, orden=4, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=999999, limite_analisis_mes=999999, icono='bi-gem', color='danger'),
+    ]
+    for plan in planes:
+        db.session.add(plan)
+    db.session.commit()
+
+def obtener_plan_usuario(user):
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    if not user_plan:
+        plan_bronce = Plan.query.filter_by(nombre='bronce').first()
+        user_plan = UserPlan(user_id=user.id, plan_id=plan_bronce.id if plan_bronce else None, plan='bronce', limite_transcripciones=5, limite_analisis=3)
+        db.session.add(user_plan)
+        db.session.commit()
+    return user_plan
+
+def obtener_todos_los_planes():
+    return Plan.query.filter_by(activo=True).order_by(Plan.orden).all()
+
+def puede_transcribir(user):
+    user_plan = obtener_plan_usuario(user)
+    plan = user_plan.obtener_plan_obj()
+    limite = plan.limite_transcripciones_mes if plan else 5
+    if limite >= 999999:
+        return True, user_plan.consumo_transcripciones, limite
+    return user_plan.consumo_transcripciones < limite, user_plan.consumo_transcripciones, limite
+
+def registrar_uso_transcripcion(user):
+    user_plan = obtener_plan_usuario(user)
+    user_plan.consumo_transcripciones += 1
+    db.session.commit()
+
+def puede_analizar(user):
+    user_plan = obtener_plan_usuario(user)
+    plan = user_plan.obtener_plan_obj()
+    limite = plan.limite_analisis_mes if plan else 3
+    if limite >= 999999:
+        return True, user_plan.consumo_analisis, limite
+    return user_plan.consumo_analisis < limite, user_plan.consumo_analisis, limite
+
+def registrar_uso_analisis(user):
+    user_plan = obtener_plan_usuario(user)
+    user_plan.consumo_analisis += 1
+    db.session.commit()
+
+================================================================================
+ARCHIVO: services\translation_service.py
+================================================================================
+
+# app/services/translation_service.py
+import os
+from groq import Groq
+
+
+class TranslationService:
+    """Servicio de traducción usando Groq LLM."""
+
+    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "GROQ_API_KEY no configurada en variables de entorno")
+        self.client = Groq(api_key=api_key)
+        self.model = model
+
+    def traducir(self, texto: str, idioma_origen: str = "en", idioma_destino: str = "es") -> str:
+        """
+        Traduce un texto de un idioma a otro.
+        
+        :param texto: Texto a traducir
+        :param idioma_origen: Idioma de origen (ej: 'en', 'es')
+        :param idioma_destino: Idioma de destino (ej: 'es', 'en')
+        :return: Texto traducido
+        """
+        if not texto or not texto.strip():
+            return ""
+
+        if idioma_origen == idioma_destino:
+            return texto
+
+        nombres_idiomas = {
+            "es": "español",
+            "en": "inglés",
+            "pt": "portugués",
+            "fr": "francés",
+            "it": "italiano",
+            "de": "alemán",
+        }
+
+        origen = nombres_idiomas.get(idioma_origen, idioma_origen)
+        destino = nombres_idiomas.get(idioma_destino, idioma_destino)
+
+        prompt = f"""Traducí el siguiente texto de {origen} a {destino}. 
+        Mantené el formato, los párrafos y el tono del original. 
+        Respondé SOLO con la traducción, sin agregar nada más.
+
+        TEXTO A TRADUCIR:
+        {texto}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": f"Sos un traductor profesional de {origen} a {destino}. Traducís de forma natural y precisa. Respondés SOLO con la traducción."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            raise Exception(f"Error traduciendo: {str(e)}")
+
+    def get_name(self) -> str:
+        return f"Groq LLM ({self.model})"
+
+
+================================================================================
 ARCHIVO: services\analysis\__init__.py
 ================================================================================
 
@@ -1339,29 +1694,23 @@ class GroqLLMClient:
     
     def analizar_sentimientos(self, comentarios: list, contexto: str = "") -> dict:
         """
-        Analiza sentimientos de una lista de comentarios.
-        
-        :param comentarios: Lista de strings con los comentarios (ya limpios)
-        :param contexto: Contexto opcional del análisis
-        :return: Dict con análisis detallado
+        Analiza sentimientos de una lista de comentarios con mayor precisión.
         """
-        # Validar cantidad
         if len(comentarios) > 100:
             raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
         
         comentarios_texto = "\n".join([f"{i+1}. {c}" for i, c in enumerate(comentarios)])
+        contexto_texto = f"\nCONTEXTO ESPECÍFICO: {contexto}" if contexto else "\nCONTEXTO ESPECÍFICO: Análisis general de redes sociales sin contexto adicional."
         
-        contexto_texto = f"\nCONTEXTO: {contexto}" if contexto else ""
-        
-        prompt = f"""Eres un analista experto en sentimientos de redes sociales en español.
+        prompt = f"""Sos un analista senior de datos y sentimientos en redes sociales, especializado en el mercado y la jerga argentina. Tu objetivo es proporcionar un análisis profundo, detectando no solo el sentimiento básico, sino también ironía, sarcasmo, quejas constructivas y matices.
 
-Analizá los siguientes {len(comentarios)} comentarios y devolvé SOLO un JSON válido (sin markdown, sin texto adicional) con esta estructura EXACTA:
+Analizá los siguientes {len(comentarios)} comentarios y devolvé EXCLUSIVAMENTE un objeto JSON válido (sin markdown, sin texto antes o después, sin saltos de línea dentro de los strings) con esta estructura exacta:
 
 {{
   "analisis_individual": [
-    {{"numero": 1, "sentimiento": "positivo|neutral|negativo", "confianza": 0.95, "resumen_corto": "frase corta de máximo 10 palabras"}}
+    {{"numero": 1, "sentimiento": "positivo|neutral|negativo", "confianza": 0.95, "resumen_corto": "Explicación breve de POR QUÉ tiene ese sentimiento, detectando si hay ironía (máx 15 palabras)"}}
   ],
-  "resumen_general": "párrafo de 2-3 oraciones con el panorama general",
+  "resumen_general": "Párrafo de 2-3 oraciones que sintetice el panorama general, mencionando si hay polarización, consenso o un sentimiento predominante.",
   "estadisticas": {{
     "total": {len(comentarios)},
     "positivos": 0,
@@ -1373,18 +1722,19 @@ Analizá los siguientes {len(comentarios)} comentarios y devolvé SOLO un JSON v
   }},
   "temas_principales": ["tema1", "tema2", "tema3"],
   "palabras_clave": ["palabra1", "palabra2", "palabra3"],
-  "tono_general": "descripción breve del tono predominante",
-  "insights": ["insight1", "insight2", "insight3"],
-  "recomendaciones": ["recomendacion1", "recomendacion2"]
+  "tono_general": "Descripción precisa del tono (ej: 'Mayormente sarcástico con toques de frustración', 'Entusiasta y colaborativo')",
+  "insights": ["Insight accionable 1 basado en datos", "Insight accionable 2", "Insight accionable 3"],
+  "recomendaciones": ["Recomendación estratégica 1", "Recomendación estratégica 2"]
 }}
 
-REGLAS IMPORTANTES:
-- Respondé SOLO con el JSON, sin texto antes ni después
-- No uses markdown (ni ```json ni ```)
-- Escapá correctamente las comillas dentro de strings
-- Los strings NO deben contener saltos de línea
-- La suma de positivos + neutrales + negativos debe ser igual a "total"
-- Los porcentajes deben sumar 100{contexto_texto}
+REGLAS ESTRICTAS DE ANÁLISIS:
+1. SARCASMO E IRONÍA: Prestá mucha atención. Un "¡Qué genial!" en un contexto de queja es negativo. La jerga argentina (ej: "groso", "pésimo", "llayllora") debe interpretarse en su contexto cultural.
+2. COMENTARIOS MIXTOS: Si un comentario tiene aspectos positivos y negativos, clasificá según el sentimiento que predomina o el que representa el mayor dolor/valor para el usuario.
+3. CONTEXTO: Usá el "CONTEXTO ESPECÍFICO" provisto para desambiguar términos, nombres propios o situaciones del sector.
+4. MATEMÁTICAS: La suma de positivos + neutrales + negativos DEBE ser exactamente igual a "total". Los porcentajes DEBEN sumar 100. Redondeá a números enteros.
+5. FORMATO JSON: Respondé SOLO con el JSON. No uses ```json ni ```. Escapá correctamente las comillas dobles dentro de los strings. No uses saltos de línea (\n) dentro de los valores de texto.
+
+{contexto_texto}
 
 COMENTARIOS A ANALIZAR:
 {comentarios_texto}"""
@@ -1404,8 +1754,8 @@ COMENTARIOS A ANALIZAR:
                         },
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.2 if intento == 0 else 0.1,  # Más determinístico en retries
-                    max_tokens=3000,  # Aumentado para respuestas largas
+                    temperature=0.15 if intento == 0 else 0.05,  # Más bajo para máxima precisión y determinismo
+                    max_tokens=3500,  # Aumentado ligeramente para análisis más detallados
                 )
                 
                 contenido = response.choices[0].message.content.strip()
@@ -1710,16 +2060,16 @@ ARCHIVO: services\transcription\audio_utils.py
 
 # app/services/transcription/audio_utils.py
 import os
-from pydub import AudioSegment
 import tempfile
+from pydub import AudioSegment
 
 
 def extract_audio_from_video(video_path: str, output_format: str = "mp3") -> str:
     """
-    Extrae audio de un archivo de video.
+    Extrae audio de un archivo de video usando pydub (requiere FFmpeg).
     
     :param video_path: Ruta al archivo de video
-    :param output_format: Formato de salida (mp3, wav, etc.)
+    :param output_format: Formato de salida (mp3 recomendado)
     :return: Ruta al archivo de audio extraído
     """
     try:
@@ -1730,7 +2080,8 @@ def extract_audio_from_video(video_path: str, output_format: str = "mp3") -> str
         base_name = os.path.splitext(os.path.basename(video_path))[0]
         output_path = os.path.join(temp_dir, f"{base_name}_audio.{output_format}")
         
-        audio.export(output_path, format=output_format)
+        # Exportar como MP3 a 128kbps (buen balance calidad/tamaño)
+        audio.export(output_path, format=output_format, bitrate="128k")
         return output_path
     except Exception as e:
         raise Exception(f"Error extrayendo audio de video: {str(e)}")
@@ -1738,7 +2089,7 @@ def extract_audio_from_video(video_path: str, output_format: str = "mp3") -> str
 
 def split_audio_file(file_path: str, max_size_mb: int = 24) -> list:
     """
-    Divide un archivo de audio en chunks más pequeños.
+    Divide un archivo de audio en chunks de máximo 24MB (límite de Groq).
     
     :param file_path: Ruta al archivo de audio
     :param max_size_mb: Tamaño máximo de cada chunk en MB
@@ -1752,7 +2103,6 @@ def split_audio_file(file_path: str, max_size_mb: int = 24) -> list:
     try:
         audio = AudioSegment.from_file(file_path)
         
-        # Calcular duración de cada chunk
         num_chunks = int(file_size_mb / max_size_mb) + 1
         chunk_duration_ms = len(audio) // num_chunks
         
@@ -1766,7 +2116,7 @@ def split_audio_file(file_path: str, max_size_mb: int = 24) -> list:
             
             chunk = audio[start_ms:end_ms]
             chunk_path = os.path.join(temp_dir, f"{base_name}_chunk_{i}.mp3")
-            chunk.export(chunk_path, format="mp3")
+            chunk.export(chunk_path, format="mp3", bitrate="128k")
             chunks.append(chunk_path)
         
         return chunks
@@ -1791,19 +2141,22 @@ def is_audio_file(file_path: str) -> bool:
 def prepare_for_transcription(file_path: str) -> list:
     """
     Prepara un archivo para transcripción:
-    - Si es video, extrae el audio
-    - Si es muy grande, lo divide en chunks
+    1. Si es video → extrae el audio
+    2. Si el audio es >24MB → lo divide en chunks
     
     :param file_path: Ruta al archivo original
-    :return: Lista de archivos listos para transcribir
+    :return: Lista de archivos de audio listos para transcribir
     """
     # Si es video, extraer audio
     if is_video_file(file_path):
+        print(f"📹 Extrayendo audio de video: {file_path}")
         audio_path = extract_audio_from_video(file_path)
         file_path = audio_path
+        print(f"🎵 Audio extraído: {file_path}")
     
-    # Dividir si es necesario (límite de 25MB para APIs)
+    # Dividir si es necesario (límite de 25MB para Groq)
     chunks = split_audio_file(file_path, max_size_mb=24)
+    print(f"📦 Archivo dividido en {len(chunks)} chunk(s)")
     
     return chunks
 
@@ -1863,11 +2216,9 @@ ARCHIVO: services\transcription\groq_backend.py
 # app/services/transcription/groq_backend.py
 import os
 from groq import Groq
-from .base import TranscriptionBackend
 
-
-class GroqBackend(TranscriptionBackend):
-    """Backend de transcripción usando Groq Whisper API (gratis)."""
+class GroqBackend:
+    """Backend de transcripción usando Groq Whisper API (soporta audio y video nativamente)."""
     
     def __init__(self):
         api_key = os.environ.get("GROQ_API_KEY")
@@ -1875,18 +2226,32 @@ class GroqBackend(TranscriptionBackend):
             raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
         self.client = Groq(api_key=api_key)
     
-    def transcribe(self, file_path: str, language: str = "es") -> str:
-        """Transcribe archivo usando Groq Whisper API."""
+    def transcribe(self, file_path: str, language: str = None) -> dict:
         try:
             with open(file_path, "rb") as file:
-                transcription = self.client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=file,
-                    language=language,
-                    response_format="text",
-                    temperature=0.0
-                )
-            return transcription
+                kwargs = {
+                    "model": "whisper-large-v3",
+                    "file": file,
+                    "response_format": "verbose_json",
+                    "temperature": 0.0,
+                }
+                if language:
+                    kwargs["language"] = language
+                
+                transcription = self.client.audio.transcriptions.create(**kwargs)
+                
+                if hasattr(transcription, 'text'):
+                    return {
+                        "text": transcription.text or "",
+                        "language": getattr(transcription, 'language', language or "es"),
+                        "duration": getattr(transcription, 'duration', 0),
+                    }
+                else:
+                    return {
+                        "text": str(transcription),
+                        "language": language or "es",
+                        "duration": 0,
+                    }
         except Exception as e:
             raise Exception(f"Error transcribiendo con Groq: {str(e)}")
     
