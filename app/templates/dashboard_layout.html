@@ -96,7 +96,7 @@
                 <a class="nav-link {% if active_section == 'datos' %}active{% endif %}" href="#">
                     <i class="bi bi-person-badge-fill me-2"></i> Mis datos
                 </a>
-                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="#">
+                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="{{ url_for('historial.mi_historial') }}">
                     <i class="bi bi-folder2-open me-2"></i> Mis archivos
                 </a>
                 <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}" href="#">

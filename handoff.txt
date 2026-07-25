@@ -1,0 +1,733 @@
+📋 DOCUMENTO DE HANDOFF COMPLETO - DatosConsultora
+Fecha: 25 de julio de 2026
+URL de producción: https://datos-consultora.onrender.com
+Repositorio GitHub: https://github.com/astiazu/datosconsultora
+🎯 RESUMEN EJECUTIVO
+DatosConsultora es una plataforma SaaS argentina de transformación digital con IA. Ofrece:
+✅ Transcripción de audio/video (Groq Whisper API, soporta español e inglés con traducción automática)
+✅ Análisis de sentimientos de comentarios de redes sociales (Groq LLM Llama 3.3, con detección de sarcasmo/ironía)
+✅ Sistema de autenticación completo (email + WhatsApp)
+✅ Panel admin con gestión de usuarios, configuración y planes
+✅ Sistema de planes (Bronce/Plata/Oro/Lifetime) con límites de uso
+✅ Sistema de donaciones "Invitame un Cafecito" con Mercado Pago
+Estado actual: Funcionando en producción (Render + PostgreSQL), con bugs menores pendientes.
+🛠️ STACK TECNOLÓGICO
+Capa
+Tecnología
+Versión
+Backend
+Flask
+3.0.0
+ORM
+Flask-SQLAlchemy
+3.1.1
+Autenticación
+Flask-Login
+0.6.3
+Email
+Flask-Mail
+0.10.0
+IA Transcripción
+Groq (Whisper large-v3)
+0.9.0
+IA Análisis
+Groq (Llama 3.3 70B)
+0.9.0
+IA Traducción
+Groq (Llama 3.3 70B)
+0.9.0
+BD Producción
+PostgreSQL
+(Render)
+BD Local
+SQLite
+-
+Servidor WSGI
+Gunicorn
+21.2.0
+Driver BD
+psycopg[binary]
+>=3.1.0
+Python
+3.11.9
+(forzado en Render)
+Frontend
+Bootstrap 5.3.2 + Bootstrap Icons
+CDN
+Pagos
+Mercado Pago
+2.2.3
+Hosting
+Render.com
+Free tier
+📁 ESTRUCTURA DEL PROYECTO
+datosconsultora_app/
+├── app/
+│   ├── __init__.py                    # Factory pattern + init_db + app = create_app()
+│   ├── models.py                      # 15 modelos SQLAlchemy
+│   ├── routes/
+│   │   ├── admin.py                   # Panel admin completo + gestión de planes
+│   │   ├── auth.py                    # Login/registro/verificación email
+│   │   ├── cafecito.py                # Sistema de donaciones Mercado Pago
+│   │   ├── dashboard.py               # Dashboard usuario + perfil/avatar
+│   │   ├── planes.py                  # Gestión de planes (lista, mi-plan, elegir)
+│   │   ├── public.py                  # Rutas públicas (home, servicios, etc.)
+│   │   ├── servicios.py               # Transcripción + análisis sentimientos
+│   │   ├── verificacion.py            # Verificación email + WhatsApp
+│   │   └── webhook.py                 # Webhook Mercado Pago
+│   ├── services/
+│   │   ├── analysis/
+│   │   │   ├── __init__.py
+│   │   │   ├── groq_llm.py            # Cliente LLM para análisis
+│   │   │   └── text_cleaner.py        # Limpieza de comentarios X/FB/IG
+│   │   ├── transcription/
+│   │   │   ├── __init__.py
+│   │   │   └── groq_backend.py        # Cliente Whisper de Groq
+│   │   ├── mercadopago_service.py     # Cliente Mercado Pago
+│   │   ├── plan_service.py            # Lógica de planes y límites
+│   │   └── translation_service.py     # Servicio de traducción con LLM
+│   └── utils/
+│       ├── __init__.py
+│       ├── decorators.py              # @active_required, @role_required
+│       ├── logs.py                    # Helper ActivityLog
+│       └── verificacion.py            # Tokens email + códigos WhatsApp
+├── templates/
+│   ├── base.html                      # Layout público
+│   ├── dashboard_layout.html          # Layout del dashboard (sidebar + topbar)
+│   ├── index.html                     # Landing page
+│   ├── login.html / registro.html
+│   ├── dashboard_user.html            # Dashboard con sistema de planes
+│   ├── admin_panel.html / admin_config.html / admin_logs.html / admin_usuarios.html
+│   ├── admin_planes.html              # Gestión de planes (admin)
+│   ├── servicio_transcripcion.html    # Transcripción con traducción
+│   ├── analisis_sentimientos.html     # Análisis de sentimientos
+│   ├── cafecito.html                  # Página de donación
+│   ├── planes.html                    # Comparativa de planes (pública)
+│   ├── mi_plan.html                   # Página de plan actual del usuario
+│   ├── verificar_whatsapp.html
+│   └── [otros templates]
+├── static/
+│   └── css/styles.css                 # Paleta petroleo/celeste
+├── instance/
+│   └── datosconsultora.db             # SQLite local (NO subir a git)
+├── uploads/                           # Archivos subidos (NO subir a git)
+├── .env                               # Variables locales (NO subir a git)
+├── .gitignore
+├── Procfile                           # web: gunicorn app:app
+├── runtime.txt                        # python-3.11.9
+├── requirements.txt
+└── run.py                             # Entry point local
+🗄️ MODELOS DE BASE DE DATOS
+Modelo / Propósito
+User     Usuarios (nombre, email, teléfono, password_hash, flags admin/verificación)
+ContactSettings / Configuración global del sitio (emails, WhatsApp, marca, slogan)
+Role / UserRole / Sistema de roles (admin, usuario)
+ActivityLog / Auditoría de acciones (login, logout, cambios)
+UserProfile / Perfil extendido (empresa, cargo, país, avatar)
+EmailVerificationToken / Tokens para verificación de email
+PasswordResetToken / Tokens para reset de contraseña (NO implementado aún)
+WhatsAppVerification / Códigos de 6 dígitos para verificar WhatsApp
+UserFile / Archivos subidos por usuarios
+Transcription / Transcripciones guardadas
+Assistant / Asistentes IA personalizados (placeholder)
+Plan / Planes disponibles (Bronce/Plata/Oro/Lifetime) con precios y features
+UserPlan / Plan actual del usuario + consumo + límites
+Donation / Registro de donaciones "Cafecito"
+Estructura de Planes Plan Precio Mensual Precio Anual Lifetime Límites
+🥉 Bronce $0 $0 $0 5 transcripciones/mes, 3 análisis/mes
+🥈 Plata $15.000 $144.000 $250.000 100 transc/mes, 50 análisis/mes + Historial + Motor Semántico
+🥇 Oro $35.000 $336.000 $600.000 500 transc/mes, 200 análisis/mes + Agentes + Actividad completa
+💎 Lifetime - - $900.000 Ilimitado + Todo incluido 
+🔑 VARIABLES DE ENTORNO
+En Render (Dashboard → Environment):
+En local (.env):
+Mismas variables + DATABASE_URL no definido (usa SQLite por defecto).
+✅ ESTADO ACTUAL - QUÉ FUNCIONA
+Feature Estado Notas 
+Landing page pública ✅ Funcional Home, servicios, nosotros, contacto
+Registro de usuarios ✅ Funcional Con validaciones
+Login / Logout ✅ Funcional Con ActivityLog
+Verificación de email ✅ Funcional Token + link vía Gmail SMTP
+Verificación WhatsApp ⚠️ Parcial Genera código, link wa.me funciona, pero es manual
+Dashboard usuario ✅ Funcional Con badges de verificación + plan actual + uso del mes
+Panel admin ✅ Funcional Usuarios, config, logs, planes
+Transcripción audio/video ✅ Funcional Vía Groq Whisper API, soporta español e inglés
+Traducción automática ✅ Funcional Si el audio es en inglés, muestra original + traducción al español
+Análisis de sentimientos ✅ Funcional Con limpieza de X/FB/IG, detección de sarcasmo/ironía
+Sistema de planes ✅ Funcional 4 planes con límites de uso, comparativa visual
+Gestión de planes (admin) ✅ Funcional Editar precios, límites, features
+Sistema de donaciones ✅ Funcional Mercado Pago, badge por 30 días
+Deploy en Render ✅ Funcional PostgreSQL + Gunicorn
+Email transaccional ✅ Funcional Gmail SMTP con App Password
+Avatar de usuario ⚠️ Parcial Sube pero no persiste en Render (filesystem efímero)
+Reset de contraseña ❌ No implementado Modelo existe, ruta no
+Sistema de pagos recurrentes ❌ No implementado Solo donaciones únicas por ahora
+Asistentes IA ❌ No implementado Modelo existe, UI placeholder
+Histórico de archivos ❌ No implementado Se guardan en BD pero no se listan
+Motor semántico avanzado ❌ No implementado Placeholder en UI
+Agentes (Judicial/Monitoreo) ❌ No implementado Placeholder en UI
+🐛 BUGS CONOCIDOS / ISSUES PENDIENTES 
+🔴 Críticos (YA RESUELTOS)
+✅ servicios.py tenía espacios en strings - Corregido
+✅ Blueprint("servicios", name) - Cambiado a __name__
+✅ Falta app = create_app() en __init__.py - Agregado
+✅ psycopg2-binary no compila en Python 3.14 - Cambiado a psycopg[binary]
+✅ templates/verificar_whatsapp.html bloque duplicado - Corregido
+✅ templates/admin_config.html usa ss en vez de cs - Corregido
+✅ templates/dashboard_user.html div huérfano - Corregido
+✅ templates/dashboard_layout.html modal de avatar apunta mal - Corregido
+✅ Falta importar redirect, url_for, puede_transcribir, etc. en servicios.py - Agregados
+✅ Falta función registrar_uso_transcripcion en plan_service.py - Agregada
+✅ Template servicio_transcripcion.html usa num_chunks no definido - Agregado al render_template
+✅ Template mi_plan.html no existe - Creado
+🟡 Medios (Pendientes)
+Archivos subidos no persisten en Render - Render tiene filesystem efímero, migrar a Cloudinary o S3
+Avatar por defecto da 404 - Falta static/img/default-avatar.png, usar ícono Bootstrap
+Reset mensual de consumo - Agregar script cron para poner consumo_transcripciones = 0 el día 1 de cada mes
+🟢 Menores
+Templates legacy a borrar: admin_perfil.html, dashboard.html, landing.html
+Integración suscripciones recurrentes Mercado Pago - Solo donaciones únicas por ahora
+🎯 DECISIONES TÉCNICAS CLAVE
+¿Por qué Render y no Heroku/Vercel?
+Render soporta PostgreSQL gratis (90 días, después $7/mes)
+Deploy automático desde GitHub
+HTTPS automático
+Soporta todas las APIs externas (Gmail, Groq, WhatsApp, Mercado Pago)
+¿Por qué Groq y no OpenAI directo?
+Gratis (7,200 requests/día)
+Muy rápido (inferencia optimizada)
+Mismo modelo (Whisper) que OpenAI
+Para análisis de sentimientos usa Llama 3.3 70B
+Para traducción usa Llama 3.3 70B
+¿Por qué verificación WhatsApp manual?
+API oficial de WhatsApp Business requiere aprobación de Meta (semanas) y costo por mensaje
+Solución actual: código de 6 dígitos + link wa.me con mensaje prellenado
+El usuario envía el mensaje manualmente y luego ingresa el código
+¿Por qué PostgreSQL y no SQLite en producción?
+Render tiene filesystem efímero → SQLite se borra en cada deploy
+PostgreSQL es persistente y gratis en Render (90 días)
+¿Por qué no FFmpeg en Render?
+Render plan gratuito NO permite apt-get install
+Groq Whisper soporta video nativamente (MP4, MOV, etc.)
+No necesitamos extraer audio con pydub/ffmpeg
+Enviamos el archivo directo a Groq
+Arquitectura dual de BD
+El app/__init__.py detecta automáticamente:
+Si hay DATABASE_URL → usa PostgreSQL (Render)
+Si no → usa SQLite (desarrollo local)
+📝 ARCHIVOS CLAVE CON CONTENIDO ACTUAL
+1. app/__init__.py (COMPLETO Y CORREGIDO)
+# app/__init__.py
+import os
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
+from flask_mail import Mail
+from dotenv import load_dotenv
+
+load_dotenv()
+
+db = SQLAlchemy()
+login_manager = LoginManager()
+mail = Mail()
+
+login_manager.login_view = "auth.login"
+login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
+
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esto-en-desarrollo")
+    
+    # Soporte dual: PostgreSQL (Render) o SQLite (local)
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        SQLALCHEMY_DATABASE_URI = database_url
+    else:
+        SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
+    
+    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
+    MAX_CONTENT_LENGTH = 200 * 1024 * 1024
+    
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = True
+    MAIL_USE_SSL = False
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get(
+        "MAIL_DEFAULT_SENDER", 
+        "DatosConsultora <noreply@datosconsultora.ar>"
+    )
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    
+    db.init_app(app)
+    login_manager.init_app(app)
+    mail.init_app(app)
+    
+    from app.models import User, ContactSettings
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+    
+    @app.context_processor
+    def inject_contact():
+        cs = ContactSettings.query.first()
+        return dict(contact=cs)
+    
+    from app.routes.public import public_bp
+    from app.routes.auth import auth_bp
+    from app.routes.dashboard import dashboard_bp
+    from app.routes.admin import admin_bp
+    from app.routes.servicios import servicios_bp
+    from app.routes.verificacion import verificacion_bp
+    from app.routes.planes import planes_bp
+    from app.routes.cafecito import cafecito_bp
+    from app.routes.webhook import webhook_bp
+    
+    app.register_blueprint(public_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(servicios_bp)
+    app.register_blueprint(verificacion_bp)
+    app.register_blueprint(planes_bp)
+    app.register_blueprint(cafecito_bp)
+    app.register_blueprint(webhook_bp)
+    
+    return app
+
+
+def init_db(app):
+    from app.models import User, ContactSettings, Role
+    
+    with app.app_context():
+        db.create_all()
+        
+        if not ContactSettings.query.first():
+            db.session.add(ContactSettings())
+        
+        if not Role.query.filter_by(nombre="admin").first():
+            db.session.add(Role(nombre="admin", descripcion="Administrador del sistema"))
+            db.session.add(Role(nombre="usuario", descripcion="Usuario estándar"))
+        
+        if not User.query.filter_by(email="admin@datosconsultora.ar").first():
+            admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+            u = User(
+                nombre="Admin",
+                email="admin@datosconsultora.ar",
+                telefono="5491100000000",
+                is_admin=True,
+                is_active_account=True,
+                email_verificado=True,
+                telefono_verificado=True,
+            )
+            u.set_password(admin_pw)
+            db.session.add(u)
+        
+        db.session.commit()
+
+
+# ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
+app = create_app()
+
+# ⭐ Inicializar la BD automáticamente al arrancar
+with app.app_context():
+    init_db(app)
+
+2. app/routes/servicios.py (COMPLETO Y CORREGIDO)
+# app/routes/servicios.py
+import os
+import json
+from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
+from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
+from app import db
+from app.models import UserFile, Transcription
+from app.services.transcription.groq_backend import GroqBackend
+from app.services.analysis import GroqLLMClient
+from app.services.analysis.text_cleaner import limpiar_comentarios
+from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
+
+servicios_bp = Blueprint("servicios", __name__)
+ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
+
+@servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
+@login_required
+def servicio_transcripcion():
+    transcript = None
+    transcript_traducido = None
+    filename = None
+    idioma_detectado = "es"
+    duracion_total = 0
+    num_chunks = 1
+    
+    if request.method == "POST":
+        f = request.files.get("media")
+        if f and f.filename:
+            ext = f.filename.rsplit(".", 1)[-1].lower()
+            if ext in ALLOWED_EXT:
+                # 1️⃣ VERIFICAR LÍMITE DEL PLAN
+                puede_usar, uso_actual, limite = puede_transcribir(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
+                filename = secure_filename(f.filename)
+                path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+                f.save(path)
+                
+                tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
+                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
+                db.session.add(user_file)
+                db.session.commit()
+                
+                try:
+                    backend = GroqBackend()
+                    resultado = backend.transcribe(path)
+                    transcript = resultado.get("text", "")
+                    idioma_detectado = resultado.get("language", "es")
+                    duracion_total = resultado.get("duration", 0)
+                    
+                    # Si el idioma detectado NO es español, traducir
+                    if idioma_detectado and idioma_detectado != "es" and transcript:
+                        try:
+                            from app.services.translation_service import TranslationService
+                            translator = TranslationService()
+                            transcript_traducido = translator.traducir(transcript, idioma_origen=idioma_detectado, idioma_destino="es")
+                        except Exception as e:
+                            print(f"⚠️ Error en traducción: {e}")
+                            transcript_traducido = None
+                    
+                    transcription = Transcription(user_id=current_user.id, file_id=user_file.id, texto=transcript)
+                    db.session.add(transcription)
+                    db.session.commit()
+                    
+                    # 2️⃣ REGISTRAR EL USO EXITOSO (+1 al contador)
+                    registrar_uso_transcripcion(current_user)
+                    
+                    msg = f"✅ Transcripción completada ({backend.get_name()})"
+                    if idioma_detectado and idioma_detectado != "es":
+                        nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
+                        msg += f" - Idioma detectado: {nombres.get(idioma_detectado, idioma_detectado)}"
+                    flash(msg, "success")
+                except Exception as e:
+                    flash(f"❌ Error en la transcripción: {str(e)}", "error")
+                    current_app.logger.error(f"Error transcribiendo: {str(e)}")
+            else:
+                flash(f"❌ Formato no permitido. Usá: {', '.join(sorted(ALLOWED_EXT))}", "error")
+        else:
+            flash("❌ No seleccionaste ningún archivo", "error")
+    
+    return render_template("servicio_transcripcion.html", transcript=transcript, transcript_traducido=transcript_traducido, filename=filename, idioma_detectado=idioma_detectado, duracion_total=duracion_total, num_chunks=num_chunks)
+
+@servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
+@login_required
+def analisis_sentimientos():
+    resultado = None
+    comentarios_raw = ""
+    comentarios_limpios = []
+    red_social = "desconocido"
+    error_msg = None
+    paso = "input"
+    
+    if request.method == "POST":
+        action = request.form.get("action", "analizar")
+        comentarios_raw = request.form.get("comentarios", "").strip()
+        contexto = request.form.get("contexto", "").strip()
+        
+        if action == "limpiar":
+            try:
+                comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                if not comentarios_limpios:
+                    flash("⚠️ No se encontraron comentarios válidos.", "warning")
+                    paso = "input"
+                else:
+                    flash(f"✅ Se detectaron {len(comentarios_limpios)} comentarios ({red_social})", "success")
+                    paso = "preview"
+            except Exception as e:
+                flash(f"❌ Error limpiando: {str(e)}", "error")
+                paso = "input"
+        elif action == "analizar":
+            try:
+                # 1️⃣ VERIFICAR LÍMITE DEL PLAN
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
+                if request.form.get("comentarios_limpios_json"):
+                    comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
+                else:
+                    comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                
+                if not comentarios_limpios:
+                    flash("⚠️ No hay comentarios válidos.", "warning")
+                    paso = "input"
+                else:
+                    comentarios_texto = [f"[{c['usuario']}]: {c['texto']}" for c in comentarios_limpios]
+                    client = GroqLLMClient()
+                    resultado = client.analizar_sentimientos(comentarios_texto, contexto)
+                    if contexto: resultado["contexto"] = contexto
+                    resultado["red_social"] = red_social
+                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                    
+                    # 2️⃣ REGISTRAR EL USO EXITOSO (+1 al contador)
+                    registrar_uso_analisis(current_user)
+                    
+                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                    paso = "resultado"
+            except Exception as e:
+                error_msg = str(e)
+                flash(f"❌ Error en el análisis: {error_msg}", "error")
+                paso = "input"
+    
+    return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
+
+3. app/services/plan_service.py (COMPLETO)
+# app/services/plan_service.py
+from app import db
+from app.models import Plan, UserPlan, User
+from datetime import datetime
+
+def inicializar_planes_por_defecto():
+    if Plan.query.count() > 0:
+        return
+    
+    planes = [
+        Plan(nombre='bronce', display_name='Bronce', descripcion='Plan gratuito para empezar.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=0.0, es_lifetime=False, activo=True, orden=1, incluye_historial=False, incluye_motor_semantico=False, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=5, limite_analisis_mes=3, icono='bi-award-fill', color='warning'),
+        Plan(nombre='plata', display_name='Plata', descripcion='Para profesionales.', precio_mensual=15000.0, precio_anual=144000.0, precio_lifetime=250000.0, es_lifetime=False, activo=True, orden=2, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=100, limite_analisis_mes=50, icono='bi-award-fill', color='secondary'),
+        Plan(nombre='oro', display_name='Oro', descripcion='Para empresas.', precio_mensual=35000.0, precio_anual=336000.0, precio_lifetime=600000.0, es_lifetime=False, activo=True, orden=3, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=500, limite_analisis_mes=200, icono='bi-trophy-fill', color='warning'),
+        Plan(nombre='lifetime', display_name='Lifetime', descripcion='Acceso de por vida.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=900000.0, es_lifetime=True, activo=True, orden=4, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=999999, limite_analisis_mes=999999, icono='bi-gem', color='danger'),
+    ]
+    for plan in planes:
+        db.session.add(plan)
+    db.session.commit()
+
+def obtener_plan_usuario(user):
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    if not user_plan:
+        plan_bronce = Plan.query.filter_by(nombre='bronce').first()
+        user_plan = UserPlan(user_id=user.id, plan_id=plan_bronce.id if plan_bronce else None, plan='bronce', limite_transcripciones=5, limite_analisis=3)
+        db.session.add(user_plan)
+        db.session.commit()
+    return user_plan
+
+def obtener_todos_los_planes():
+    return Plan.query.filter_by(activo=True).order_by(Plan.orden).all()
+
+def puede_transcribir(user):
+    user_plan = obtener_plan_usuario(user)
+    plan = user_plan.obtener_plan_obj()
+    limite = plan.limite_transcripciones_mes if plan else 5
+    if limite >= 999999:
+        return True, user_plan.consumo_transcripciones, limite
+    return user_plan.consumo_transcripciones < limite, user_plan.consumo_transcripciones, limite
+
+def registrar_uso_transcripcion(user):
+    user_plan = obtener_plan_usuario(user)
+    user_plan.consumo_transcripciones += 1
+    db.session.commit()
+
+def puede_analizar(user):
+    user_plan = obtener_plan_usuario(user)
+    plan = user_plan.obtener_plan_obj()
+    limite = plan.limite_analisis_mes if plan else 3
+    if limite >= 999999:
+        return True, user_plan.consumo_analisis, limite
+    return user_plan.consumo_analisis < limite, user_plan.consumo_analisis, limite
+
+def registrar_uso_analisis(user):
+    user_plan = obtener_plan_usuario(user)
+    user_plan.consumo_analisis += 1
+    db.session.commit()
+
+4. app/services/transcription/groq_backend.py (COMPLETO)
+# app/services/transcription/groq_backend.py
+import os
+from groq import Groq
+
+class GroqBackend:
+    """Backend de transcripción usando Groq Whisper API (soporta audio y video nativamente)."""
+    
+    def __init__(self):
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
+        self.client = Groq(api_key=api_key)
+    
+    def transcribe(self, file_path: str, language: str = None) -> dict:
+        try:
+            with open(file_path, "rb") as file:
+                kwargs = {
+                    "model": "whisper-large-v3",
+                    "file": file,
+                    "response_format": "verbose_json",
+                    "temperature": 0.0,
+                }
+                if language:
+                    kwargs["language"] = language
+                
+                transcription = self.client.audio.transcriptions.create(**kwargs)
+                
+                if hasattr(transcription, 'text'):
+                    return {
+                        "text": transcription.text or "",
+                        "language": getattr(transcription, 'language', language or "es"),
+                        "duration": getattr(transcription, 'duration', 0),
+                    }
+                else:
+                    return {
+                        "text": str(transcription),
+                        "language": language or "es",
+                        "duration": 0,
+                    }
+        except Exception as e:
+            raise Exception(f"Error transcribiendo con Groq: {str(e)}")
+    
+    def get_name(self) -> str:
+        return "Groq Whisper API"
+
+5. app/services/translation_service.py (COMPLETO)
+# app/services/translation_service.py
+import os
+from groq import Groq
+
+class TranslationService:
+    """Servicio de traducción usando Groq LLM."""
+    
+    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
+        self.client = Groq(api_key=api_key)
+        self.model = model
+    
+    def traducir(self, texto: str, idioma_origen: str = "en", idioma_destino: str = "es") -> str:
+        if not texto or not texto.strip():
+            return ""
+        
+        if idioma_origen == idioma_destino:
+            return texto
+        
+        nombres_idiomas = {
+            "es": "español",
+            "en": "inglés",
+            "pt": "portugués",
+            "fr": "francés",
+            "it": "italiano",
+            "de": "alemán",
+        }
+        
+        origen = nombres_idiomas.get(idioma_origen, idioma_origen)
+        destino = nombres_idiomas.get(idioma_destino, idioma_destino)
+        
+        prompt = f"""Traducí el siguiente texto de {origen} a {destino}. 
+Mantené el formato, los párrafos y el tono del original. 
+Respondé SOLO con la traducción, sin agregar nada más.
+
+TEXTO A TRADUCIR:
+{texto}"""
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": f"Sos un traductor profesional de {origen} a {destino}. Traducís de forma natural y precisa. Respondés SOLO con la traducción."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=4000,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            raise Exception(f"Error traduciendo: {str(e)}")
+    
+    def get_name(self) -> str:
+        return f"Groq LLM ({self.model})"
+
+6. requirements.txt (CORREGIDO)
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-Mail==0.10.0
+Werkzeug==3.0.1
+python-dotenv==1.0.0
+groq==0.9.0
+gunicorn==21.2.0
+psycopg[binary]>=3.1.0
+mercadopago==2.2.3
+
+7. run.py (CORREGIDO)
+# run.py
+from app import create_app, init_db
+
+app = create_app()
+init_db(app)
+
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+🚀 INSTRUCCIONES DE DEPLOY
+Deploy inicial (ya hecho):
+Crear cuenta en Render + GitHub
+Subir código a GitHub
+Crear PostgreSQL en Render (plan Free)
+Crear Web Service conectando el repo
+Configurar variables de entorno (incluyendo PYTHON_VERSION=3.11.9)
+Build Command: pip install -r requirements.txt
+Start Command: gunicorn app:app
+Para redeployar después de cambios:
+bash
+12
+Render detecta el push y redeploya automáticamente en 3-5 minutos.
+Para forzar Python 3.11 en Render:
+Agregar variable de entorno: PYTHON_VERSION=3.11.9
+O confiar en runtime.txt (a veces Render lo ignora)
+🎯 PRÓXIMOS PASOS RECOMENDADOS
+Prioridad ALTA
+Reset de contraseña - Modelo existe, implementar ruta y email
+Historial de archivos - Listar transcripciones y análisis del usuario en dashboard
+Reset mensual de consumo - Script cron para poner consumo_transcripciones = 0 el día 1 de cada mes
+Prioridad MEDIA
+Integración suscripciones recurrentes Mercado Pago - Para planes Plata/Oro
+Motor semántico avanzado - Agrupar comentarios por temas, detectar ironía avanzada
+Avatar persistente - Migrar uploads a Cloudinary (Render tiene filesystem efímero)
+Prioridad BAJA
+Agente Judicial - Asistente IA especializado en temas legales
+Agente de Monitoreo - Monitoreo automático de redes y menciones
+Sistema de pagos - Stripe / MercadoPago para suscripciones
+Dominio propio - datosconsultora.ar
+💬 NOTAS PARA EL SIGUIENTE AGENTE
+El usuario habla español argentino - Usar "vos", "tenés", "hacé"
+El proyecto está en producción - Cualquier cambio debe ser probado localmente antes de push
+Render tarda 3-5 min en redeployar - El usuario es paciente pero quiere feedback rápido
+El usuario no es desarrollador experto - Explicar paso a paso, con comandos copy-paste
+Hay varios archivos legacy - No todos los templates están en uso, algunos son duplicados
+La BD local (SQLite) y la de producción (PostgreSQL) pueden divergir - Si se agregan modelos, hay que recrear la BD local borrando instance/datosconsultora.db
+Groq soporta video nativamente - No necesitamos FFmpeg ni pydub
+El sistema de planes ya está implementado - Solo falta integrar pagos recurrentes
+El sistema de cafecito funciona - Solo donaciones únicas por ahora
+🔗 LINKS ÚTILES
+Producción: https://datos-consultora.onrender.com
+GitHub: https://github.com/astiazu/datosconsultora
+Render Dashboard: https://dashboard.render.com/
+Groq Console: https://console.groq.com/
+Gmail App Passwords: https://myaccount.google.com/apppasswords
+Mercado Pago Developers: https://www.mercadopago.com.ar/developers
+Documentación Flask: https://flask.palletsprojects.com/
+Documentación Render Python: https://render.com/docs/python
+📌 RESUMEN EN UNA LÍNEA
+Plataforma SaaS Flask desplegada en Render con PostgreSQL, que ofrece transcripción de audio/video (Groq Whisper) y análisis de sentimientos de redes sociales (Groq LLM), con autenticación completa (email + WhatsApp), sistema de planes (Bronce/Plata/Oro/Lifetime) con límites de uso, sistema de donaciones con Mercado Pago, y panel admin. Funcionando en producción con bugs menores pendientes.

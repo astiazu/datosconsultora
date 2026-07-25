@@ -1,0 +1,176 @@
+<!-- templates/ver_analisis.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'archivos' %}
+{% block title %}Ver Análisis - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+        </h1>
+        <p class="text-muted">{{ analysis.red_social|upper if analysis.red_social else 'Red Social' }}</p>
+    </div>
+    <a href="{{ url_for('historial.mi_historial') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Historial
+    </a>
+</div>
+
+{% if resultado %}
+<div class="row g-4">
+    <!-- Estadísticas -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-pie-chart-fill me-2"></i>Estadísticas
+                </h5>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-success fw-bold">
+                            <i class="bi bi-emoji-smile-fill"></i> Positivos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ resultado.estadisticas.porcentaje_positivo }}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-secondary fw-bold">
+                            <i class="bi bi-emoji-neutral-fill"></i> Neutrales
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-secondary" style="width: {{ resultado.estadisticas.porcentaje_neutral }}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-danger fw-bold">
+                            <i class="bi bi-emoji-frown-fill"></i> Negativos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-danger" style="width: {{ resultado.estadisticas.porcentaje_negativo }}%"></div>
+                    </div>
+                </div>
+                <hr>
+                <p class="text-muted mb-0">
+                    <strong>Total analizado:</strong> {{ resultado.estadisticas.total }} comentarios<br>
+                    <small>Fecha: {{ analysis.fecha.strftime('%d/%m/%Y %H:%M') }}</small>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resumen general -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-journal-text me-2"></i>Resumen General
+                </h5>
+                <p class="fs-5">{{ resultado.resumen_general }}</p>
+                {% if resultado.tono_general %}
+                <div class="mt-3 p-3 bg-light rounded">
+                    <strong class="text-petroleo">Tono general:</strong>
+                    <span class="text-muted">{{ resultado.tono_general }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Temas y palabras clave -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-tags-fill me-2"></i>Temas Principales
+                </h5>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for tema in resultado.temas_principales %}
+                    <span class="badge bg-info text-dark fs-6">{{ tema }}</span>
+                    {% endfor %}
+                </div>
+                {% if resultado.palabras_clave %}
+                <h6 class="text-petroleo fw-bold mt-4 mb-2">
+                    <i class="bi bi-key-fill me-2"></i>Palabras Clave
+                </h6>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for palabra in resultado.palabras_clave %}
+                    <span class="badge bg-light text-dark border">{{ palabra }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights y recomendaciones -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-lightbulb-fill me-2"></i>Insights
+                </h5>
+                <ul class="list-unstyled mb-4">
+                    {% for insight in resultado.insights %}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>{{ insight }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% if resultado.recomendaciones %}
+                <h6 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-rocket-takeoff-fill me-2"></i>Recomendaciones
+                </h6>
+                <ul class="list-unstyled mb-0">
+                    {% for rec in resultado.recomendaciones %}
+                    <li class="mb-2">
+                        <i class="bi bi-arrow-right-circle-fill text-primary me-2"></i>{{ rec }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Botones de acción -->
+<div class="mt-4 d-flex gap-2 justify-content-end">
+    <button class="btn btn-outline-primary" onclick="exportarResultado()">
+        <i class="bi bi-download me-2"></i>Exportar JSON
+    </button>
+    <button class="btn btn-outline-secondary" onclick="window.print()">
+        <i class="bi bi-printer me-2"></i>Imprimir
+    </button>
+</div>
+
+<script id="resultado-data" type="application/json">
+{{ resultado | tojson | safe }}
+</script>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function exportarResultado() {
+    const data = document.getElementById('resultado-data').textContent;
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analisis_sentimientos.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

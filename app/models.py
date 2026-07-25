@@ -2,6 +2,7 @@
 from app import db
 from flask_login import UserMixin
 from datetime import datetime
+from app.utils.datetime_utils import utc_now
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -15,7 +16,7 @@ class User(UserMixin, db.Model):
     is_active_account = db.Column(db.Boolean, default=True)
     email_verificado = db.Column(db.Boolean, default=False)
     telefono_verificado = db.Column(db.Boolean, default=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -55,7 +56,7 @@ class ActivityLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     accion = db.Column(db.String(200), nullable=False)
     detalle = db.Column(db.String(500))
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     ip = db.Column(db.String(50))
     user = db.relationship("User", backref=db.backref("activity_logs", lazy="dynamic"))
 
@@ -74,7 +75,7 @@ class EmailVerificationToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     token = db.Column(db.String(200), unique=True, nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User")
 
@@ -83,7 +84,7 @@ class PasswordResetToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     token = db.Column(db.String(200), unique=True, nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User")
 
@@ -92,7 +93,7 @@ class WhatsAppVerification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     codigo = db.Column(db.String(6), nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User", backref=db.backref("whatsapp_verifications", lazy="dynamic"))
 
@@ -103,7 +104,7 @@ class UserFile(db.Model):
     filename = db.Column(db.String(200))
     filepath = db.Column(db.String(300))
     tipo = db.Column(db.String(50))
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("files", lazy="dynamic"))
 
 
@@ -112,7 +113,7 @@ class Transcription(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     file_id = db.Column(db.Integer, db.ForeignKey("user_file.id"))
     texto = db.Column(db.Text)
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("transcriptions", lazy="dynamic"))
     file = db.relationship("UserFile")
 
@@ -122,7 +123,7 @@ class Assistant(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     nombre = db.Column(db.String(120))
     descripcion = db.Column(db.String(300))
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("assistants", lazy="dynamic"))
 
 
@@ -136,7 +137,7 @@ class UserPlan(db.Model):
     consumo_analisis = db.Column(db.Integer, default=0)
     limite_transcripciones = db.Column(db.Integer, default=5)
     limite_analisis = db.Column(db.Integer, default=3)
-    fecha_inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_inicio = db.Column(db.DateTime, default=utc_now)
     fecha_fin = db.Column(db.DateTime, nullable=True)
     es_lifetime = db.Column(db.Boolean, default=False)
     fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
@@ -158,20 +159,24 @@ class UserPlan(db.Model):
         """Verifica si el usuario tiene el badge de cafecito activo."""
         if not self.fecha_expiracion_cafecito:
             return False
-        return datetime.utcnow() < self.fecha_expiracion_cafecito
+        return utc_now() < self.fecha_expiracion_cafecito
     
     def consumo_transcripciones_mes(self):
         """Cuenta transcripciones del mes actual."""
         from app.models import Transcription
-        inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         return Transcription.query.filter(
             Transcription.user_id == self.user_id,
             Transcription.fecha >= inicio_mes
         ).count()
     
     def consumo_analisis_mes(self):
-        """Cuenta análisis del mes actual (placeholder por ahora)."""
-        return 0  # TODO: implementar cuando tengamos modelo de AnalysisSession
+        """Cuenta análisis del mes actual."""
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return AnalysisSession.query.filter(
+            AnalysisSession.user_id == self.user_id,
+            AnalysisSession.fecha >= inicio_mes
+        ).count()
     
 class Donation(db.Model):
     """Registro de donaciones 'Invitame un cafecito'."""
@@ -183,7 +188,7 @@ class Donation(db.Model):
     mp_preference_id = db.Column(db.String(100), nullable=True)
     estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
     mensaje = db.Column(db.String(500), default='')
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))
 
 class Plan(db.Model):
@@ -224,3 +229,25 @@ class Plan(db.Model):
             'actividad_completa': self.incluye_actividad_completa,
         }
         return features_map.get(feature, False)
+
+class AnalysisSession(db.Model):
+    """Registro de cada análisis de sentimientos realizado."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    red_social = db.Column(db.String(50))
+    contexto = db.Column(db.String(500))
+    total_comentarios = db.Column(db.Integer)
+    resultado_json = db.Column(db.Text)  # JSON completo del análisis
+    
+    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
+    
+    def obtener_resultado(self):
+        """Convierte el JSON string a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}

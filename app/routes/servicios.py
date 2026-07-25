@@ -5,7 +5,7 @@ from flask import Blueprint, render_template, request, flash, current_app, redir
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import UserFile, Transcription
+from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
@@ -131,6 +131,18 @@ def analisis_sentimientos():
                     resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
                     registrar_uso_analisis(current_user)
+
+                    # guardar análisis en la base de datos
+                    analysis_session = AnalysisSession(
+                        user_id=current_user.id,
+                        red_social=red_social,
+                        contexto=contexto if contexto else None,
+                        total_comentarios=len(comentarios_limpios),
+                        resultado_json=json.dumps(resultado, ensure_ascii=False)
+                    )
+                    db.session.add(analysis_session)
+                    db.session.commit()
+
                     flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
                     paso = "resultado"
             except Exception as e:

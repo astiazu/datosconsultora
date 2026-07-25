@@ -1,0 +1,65 @@
+<!-- templates/ver_transcripcion.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'archivos' %}
+{% block title %}Ver Transcripción - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-file-text me-2"></i>Transcripción
+        </h1>
+        <p class="text-muted">{{ transcription.file.filename if transcription.file else 'Archivo' }}</p>
+    </div>
+    <a href="{{ url_for('historial.mi_historial') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Historial
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <div class="mb-3">
+            <small class="text-muted">
+                <i class="bi bi-clock me-1"></i>
+                Fecha: {{ transcription.fecha.strftime('%d/%m/%Y a las %H:%M') }}
+            </small>
+        </div>
+        <hr>
+        <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 600px; overflow-y: auto;">
+            <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ transcription.texto }}</pre>
+        </div>
+        <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-outline-primary" onclick="copiarTexto()">
+                <i class="bi bi-clipboard me-2"></i>Copiar
+            </button>
+            <button class="btn btn-outline-success" onclick="descargarTexto()">
+                <i class="bi bi-download me-2"></i>Descargar
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copiarTexto() {
+    const texto = document.querySelector('pre').innerText;
+    navigator.clipboard.writeText(texto).then(() => {
+        alert('Texto copiado al portapapeles');
+    });
+}
+
+function descargarTexto() {
+    const texto = document.querySelector('pre').innerText;
+    const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'transcripcion.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}
