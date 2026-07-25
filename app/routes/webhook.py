@@ -1,6 +1,7 @@
 # app/routes/webhook.py
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from app import db
 from app.models import Donation, User, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -57,7 +58,7 @@ def mercadopago_webhook():
                                     plan = UserPlan(user_id=user_id)
                                     db.session.add(plan)
                                 
-                                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
                                 db.session.commit()
                                 
                                 print(f"✅ Donación confirmada para user_id={user_id}")
