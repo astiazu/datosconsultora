@@ -82,6 +82,8 @@ def create_app():
     from app.routes.cafecito import cafecito_bp      
     from app.routes.webhook import webhook_bp        
     from app.routes.planes import planes_bp
+    from app.routes.historial import historial_bp
+    from app.routes.agentes import agentes_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -92,6 +94,8 @@ def create_app():
     app.register_blueprint(cafecito_bp)             
     app.register_blueprint(webhook_bp)              
     app.register_blueprint(planes_bp)
+    app.register_blueprint(historial_bp)
+    app.register_blueprint(agentes_bp)
     
     return app
 
@@ -141,6 +145,7 @@ ARCHIVO: models.py
 from app import db
 from flask_login import UserMixin
 from datetime import datetime
+from app.utils.datetime_utils import utc_now
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -154,7 +159,7 @@ class User(UserMixin, db.Model):
     is_active_account = db.Column(db.Boolean, default=True)
     email_verificado = db.Column(db.Boolean, default=False)
     telefono_verificado = db.Column(db.Boolean, default=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -194,7 +199,7 @@ class ActivityLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
     accion = db.Column(db.String(200), nullable=False)
     detalle = db.Column(db.String(500))
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     ip = db.Column(db.String(50))
     user = db.relationship("User", backref=db.backref("activity_logs", lazy="dynamic"))
 
@@ -213,7 +218,7 @@ class EmailVerificationToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     token = db.Column(db.String(200), unique=True, nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User")
 
@@ -222,7 +227,7 @@ class PasswordResetToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     token = db.Column(db.String(200), unique=True, nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User")
 
@@ -231,7 +236,7 @@ class WhatsAppVerification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     codigo = db.Column(db.String(6), nullable=False)
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     usado = db.Column(db.Boolean, default=False)
     user = db.relationship("User", backref=db.backref("whatsapp_verifications", lazy="dynamic"))
 
@@ -242,7 +247,7 @@ class UserFile(db.Model):
     filename = db.Column(db.String(200))
     filepath = db.Column(db.String(300))
     tipo = db.Column(db.String(50))
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("files", lazy="dynamic"))
 
 
@@ -251,7 +256,7 @@ class Transcription(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     file_id = db.Column(db.Integer, db.ForeignKey("user_file.id"))
     texto = db.Column(db.Text)
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("transcriptions", lazy="dynamic"))
     file = db.relationship("UserFile")
 
@@ -261,7 +266,7 @@ class Assistant(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     nombre = db.Column(db.String(120))
     descripcion = db.Column(db.String(300))
-    creado = db.Column(db.DateTime, default=datetime.utcnow)
+    creado = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("assistants", lazy="dynamic"))
 
 
@@ -275,7 +280,7 @@ class UserPlan(db.Model):
     consumo_analisis = db.Column(db.Integer, default=0)
     limite_transcripciones = db.Column(db.Integer, default=5)
     limite_analisis = db.Column(db.Integer, default=3)
-    fecha_inicio = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha_inicio = db.Column(db.DateTime, default=utc_now)
     fecha_fin = db.Column(db.DateTime, nullable=True)
     es_lifetime = db.Column(db.Boolean, default=False)
     fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
@@ -297,20 +302,24 @@ class UserPlan(db.Model):
         """Verifica si el usuario tiene el badge de cafecito activo."""
         if not self.fecha_expiracion_cafecito:
             return False
-        return datetime.utcnow() < self.fecha_expiracion_cafecito
+        return utc_now() < self.fecha_expiracion_cafecito
     
     def consumo_transcripciones_mes(self):
         """Cuenta transcripciones del mes actual."""
         from app.models import Transcription
-        inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         return Transcription.query.filter(
             Transcription.user_id == self.user_id,
             Transcription.fecha >= inicio_mes
         ).count()
     
     def consumo_analisis_mes(self):
-        """Cuenta análisis del mes actual (placeholder por ahora)."""
-        return 0  # TODO: implementar cuando tengamos modelo de AnalysisSession
+        """Cuenta análisis del mes actual."""
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return AnalysisSession.query.filter(
+            AnalysisSession.user_id == self.user_id,
+            AnalysisSession.fecha >= inicio_mes
+        ).count()
     
 class Donation(db.Model):
     """Registro de donaciones 'Invitame un cafecito'."""
@@ -322,7 +331,7 @@ class Donation(db.Model):
     mp_preference_id = db.Column(db.String(100), nullable=True)
     estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
     mensaje = db.Column(db.String(500), default='')
-    fecha = db.Column(db.DateTime, default=datetime.utcnow)
+    fecha = db.Column(db.DateTime, default=utc_now)
     user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))
 
 class Plan(db.Model):
@@ -363,6 +372,102 @@ class Plan(db.Model):
             'actividad_completa': self.incluye_actividad_completa,
         }
         return features_map.get(feature, False)
+
+class AnalysisSession(db.Model):
+    """Registro de cada análisis de sentimientos realizado."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    red_social = db.Column(db.String(50))
+    contexto = db.Column(db.String(500))
+    total_comentarios = db.Column(db.Integer)
+    resultado_json = db.Column(db.Text)  # JSON completo del análisis
+    
+    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
+    
+    def obtener_resultado(self):
+        """Convierte el JSON string a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}
+
+class ExpedienteMonitoreado(db.Model):
+    """Un expediente que un usuario pidio seguir, en alguna jurisdiccion."""
+    __tablename__ = "expediente_monitoreado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    jurisdiccion = db.Column(db.String(50), nullable=False)  # 'mev_scba', 'cordoba_sac', ...
+    nombre = db.Column(db.String(200), nullable=False)       # nombre que le puso el usuario
+    parametros_json = db.Column(db.Text, default="{}")       # filtros especificos (url, apellido, etc)
+
+    activo = db.Column(db.Boolean, default=True)
+    creado = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship(
+        "User", backref=db.backref("expedientes_monitoreados", lazy="dynamic")
+    )
+
+    def parametros(self) -> dict:
+        import json
+        try:
+            return json.loads(self.parametros_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+    def set_parametros(self, datos: dict) -> None:
+        import json
+        self.parametros_json = json.dumps(datos, ensure_ascii=False)
+
+
+class ExpedienteEstado(db.Model):
+    """Ultimo estado conocido de un expediente monitoreado (reemplaza a
+    estado/estado_<id>.json del agente standalone)."""
+    __tablename__ = "expediente_estado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    expediente_monitoreado_id = db.Column(
+        db.Integer, db.ForeignKey("expediente_monitoreado.id"), nullable=False
+    )
+
+    expediente_id_externo = db.Column(db.String(100))  # id/numero dentro de esa jurisdiccion
+    caratula = db.Column(db.String(300))
+    estado = db.Column(db.String(200))
+    fecha_inicio = db.Column(db.String(100))
+    ultima_novedad = db.Column(db.String(300))
+
+    actualizado = db.Column(db.DateTime, default=utc_now)
+
+    expediente_monitoreado = db.relationship(
+        "ExpedienteMonitoreado", backref=db.backref("estados", lazy="dynamic")
+    )
+
+
+class SesionJurisdiccion(db.Model):
+    """Sesion (cookies/localStorage) que un usuario subio para una
+    jurisdiccion que la necesita (ej: MEV-SCBA). Reemplaza a session.json."""
+    __tablename__ = "sesion_jurisdiccion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    jurisdiccion = db.Column(db.String(50), nullable=False)
+
+    storage_state_json = db.Column(db.Text)  # contenido tal cual de session.json
+    actualizado = db.Column(db.DateTime, default=utc_now)
+    expirada = db.Column(db.Boolean, default=False)
+
+    user = db.relationship(
+        "User", backref=db.backref("sesiones_jurisdiccion", lazy="dynamic")
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "jurisdiccion", name="uq_sesion_user_jurisdiccion"),
+    )
 
 
 ================================================================================
@@ -646,6 +751,156 @@ def admin_plan_editar(plan_id):
     return redirect(url_for("admin.admin_planes"))
 
 ================================================================================
+ARCHIVO: routes\agentes.py
+================================================================================
+
+# app/routes/agentes.py
+"""
+Panel de usuario para el modulo de "Agentes judiciales": permite cargar
+expedientes a seguir, subir la sesion (para jurisdicciones que la piden,
+como MEV-SCBA) y ver el ultimo estado conocido de cada uno.
+
+El chequeo periodico en si (scraping + mail) NO corre aca: lo hace
+worker/monitor_worker.py como proceso aparte (pensado para un Render Cron
+Job), porque Playwright con un Chrome real no es algo que deba correr
+dentro del ciclo request/response de un servidor web.
+"""
+
+import json
+
+from flask import Blueprint, render_template, request, flash, redirect, url_for
+from flask_login import login_required, current_user
+
+from app import db
+from app.models import ExpedienteMonitoreado, SesionJurisdiccion
+from app.utils.decorators import feature_required
+from app.services.agentes.jurisdicciones import listar_jurisdicciones, obtener_jurisdiccion
+
+agentes_bp = Blueprint("agentes", __name__, url_prefix="/dashboard/agentes")
+
+
+@agentes_bp.route("/")
+@login_required
+@feature_required("agentes")
+def panel_agentes():
+    expedientes = (
+        ExpedienteMonitoreado.query.filter_by(user_id=current_user.id, activo=True)
+        .order_by(ExpedienteMonitoreado.creado.desc())
+        .all()
+    )
+
+    sesiones = {
+        s.jurisdiccion: s
+        for s in SesionJurisdiccion.query.filter_by(user_id=current_user.id).all()
+    }
+
+    return render_template(
+        "agentes_dashboard.html",
+        expedientes=expedientes,
+        jurisdicciones=listar_jurisdicciones(),
+        sesiones=sesiones,
+    )
+
+
+@agentes_bp.route("/nuevo", methods=["GET", "POST"])
+@login_required
+@feature_required("agentes")
+def nuevo_expediente():
+    jurisdicciones = listar_jurisdicciones()
+
+    if request.method == "POST":
+        jid = request.form.get("jurisdiccion")
+        nombre = request.form.get("nombre", "").strip()
+        jurisdiccion = obtener_jurisdiccion(jid)
+
+        if not jurisdiccion:
+            flash("Jurisdiccion invalida.", "error")
+            return redirect(url_for("agentes.nuevo_expediente"))
+
+        if not nombre:
+            flash("Poné un nombre para identificar este expediente.", "error")
+            return redirect(url_for("agentes.nuevo_expediente"))
+
+        parametros = {}
+        for campo in jurisdiccion["campos_formulario"]:
+            parametros[campo["name"]] = request.form.get(campo["name"], "").strip()
+
+        expediente = ExpedienteMonitoreado(
+            user_id=current_user.id,
+            jurisdiccion=jid,
+            nombre=nombre,
+        )
+        expediente.set_parametros(parametros)
+        db.session.add(expediente)
+        db.session.commit()
+
+        flash(f"'{nombre}' se agregó a tus expedientes monitoreados.", "success")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    return render_template("agentes_nuevo.html", jurisdicciones=jurisdicciones)
+
+
+@agentes_bp.route("/<int:expediente_id>/eliminar", methods=["POST"])
+@login_required
+@feature_required("agentes")
+def eliminar_expediente(expediente_id):
+    expediente = ExpedienteMonitoreado.query.get_or_404(expediente_id)
+
+    if expediente.user_id != current_user.id:
+        flash("No tenés permisos sobre ese expediente.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    expediente.activo = False
+    db.session.commit()
+
+    flash("Expediente eliminado de tu panel.", "success")
+    return redirect(url_for("agentes.panel_agentes"))
+
+
+@agentes_bp.route("/sesion/<jurisdiccion_id>", methods=["POST"])
+@login_required
+@feature_required("agentes")
+def subir_sesion(jurisdiccion_id):
+    """Sube el session.json generado localmente con
+    login_y_guardar_sesion.py (el script standalone), para que el worker en
+    background pueda usarlo sin que el usuario tenga que resolver el login
+    (con captcha) de nuevo cada vez."""
+    jurisdiccion = obtener_jurisdiccion(jurisdiccion_id)
+    if not jurisdiccion or not jurisdiccion["necesita_login"]:
+        flash("Esta jurisdiccion no usa sesion.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    archivo = request.files.get("session_file")
+    if not archivo or not archivo.filename:
+        flash("Seleccioná el archivo session.json.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    try:
+        contenido = archivo.read().decode("utf-8")
+        json.loads(contenido)  # valida que sea JSON antes de guardarlo
+    except (UnicodeDecodeError, ValueError):
+        flash("El archivo no parece un session.json valido.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    from app.utils.datetime_utils import utc_now
+
+    sesion = SesionJurisdiccion.query.filter_by(
+        user_id=current_user.id, jurisdiccion=jurisdiccion_id
+    ).first()
+    if sesion is None:
+        sesion = SesionJurisdiccion(user_id=current_user.id, jurisdiccion=jurisdiccion_id)
+        db.session.add(sesion)
+
+    sesion.storage_state_json = contenido
+    sesion.expirada = False
+    sesion.actualizado = utc_now()
+    db.session.commit()
+
+    flash(f"Sesión de {jurisdiccion['nombre']} actualizada.", "success")
+    return redirect(url_for("agentes.panel_agentes"))
+
+
+================================================================================
 ARCHIVO: routes\auth.py
 ================================================================================
 
@@ -814,6 +1069,7 @@ ARCHIVO: routes\cafecito.py
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from app import db
 from app.models import Donation, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -896,7 +1152,7 @@ def exito():
                     plan = UserPlan(user_id=current_user.id)
                     db.session.add(plan)
                 
-                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
                 db.session.commit()
                 
                 flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
@@ -998,6 +1254,100 @@ def actualizar_avatar():
     return redirect(url_for("dashboard.dashboard_user"))
 
 ================================================================================
+ARCHIVO: routes\historial.py
+================================================================================
+
+# app/routes/historial.py
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from app.models import Transcription, AnalysisSession
+
+historial_bp = Blueprint("historial", __name__)
+
+@historial_bp.route("/dashboard/historial")
+@login_required
+def mi_historial():
+    """Vista de historial combinado de transcripciones y análisis."""
+    filtro = request.args.get("filtro", "todos")
+    
+    # Obtener transcripciones
+    transcripciones = Transcription.query.filter_by(user_id=current_user.id).order_by(Transcription.fecha.desc()).all()
+    
+    # Obtener análisis
+    analisis = AnalysisSession.query.filter_by(user_id=current_user.id).order_by(AnalysisSession.fecha.desc()).all()
+    
+    # Combinar y ordenar por fecha
+    historial_combinado = []
+    
+    if filtro in ["todos", "transcripciones"]:
+        for t in transcripciones:
+            historial_combinado.append({
+                "tipo": "transcripcion",
+                "fecha": t.fecha,
+                "titulo": f"Transcripción: {t.file.filename if t.file else 'Archivo'}",
+                "resumen": t.texto[:150] + "..." if len(t.texto) > 150 else t.texto,
+                "id": t.id,
+                "detalle": t
+            })
+    
+    if filtro in ["todos", "analisis"]:
+        for a in analisis:
+            resultado = a.obtener_resultado()
+            estadisticas = resultado.get("estadisticas", {})
+            resumen = resultado.get("resumen_general", "Análisis de sentimientos")
+            
+            historial_combinado.append({
+                "tipo": "analisis",
+                "fecha": a.fecha,
+                "titulo": f"Análisis: {a.red_social.upper() if a.red_social else 'Red Social'}",
+                "resumen": resumen[:150] + "..." if len(resumen) > 150 else resumen,
+                "id": a.id,
+                "detalle": a,
+                "estadisticas": estadisticas
+            })
+    
+    # Ordenar por fecha (más reciente primero)
+    historial_combinado.sort(key=lambda x: x["fecha"], reverse=True)
+    
+    return render_template(
+        "historial.html",
+        historial=historial_combinado,
+        filtro=filtro,
+        total_transcripciones=len(transcripciones),
+        total_analisis=len(analisis)
+    )
+
+@historial_bp.route("/dashboard/historial/transcripcion/<int:transcription_id>")
+@login_required
+def ver_transcripcion(transcription_id):
+    """Ver detalle de una transcripción."""
+    transcription = Transcription.query.get_or_404(transcription_id)
+    
+    # Verificar que pertenece al usuario
+    if transcription.user_id != current_user.id:
+        from flask import flash, redirect, url_for
+        flash("No tenés permisos para ver esta transcripción", "error")
+        return redirect(url_for("historial.mi_historial"))
+    
+    return render_template("ver_transcripcion.html", transcription=transcription)
+
+@historial_bp.route("/dashboard/historial/analisis/<int:analysis_id>")
+@login_required
+def ver_analisis(analysis_id):
+    """Ver detalle de un análisis."""
+    analysis = AnalysisSession.query.get_or_404(analysis_id)
+    
+    # Verificar que pertenece al usuario
+    if analysis.user_id != current_user.id:
+        from flask import flash, redirect, url_for
+        flash("No tenés permisos para ver este análisis", "error")
+        return redirect(url_for("historial.mi_historial"))
+    
+    resultado = analysis.obtener_resultado()
+    
+    return render_template("ver_analisis.html", analysis=analysis, resultado=resultado)
+
+================================================================================
 ARCHIVO: routes\planes.py
 ================================================================================
 
@@ -1096,7 +1446,7 @@ from flask import Blueprint, render_template, request, flash, current_app, redir
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import UserFile, Transcription
+from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
@@ -1222,6 +1572,18 @@ def analisis_sentimientos():
                     resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
                     registrar_uso_analisis(current_user)
+
+                    # guardar análisis en la base de datos
+                    analysis_session = AnalysisSession(
+                        user_id=current_user.id,
+                        red_social=red_social,
+                        contexto=contexto if contexto else None,
+                        total_comentarios=len(comentarios_limpios),
+                        resultado_json=json.dumps(resultado, ensure_ascii=False)
+                    )
+                    db.session.add(analysis_session)
+                    db.session.commit()
+
                     flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
                     paso = "resultado"
             except Exception as e:
@@ -1332,6 +1694,7 @@ ARCHIVO: routes\webhook.py
 # app/routes/webhook.py
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from app import db
 from app.models import Donation, User, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -1388,7 +1751,7 @@ def mercadopago_webhook():
                                     plan = UserPlan(user_id=user_id)
                                     db.session.add(plan)
                                 
-                                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
                                 db.session.commit()
                                 
                                 print(f"✅ Donación confirmada para user_id={user_id}")
@@ -1502,11 +1865,32 @@ def inicializar_planes_por_defecto():
         return
     
     planes = [
+        # ⭐ NUEVO: Plan Free (agregado al inicio)
+        Plan(
+            nombre='free', 
+            display_name='Free', 
+            descripcion='Plan de prueba para conocer la plataforma.', 
+            precio_mensual=0.0, 
+            precio_anual=0.0, 
+            precio_lifetime=0.0, 
+            es_lifetime=False, 
+            activo=True, 
+            orden=0,  # ⭐ Orden 0 para que aparezca primero
+            incluye_historial=False, 
+            incluye_motor_semantico=False, 
+            incluye_agentes=False, 
+            incluye_actividad_completa=False, 
+            limite_transcripciones_mes=3,  # ⭐ Límite bajo
+            limite_analisis_mes=2,  # ⭐ Límite bajo
+            icono='bi-gift-fill', 
+            color='info'
+        ),
         Plan(nombre='bronce', display_name='Bronce', descripcion='Plan gratuito para empezar.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=0.0, es_lifetime=False, activo=True, orden=1, incluye_historial=False, incluye_motor_semantico=False, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=5, limite_analisis_mes=3, icono='bi-award-fill', color='warning'),
         Plan(nombre='plata', display_name='Plata', descripcion='Para profesionales.', precio_mensual=15000.0, precio_anual=144000.0, precio_lifetime=250000.0, es_lifetime=False, activo=True, orden=2, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=100, limite_analisis_mes=50, icono='bi-award-fill', color='secondary'),
         Plan(nombre='oro', display_name='Oro', descripcion='Para empresas.', precio_mensual=35000.0, precio_anual=336000.0, precio_lifetime=600000.0, es_lifetime=False, activo=True, orden=3, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=500, limite_analisis_mes=200, icono='bi-trophy-fill', color='warning'),
         Plan(nombre='lifetime', display_name='Lifetime', descripcion='Acceso de por vida.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=900000.0, es_lifetime=True, activo=True, orden=4, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=999999, limite_analisis_mes=999999, icono='bi-gem', color='danger'),
     ]
+    
     for plan in planes:
         db.session.add(plan)
     db.session.commit()
@@ -1514,12 +1898,18 @@ def inicializar_planes_por_defecto():
 def obtener_plan_usuario(user):
     user_plan = UserPlan.query.filter_by(user_id=user.id).first()
     if not user_plan:
-        plan_bronce = Plan.query.filter_by(nombre='bronce').first()
-        user_plan = UserPlan(user_id=user.id, plan_id=plan_bronce.id if plan_bronce else None, plan='bronce', limite_transcripciones=5, limite_analisis=3)
+        # ⭐ CAMBIO: Asignar plan Free a nuevos usuarios
+        plan_free = Plan.query.filter_by(nombre='free').first()
+        user_plan = UserPlan(
+            user_id=user.id, 
+            plan_id=plan_free.id if plan_free else None, 
+            plan='free',  # ⭐ Cambiado de 'bronce' a 'free'
+            limite_transcripciones=3,  # ⭐ Límites del plan Free
+            limite_analisis=2
+        )
         db.session.add(user_plan)
         db.session.commit()
     return user_plan
-
 def obtener_todos_los_planes():
     return Plan.query.filter_by(activo=True).order_by(Plan.orden).all()
 
@@ -1619,6 +2009,195 @@ class TranslationService:
 
     def get_name(self) -> str:
         return f"Groq LLM ({self.model})"
+
+
+================================================================================
+ARCHIVO: services\agentes\__init__.py
+================================================================================
+
+# app/services/agentes/__init__.py
+
+
+================================================================================
+ARCHIVO: services\agentes\jurisdicciones.py
+================================================================================
+
+# app/services/agentes/jurisdicciones.py
+"""
+Registro de jurisdicciones soportadas por el modulo de agentes.
+
+`necesita_login` determina si esa jurisdiccion requiere una
+SesionJurisdiccion (subida por el usuario) para poder monitorearse en
+background, o si es de consulta publica.
+
+`soporta_automatizacion` indica si el worker en background puede chequearla
+sin intervencion humana. Las jurisdicciones con captcha por busqueda (como
+Cordoba) van con soporta_automatizacion=False: el usuario puede guardarlas
+para tener un link directo, pero no van a generar avisos automaticos por
+mail.
+"""
+
+JURISDICCIONES = {
+    "mev_scba": {
+        "nombre": "MEV - Suprema Corte de Justicia de Buenos Aires",
+        "necesita_login": True,
+        "soporta_automatizacion": True,
+        "campos_formulario": [
+            {"name": "url", "label": "URL de la consulta/set en la MEV", "tipo": "text"},
+        ],
+    },
+    "cordoba_sac": {
+        "nombre": "SAC - Poder Judicial de Cordoba",
+        "necesita_login": False,
+        "soporta_automatizacion": False,
+        "url_consulta": "https://www.justiciacordoba.gob.ar/justiciacordoba/servicios/ConsultaJuicios.aspx",
+        "campos_formulario": [
+            {"name": "numero_expediente", "label": "Numero de expediente (si lo tenes)", "tipo": "text"},
+            {"name": "apellido", "label": "Apellido de una de las partes", "tipo": "text"},
+        ],
+    },
+}
+
+
+def obtener_jurisdiccion(jid: str) -> dict | None:
+    return JURISDICCIONES.get(jid)
+
+
+def listar_jurisdicciones() -> dict:
+    return JURISDICCIONES
+
+
+================================================================================
+ARCHIVO: services\agentes\monitor_service.py
+================================================================================
+
+# app/services/agentes/monitor_service.py
+"""
+Logica de negocio del modulo de agentes: comparar el estado nuevo contra el
+guardado en la base (ExpedienteEstado) y armar el resumen de cambios.
+Es deliberadamente independiente de Playwright: el worker (que si importa
+Playwright y los proveedores) le pasa los datos ya extraidos.
+"""
+
+from app import db
+from app.models import ExpedienteEstado
+
+CAMPOS_A_COMPARAR = ("estado", "fecha_inicio", "ultima_novedad")
+
+
+def obtener_estado_guardado(expediente_monitoreado_id: int, expediente_id_externo: str):
+    return ExpedienteEstado.query.filter_by(
+        expediente_monitoreado_id=expediente_monitoreado_id,
+        expediente_id_externo=expediente_id_externo,
+    ).first()
+
+
+def guardar_o_actualizar_estado(expediente_monitoreado_id: int, datos: dict) -> ExpedienteEstado:
+    from app.utils.datetime_utils import utc_now
+
+    registro = obtener_estado_guardado(expediente_monitoreado_id, datos["id"])
+    if registro is None:
+        registro = ExpedienteEstado(
+            expediente_monitoreado_id=expediente_monitoreado_id,
+            expediente_id_externo=datos["id"],
+        )
+        db.session.add(registro)
+
+    registro.caratula = datos.get("caratula")
+    registro.estado = datos.get("estado")
+    registro.fecha_inicio = datos.get("fecha_inicio")
+    registro.ultima_novedad = datos.get("ultima_novedad")
+    registro.actualizado = utc_now()
+
+    db.session.commit()
+    return registro
+
+
+def comparar_con_guardado(anterior: ExpedienteEstado, actual: dict) -> list[str]:
+    """Devuelve la lista de campos que cambiaron entre lo guardado y lo
+    recien extraido. Lista vacia = sin novedades."""
+    cambios = []
+    for campo in CAMPOS_A_COMPARAR:
+        valor_anterior = getattr(anterior, campo)
+        valor_actual = actual.get(campo)
+        if valor_anterior != valor_actual:
+            cambios.append(f"{campo}: '{valor_anterior}' -> '{valor_actual}'")
+    return cambios
+
+
+================================================================================
+ARCHIVO: services\agentes\proveedores\__init__.py
+================================================================================
+
+# app/services/agentes/proveedores/__init__.py
+
+
+================================================================================
+ARCHIVO: services\agentes\proveedores\mev_scba.py
+================================================================================
+
+# app/services/agentes/proveedores/mev_scba.py
+"""
+Proveedor: Mesa de Entradas Virtual - Suprema Corte de Bs As (MEV-SCBA).
+
+Misma logica de extraccion que el agente standalone
+(proveedores/mev_scba.py del repo agente-poder-judicial), pero pensada para
+correr desde el worker en background usando la sesion que el usuario subio
+(SesionJurisdiccion), no un archivo local.
+"""
+
+from bs4 import BeautifulSoup
+from playwright.sync_api import BrowserContext, Page
+
+necesita_login = True
+
+
+def preparar_pagina(contexto: BrowserContext, parametros: dict) -> Page:
+    pagina = contexto.new_page()
+    pagina.goto(parametros["url"], wait_until="domcontentloaded")
+
+    if "UsuarioMEV" not in pagina.content():
+        raise RuntimeError("sesion_expirada")
+
+    return pagina
+
+
+def extraer_expedientes(pagina: Page, parametros: dict) -> list[dict]:
+    soup = BeautifulSoup(pagina.content(), "html.parser")
+    expedientes = []
+    filas = soup.select("table.pegada tr")
+
+    i = 0
+    while i < len(filas):
+        fila = filas[i]
+        link = fila.select_one("a[href*='procesales.asp']")
+        if link:
+            href = link.get("href", "")
+            nid_causa = href.split("nidCausa=")[1].split("&")[0] if "nidCausa=" in href else None
+            caratula = link.get_text(strip=True)
+
+            datos = {
+                "id": nid_causa,
+                "caratula": caratula,
+                "estado": None,
+                "fecha_inicio": None,
+                "ultima_novedad": None,
+            }
+
+            if i + 1 < len(filas):
+                celdas = filas[i + 1].select("td")
+                textos = [c.get_text(strip=True) for c in celdas]
+                if len(textos) >= 5:
+                    datos["estado"] = textos[0]
+                    datos["fecha_inicio"] = textos[3]
+                    datos["ultima_novedad"] = textos[4]
+                i += 1
+
+            if nid_causa:
+                expedientes.append(datos)
+        i += 1
+
+    return expedientes
 
 
 ================================================================================
@@ -2332,6 +2911,23 @@ class OpenAIBackend(TranscriptionBackend):
         return "OpenAI Whisper API"
 
 ================================================================================
+ARCHIVO: utils\datetime_utils.py
+================================================================================
+
+# app/utils/datetime_utils.py
+from datetime import datetime, timezone
+
+def utc_now():
+    """
+    Devuelve la fecha/hora actual en UTC como datetime naive.
+    Reemplaza a datetime.utcnow() que está deprecado en Python 3.12+.
+    
+    Usamos .replace(tzinfo=None) para mantener compatibilidad con SQLAlchemy
+    y evitar problemas de comparación entre timezone-aware y naive datetimes.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+================================================================================
 ARCHIVO: utils\decorators.py
 ================================================================================
 
@@ -2339,7 +2935,6 @@ ARCHIVO: utils\decorators.py
 from functools import wraps
 from flask import redirect, url_for, flash
 from flask_login import current_user
-
 
 def active_required(f):
     @wraps(f)
@@ -2365,6 +2960,41 @@ def role_required(role_name):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+def feature_required(feature_name):
+    """Bloquea el acceso si el plan del usuario no incluye la feature dada.
+
+    Usa Plan.tiene_feature(feature_name) a traves de UserPlan, que ya existe
+    en app/services/plan_service.py. Ejemplo de uso:
+
+        @agentes_bp.route("/dashboard/agentes")
+        @login_required
+        @feature_required("agentes")
+        def panel_agentes():
+            ...
+    """
+    def decorator(f):
+        from functools import wraps
+
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            from app.services.plan_service import obtener_plan_usuario
+
+            user_plan = obtener_plan_usuario(current_user)
+            plan_obj = user_plan.obtener_plan_obj()
+
+            if not plan_obj or not plan_obj.tiene_feature(feature_name):
+                flash(
+                    "Esta funcion esta disponible a partir del plan Oro. "
+                    "Mejora tu plan para acceder.",
+                    "error",
+                )
+                return redirect(url_for("planes.mi_plan"))
+
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
 
 ================================================================================
 ARCHIVO: utils\logs.py

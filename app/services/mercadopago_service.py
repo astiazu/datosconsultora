@@ -2,6 +2,7 @@
 import os
 import mercadopago
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from flask import url_for
 
 
@@ -38,7 +39,7 @@ class MercadoPagoService:
                 "name": user.nombre,
                 "email": user.email,
             },
-            "external_reference": f"user-{user.id}-{datetime.utcnow().timestamp()}",
+            "external_reference": f"user-{user.id}-{utc_now().timestamp()}",
             "back_urls": {
                 "success": url_for('cafecito.exito', _external=True),
                 "failure": url_for('cafecito.fallo', _external=True),

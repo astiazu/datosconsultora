@@ -279,6 +279,156 @@ def admin_plan_editar(plan_id):
     return redirect(url_for("admin.admin_planes"))
 
 ================================================================================
+ARCHIVO: agentes.py
+================================================================================
+
+# app/routes/agentes.py
+"""
+Panel de usuario para el modulo de "Agentes judiciales": permite cargar
+expedientes a seguir, subir la sesion (para jurisdicciones que la piden,
+como MEV-SCBA) y ver el ultimo estado conocido de cada uno.
+
+El chequeo periodico en si (scraping + mail) NO corre aca: lo hace
+worker/monitor_worker.py como proceso aparte (pensado para un Render Cron
+Job), porque Playwright con un Chrome real no es algo que deba correr
+dentro del ciclo request/response de un servidor web.
+"""
+
+import json
+
+from flask import Blueprint, render_template, request, flash, redirect, url_for
+from flask_login import login_required, current_user
+
+from app import db
+from app.models import ExpedienteMonitoreado, SesionJurisdiccion
+from app.utils.decorators import feature_required
+from app.services.agentes.jurisdicciones import listar_jurisdicciones, obtener_jurisdiccion
+
+agentes_bp = Blueprint("agentes", __name__, url_prefix="/dashboard/agentes")
+
+
+@agentes_bp.route("/")
+@login_required
+@feature_required("agentes")
+def panel_agentes():
+    expedientes = (
+        ExpedienteMonitoreado.query.filter_by(user_id=current_user.id, activo=True)
+        .order_by(ExpedienteMonitoreado.creado.desc())
+        .all()
+    )
+
+    sesiones = {
+        s.jurisdiccion: s
+        for s in SesionJurisdiccion.query.filter_by(user_id=current_user.id).all()
+    }
+
+    return render_template(
+        "agentes_dashboard.html",
+        expedientes=expedientes,
+        jurisdicciones=listar_jurisdicciones(),
+        sesiones=sesiones,
+    )
+
+
+@agentes_bp.route("/nuevo", methods=["GET", "POST"])
+@login_required
+@feature_required("agentes")
+def nuevo_expediente():
+    jurisdicciones = listar_jurisdicciones()
+
+    if request.method == "POST":
+        jid = request.form.get("jurisdiccion")
+        nombre = request.form.get("nombre", "").strip()
+        jurisdiccion = obtener_jurisdiccion(jid)
+
+        if not jurisdiccion:
+            flash("Jurisdiccion invalida.", "error")
+            return redirect(url_for("agentes.nuevo_expediente"))
+
+        if not nombre:
+            flash("Poné un nombre para identificar este expediente.", "error")
+            return redirect(url_for("agentes.nuevo_expediente"))
+
+        parametros = {}
+        for campo in jurisdiccion["campos_formulario"]:
+            parametros[campo["name"]] = request.form.get(campo["name"], "").strip()
+
+        expediente = ExpedienteMonitoreado(
+            user_id=current_user.id,
+            jurisdiccion=jid,
+            nombre=nombre,
+        )
+        expediente.set_parametros(parametros)
+        db.session.add(expediente)
+        db.session.commit()
+
+        flash(f"'{nombre}' se agregó a tus expedientes monitoreados.", "success")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    return render_template("agentes_nuevo.html", jurisdicciones=jurisdicciones)
+
+
+@agentes_bp.route("/<int:expediente_id>/eliminar", methods=["POST"])
+@login_required
+@feature_required("agentes")
+def eliminar_expediente(expediente_id):
+    expediente = ExpedienteMonitoreado.query.get_or_404(expediente_id)
+
+    if expediente.user_id != current_user.id:
+        flash("No tenés permisos sobre ese expediente.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    expediente.activo = False
+    db.session.commit()
+
+    flash("Expediente eliminado de tu panel.", "success")
+    return redirect(url_for("agentes.panel_agentes"))
+
+
+@agentes_bp.route("/sesion/<jurisdiccion_id>", methods=["POST"])
+@login_required
+@feature_required("agentes")
+def subir_sesion(jurisdiccion_id):
+    """Sube el session.json generado localmente con
+    login_y_guardar_sesion.py (el script standalone), para que el worker en
+    background pueda usarlo sin que el usuario tenga que resolver el login
+    (con captcha) de nuevo cada vez."""
+    jurisdiccion = obtener_jurisdiccion(jurisdiccion_id)
+    if not jurisdiccion or not jurisdiccion["necesita_login"]:
+        flash("Esta jurisdiccion no usa sesion.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    archivo = request.files.get("session_file")
+    if not archivo or not archivo.filename:
+        flash("Seleccioná el archivo session.json.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    try:
+        contenido = archivo.read().decode("utf-8")
+        json.loads(contenido)  # valida que sea JSON antes de guardarlo
+    except (UnicodeDecodeError, ValueError):
+        flash("El archivo no parece un session.json valido.", "error")
+        return redirect(url_for("agentes.panel_agentes"))
+
+    from app.utils.datetime_utils import utc_now
+
+    sesion = SesionJurisdiccion.query.filter_by(
+        user_id=current_user.id, jurisdiccion=jurisdiccion_id
+    ).first()
+    if sesion is None:
+        sesion = SesionJurisdiccion(user_id=current_user.id, jurisdiccion=jurisdiccion_id)
+        db.session.add(sesion)
+
+    sesion.storage_state_json = contenido
+    sesion.expirada = False
+    sesion.actualizado = utc_now()
+    db.session.commit()
+
+    flash(f"Sesión de {jurisdiccion['nombre']} actualizada.", "success")
+    return redirect(url_for("agentes.panel_agentes"))
+
+
+================================================================================
 ARCHIVO: auth.py
 ================================================================================
 
@@ -447,6 +597,7 @@ ARCHIVO: cafecito.py
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from app import db
 from app.models import Donation, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -529,7 +680,7 @@ def exito():
                     plan = UserPlan(user_id=current_user.id)
                     db.session.add(plan)
                 
-                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
                 db.session.commit()
                 
                 flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
@@ -631,6 +782,100 @@ def actualizar_avatar():
     return redirect(url_for("dashboard.dashboard_user"))
 
 ================================================================================
+ARCHIVO: historial.py
+================================================================================
+
+# app/routes/historial.py
+from flask import Blueprint, render_template, request
+from flask_login import login_required, current_user
+from app.models import Transcription, AnalysisSession
+
+historial_bp = Blueprint("historial", __name__)
+
+@historial_bp.route("/dashboard/historial")
+@login_required
+def mi_historial():
+    """Vista de historial combinado de transcripciones y análisis."""
+    filtro = request.args.get("filtro", "todos")
+    
+    # Obtener transcripciones
+    transcripciones = Transcription.query.filter_by(user_id=current_user.id).order_by(Transcription.fecha.desc()).all()
+    
+    # Obtener análisis
+    analisis = AnalysisSession.query.filter_by(user_id=current_user.id).order_by(AnalysisSession.fecha.desc()).all()
+    
+    # Combinar y ordenar por fecha
+    historial_combinado = []
+    
+    if filtro in ["todos", "transcripciones"]:
+        for t in transcripciones:
+            historial_combinado.append({
+                "tipo": "transcripcion",
+                "fecha": t.fecha,
+                "titulo": f"Transcripción: {t.file.filename if t.file else 'Archivo'}",
+                "resumen": t.texto[:150] + "..." if len(t.texto) > 150 else t.texto,
+                "id": t.id,
+                "detalle": t
+            })
+    
+    if filtro in ["todos", "analisis"]:
+        for a in analisis:
+            resultado = a.obtener_resultado()
+            estadisticas = resultado.get("estadisticas", {})
+            resumen = resultado.get("resumen_general", "Análisis de sentimientos")
+            
+            historial_combinado.append({
+                "tipo": "analisis",
+                "fecha": a.fecha,
+                "titulo": f"Análisis: {a.red_social.upper() if a.red_social else 'Red Social'}",
+                "resumen": resumen[:150] + "..." if len(resumen) > 150 else resumen,
+                "id": a.id,
+                "detalle": a,
+                "estadisticas": estadisticas
+            })
+    
+    # Ordenar por fecha (más reciente primero)
+    historial_combinado.sort(key=lambda x: x["fecha"], reverse=True)
+    
+    return render_template(
+        "historial.html",
+        historial=historial_combinado,
+        filtro=filtro,
+        total_transcripciones=len(transcripciones),
+        total_analisis=len(analisis)
+    )
+
+@historial_bp.route("/dashboard/historial/transcripcion/<int:transcription_id>")
+@login_required
+def ver_transcripcion(transcription_id):
+    """Ver detalle de una transcripción."""
+    transcription = Transcription.query.get_or_404(transcription_id)
+    
+    # Verificar que pertenece al usuario
+    if transcription.user_id != current_user.id:
+        from flask import flash, redirect, url_for
+        flash("No tenés permisos para ver esta transcripción", "error")
+        return redirect(url_for("historial.mi_historial"))
+    
+    return render_template("ver_transcripcion.html", transcription=transcription)
+
+@historial_bp.route("/dashboard/historial/analisis/<int:analysis_id>")
+@login_required
+def ver_analisis(analysis_id):
+    """Ver detalle de un análisis."""
+    analysis = AnalysisSession.query.get_or_404(analysis_id)
+    
+    # Verificar que pertenece al usuario
+    if analysis.user_id != current_user.id:
+        from flask import flash, redirect, url_for
+        flash("No tenés permisos para ver este análisis", "error")
+        return redirect(url_for("historial.mi_historial"))
+    
+    resultado = analysis.obtener_resultado()
+    
+    return render_template("ver_analisis.html", analysis=analysis, resultado=resultado)
+
+================================================================================
 ARCHIVO: planes.py
 ================================================================================
 
@@ -729,7 +974,7 @@ from flask import Blueprint, render_template, request, flash, current_app, redir
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app import db
-from app.models import UserFile, Transcription
+from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
@@ -855,6 +1100,18 @@ def analisis_sentimientos():
                     resultado["total_comentarios_limpios"] = len(comentarios_limpios)
                     
                     registrar_uso_analisis(current_user)
+
+                    # guardar análisis en la base de datos
+                    analysis_session = AnalysisSession(
+                        user_id=current_user.id,
+                        red_social=red_social,
+                        contexto=contexto if contexto else None,
+                        total_comentarios=len(comentarios_limpios),
+                        resultado_json=json.dumps(resultado, ensure_ascii=False)
+                    )
+                    db.session.add(analysis_session)
+                    db.session.commit()
+
                     flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
                     paso = "resultado"
             except Exception as e:
@@ -965,6 +1222,7 @@ ARCHIVO: webhook.py
 # app/routes/webhook.py
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from app import db
 from app.models import Donation, User, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -1021,7 +1279,7 @@ def mercadopago_webhook():
                                     plan = UserPlan(user_id=user_id)
                                     db.session.add(plan)
                                 
-                                plan.fecha_expiracion_cafecito = datetime.utcnow() + timedelta(days=30)
+                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
                                 db.session.commit()
                                 
                                 print(f"✅ Donación confirmada para user_id={user_id}")

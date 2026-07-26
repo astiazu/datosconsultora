@@ -1,0 +1,124 @@
+<!-- templates/agentes_dashboard.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'agentes' %}
+{% block title %}Agentes Judiciales - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-robot me-2"></i>Agentes Judiciales
+        </h1>
+        <p class="text-muted">Seguí el estado de tus expedientes sin entrar a cada sitio a mano.</p>
+    </div>
+    <a href="{{ url_for('agentes.nuevo_expediente') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Agregar expediente
+    </a>
+</div>
+
+{% if not expedientes %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted"></i>
+        <p class="text-muted mt-3 mb-3">Todavía no cargaste ningún expediente para seguir.</p>
+        <a href="{{ url_for('agentes.nuevo_expediente') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Agregar el primero
+        </a>
+    </div>
+</div>
+{% else %}
+
+<div class="list-group mb-4">
+    {% for expediente in expedientes %}
+    {% set jurisdiccion = jurisdicciones.get(expediente.jurisdiccion) %}
+    {% set estados = expediente.estados.all() %}
+    <div class="list-group-item border-0 shadow-sm mb-3">
+        <div class="d-flex w-100 justify-content-between align-items-start">
+            <div class="flex-grow-1">
+                <div class="d-flex align-items-center mb-2 gap-2">
+                    <span class="badge bg-info text-dark">{{ jurisdiccion.nombre if jurisdiccion else expediente.jurisdiccion }}</span>
+                    {% if jurisdiccion and not jurisdiccion.soporta_automatizacion %}
+                    <span class="badge bg-warning text-dark">
+                        <i class="bi bi-hand-index-thumb"></i> Revisión manual
+                    </span>
+                    {% endif %}
+                </div>
+                <h5 class="mb-1 text-petroleo fw-bold">{{ expediente.nombre }}</h5>
+
+                {% if estados %}
+                    {% for e in estados %}
+                    <div class="border-top pt-2 mt-2">
+                        <p class="mb-1"><strong>Carátula:</strong> {{ e.caratula or '-' }}</p>
+                        <p class="mb-1"><strong>Estado:</strong> {{ e.estado or '-' }}</p>
+                        <p class="mb-1"><strong>Última novedad:</strong> {{ e.ultima_novedad or '-' }}</p>
+                        <small class="text-muted">Actualizado: {{ e.actualizado.strftime('%d/%m/%Y %H:%M') }}</small>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">
+                        <i class="bi bi-hourglass-split me-1"></i>
+                        {% if jurisdiccion and jurisdiccion.soporta_automatizacion %}
+                            Todavía no se hizo el primer chequeo.
+                        {% else %}
+                            Esta jurisdicción no se chequea sola: usá el link de abajo para revisarla vos.
+                        {% endif %}
+                    </p>
+                {% endif %}
+
+                {% if jurisdiccion and jurisdiccion.get('url_consulta') %}
+                <a href="{{ jurisdiccion.url_consulta }}" target="_blank" rel="noopener" class="small d-inline-block mt-2">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Ir a la consulta oficial
+                </a>
+                {% endif %}
+            </div>
+            <form method="POST" action="{{ url_for('agentes.eliminar_expediente', expediente_id=expediente.id) }}"
+                  onsubmit="return confirm('¿Dejar de seguir este expediente?');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Sesiones para jurisdicciones que la necesitan (ej MEV) -->
+{% set jurisdicciones_con_login = jurisdicciones.items() | selectattr('1.necesita_login') | list %}
+{% if jurisdicciones_con_login %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-key-fill me-2"></i>Sesiones conectadas
+        </h5>
+        <p class="text-muted small">
+            Para MEV-SCBA y sitios similares hace falta iniciar sesión una vez con el
+            script <code>login_y_guardar_sesion.py</code> (usuario, clave y captcha) y subir
+            acá el <code>session.json</code> que genera, para que el chequeo automático
+            pueda usarlo.
+        </p>
+        {% for jid, jurisdiccion in jurisdicciones_con_login %}
+        <div class="d-flex align-items-center justify-content-between border-top pt-3 mt-3">
+            <div>
+                <strong>{{ jurisdiccion.nombre }}</strong><br>
+                {% set sesion = sesiones.get(jid) %}
+                {% if sesion and not sesion.expirada %}
+                <small class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Sesión activa (actualizada {{ sesion.actualizado.strftime('%d/%m/%Y') }})</small>
+                {% elif sesion and sesion.expirada %}
+                <small class="text-danger"><i class="bi bi-exclamation-circle-fill me-1"></i>La sesión expiró, subí una nueva</small>
+                {% else %}
+                <small class="text-muted">Sin sesión cargada todavía</small>
+                {% endif %}
+            </div>
+            <form method="POST" action="{{ url_for('agentes.subir_sesion', jurisdiccion_id=jid) }}"
+                  enctype="multipart/form-data" class="d-flex align-items-center gap-2">
+                <input type="file" name="session_file" accept="application/json" class="form-control form-control-sm" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Subir</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

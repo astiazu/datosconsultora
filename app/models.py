@@ -126,6 +126,27 @@ class Assistant(db.Model):
     creado = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("assistants", lazy="dynamic"))
 
+class AnalysisSession(db.Model):
+    """Registro de cada análisis de sentimientos realizado."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    red_social = db.Column(db.String(50))
+    contexto = db.Column(db.String(500))
+    total_comentarios = db.Column(db.Integer)
+    resultado_json = db.Column(db.Text)  # JSON completo del análisis
+    
+    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
+    
+    def obtener_resultado(self):
+        """Convierte el JSON string a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}
 
 class UserPlan(db.Model):
     """Plan actual de un usuario."""
@@ -230,24 +251,76 @@ class Plan(db.Model):
         }
         return features_map.get(feature, False)
 
-class AnalysisSession(db.Model):
-    """Registro de cada análisis de sentimientos realizado."""
+class ExpedienteMonitoreado(db.Model):
+    """Un expediente que un usuario pidio seguir, en alguna jurisdiccion."""
+    __tablename__ = "expediente_monitoreado"
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    fecha = db.Column(db.DateTime, default=utc_now)
-    red_social = db.Column(db.String(50))
-    contexto = db.Column(db.String(500))
-    total_comentarios = db.Column(db.Integer)
-    resultado_json = db.Column(db.Text)  # JSON completo del análisis
-    
-    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
-    
-    def obtener_resultado(self):
-        """Convierte el JSON string a dict."""
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    jurisdiccion = db.Column(db.String(50), nullable=False)  # 'mev_scba', 'cordoba_sac', ...
+    nombre = db.Column(db.String(200), nullable=False)       # nombre que le puso el usuario
+    parametros_json = db.Column(db.Text, default="{}")       # filtros especificos (url, apellido, etc)
+
+    activo = db.Column(db.Boolean, default=True)
+    creado = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship(
+        "User", backref=db.backref("expedientes_monitoreados", lazy="dynamic")
+    )
+
+    def parametros(self) -> dict:
         import json
-        if self.resultado_json:
-            try:
-                return json.loads(self.resultado_json)
-            except:
-                return {}
-        return {}
+        try:
+            return json.loads(self.parametros_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+    def set_parametros(self, datos: dict) -> None:
+        import json
+        self.parametros_json = json.dumps(datos, ensure_ascii=False)
+
+
+class ExpedienteEstado(db.Model):
+    """Ultimo estado conocido de un expediente monitoreado (reemplaza a
+    estado/estado_<id>.json del agente standalone)."""
+    __tablename__ = "expediente_estado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    expediente_monitoreado_id = db.Column(
+        db.Integer, db.ForeignKey("expediente_monitoreado.id"), nullable=False
+    )
+
+    expediente_id_externo = db.Column(db.String(100))  # id/numero dentro de esa jurisdiccion
+    caratula = db.Column(db.String(300))
+    estado = db.Column(db.String(200))
+    fecha_inicio = db.Column(db.String(100))
+    ultima_novedad = db.Column(db.String(300))
+
+    actualizado = db.Column(db.DateTime, default=utc_now)
+
+    expediente_monitoreado = db.relationship(
+        "ExpedienteMonitoreado", backref=db.backref("estados", lazy="dynamic")
+    )
+
+
+class SesionJurisdiccion(db.Model):
+    """Sesion (cookies/localStorage) que un usuario subio para una
+    jurisdiccion que la necesita (ej: MEV-SCBA). Reemplaza a session.json."""
+    __tablename__ = "sesion_jurisdiccion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    jurisdiccion = db.Column(db.String(50), nullable=False)
+
+    storage_state_json = db.Column(db.Text)  # contenido tal cual de session.json
+    actualizado = db.Column(db.DateTime, default=utc_now)
+    expirada = db.Column(db.Boolean, default=False)
+
+    user = db.relationship(
+        "User", backref=db.backref("sesiones_jurisdiccion", lazy="dynamic")
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "jurisdiccion", name="uq_sesion_user_jurisdiccion"),
+    )

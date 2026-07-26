@@ -622,6 +622,215 @@ ARCHIVO: admin_usuarios.html
 
 
 ================================================================================
+ARCHIVO: agentes_dashboard.html
+================================================================================
+
+<!-- templates/agentes_dashboard.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'agentes' %}
+{% block title %}Agentes Judiciales - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-robot me-2"></i>Agentes Judiciales
+        </h1>
+        <p class="text-muted">Seguí el estado de tus expedientes sin entrar a cada sitio a mano.</p>
+    </div>
+    <a href="{{ url_for('agentes.nuevo_expediente') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Agregar expediente
+    </a>
+</div>
+
+{% if not expedientes %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted"></i>
+        <p class="text-muted mt-3 mb-3">Todavía no cargaste ningún expediente para seguir.</p>
+        <a href="{{ url_for('agentes.nuevo_expediente') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Agregar el primero
+        </a>
+    </div>
+</div>
+{% else %}
+
+<div class="list-group mb-4">
+    {% for expediente in expedientes %}
+    {% set jurisdiccion = jurisdicciones.get(expediente.jurisdiccion) %}
+    {% set estados = expediente.estados.all() %}
+    <div class="list-group-item border-0 shadow-sm mb-3">
+        <div class="d-flex w-100 justify-content-between align-items-start">
+            <div class="flex-grow-1">
+                <div class="d-flex align-items-center mb-2 gap-2">
+                    <span class="badge bg-info text-dark">{{ jurisdiccion.nombre if jurisdiccion else expediente.jurisdiccion }}</span>
+                    {% if jurisdiccion and not jurisdiccion.soporta_automatizacion %}
+                    <span class="badge bg-warning text-dark">
+                        <i class="bi bi-hand-index-thumb"></i> Revisión manual
+                    </span>
+                    {% endif %}
+                </div>
+                <h5 class="mb-1 text-petroleo fw-bold">{{ expediente.nombre }}</h5>
+
+                {% if estados %}
+                    {% for e in estados %}
+                    <div class="border-top pt-2 mt-2">
+                        <p class="mb-1"><strong>Carátula:</strong> {{ e.caratula or '-' }}</p>
+                        <p class="mb-1"><strong>Estado:</strong> {{ e.estado or '-' }}</p>
+                        <p class="mb-1"><strong>Última novedad:</strong> {{ e.ultima_novedad or '-' }}</p>
+                        <small class="text-muted">Actualizado: {{ e.actualizado.strftime('%d/%m/%Y %H:%M') }}</small>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted mb-0">
+                        <i class="bi bi-hourglass-split me-1"></i>
+                        {% if jurisdiccion and jurisdiccion.soporta_automatizacion %}
+                            Todavía no se hizo el primer chequeo.
+                        {% else %}
+                            Esta jurisdicción no se chequea sola: usá el link de abajo para revisarla vos.
+                        {% endif %}
+                    </p>
+                {% endif %}
+
+                {% if jurisdiccion and jurisdiccion.get('url_consulta') %}
+                <a href="{{ jurisdiccion.url_consulta }}" target="_blank" rel="noopener" class="small d-inline-block mt-2">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Ir a la consulta oficial
+                </a>
+                {% endif %}
+            </div>
+            <form method="POST" action="{{ url_for('agentes.eliminar_expediente', expediente_id=expediente.id) }}"
+                  onsubmit="return confirm('¿Dejar de seguir este expediente?');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Sesiones para jurisdicciones que la necesitan (ej MEV) -->
+{% set jurisdicciones_con_login = jurisdicciones.items() | selectattr('1.necesita_login') | list %}
+{% if jurisdicciones_con_login %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <h5 class="text-petroleo fw-bold mb-3">
+            <i class="bi bi-key-fill me-2"></i>Sesiones conectadas
+        </h5>
+        <p class="text-muted small">
+            Para MEV-SCBA y sitios similares hace falta iniciar sesión una vez con el
+            script <code>login_y_guardar_sesion.py</code> (usuario, clave y captcha) y subir
+            acá el <code>session.json</code> que genera, para que el chequeo automático
+            pueda usarlo.
+        </p>
+        {% for jid, jurisdiccion in jurisdicciones_con_login %}
+        <div class="d-flex align-items-center justify-content-between border-top pt-3 mt-3">
+            <div>
+                <strong>{{ jurisdiccion.nombre }}</strong><br>
+                {% set sesion = sesiones.get(jid) %}
+                {% if sesion and not sesion.expirada %}
+                <small class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Sesión activa (actualizada {{ sesion.actualizado.strftime('%d/%m/%Y') }})</small>
+                {% elif sesion and sesion.expirada %}
+                <small class="text-danger"><i class="bi bi-exclamation-circle-fill me-1"></i>La sesión expiró, subí una nueva</small>
+                {% else %}
+                <small class="text-muted">Sin sesión cargada todavía</small>
+                {% endif %}
+            </div>
+            <form method="POST" action="{{ url_for('agentes.subir_sesion', jurisdiccion_id=jid) }}"
+                  enctype="multipart/form-data" class="d-flex align-items-center gap-2">
+                <input type="file" name="session_file" accept="application/json" class="form-control form-control-sm" required>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Subir</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+
+================================================================================
+ARCHIVO: agentes_nuevo.html
+================================================================================
+
+<!-- templates/agentes_nuevo.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'agentes' %}
+{% block title %}Agregar expediente - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-petroleo fw-bold mb-1">
+        <i class="bi bi-plus-circle me-2"></i>Agregar expediente
+    </h1>
+    <p class="text-muted">Elegí la jurisdicción y contanos qué expediente querés seguir.</p>
+</div>
+
+<div class="card border-0 shadow-sm" style="max-width: 640px;">
+    <div class="card-body">
+        <form method="POST">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Jurisdicción</label>
+                <select name="jurisdiccion" id="selectJurisdiccion" class="form-select" required
+                        onchange="mostrarCampos(this.value)">
+                    <option value="" disabled selected>Elegí una jurisdicción</option>
+                    {% for jid, j in jurisdicciones.items() %}
+                    <option value="{{ jid }}">{{ j.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Nombre para identificarlo</label>
+                <input type="text" name="nombre" class="form-control"
+                       placeholder="Ej: Divorcio Pérez / García" required>
+            </div>
+
+            {% for jid, j in jurisdicciones.items() %}
+            <div class="campos-jurisdiccion d-none" id="campos-{{ jid }}">
+                <hr>
+                {% if not j.soporta_automatizacion %}
+                <div class="alert alert-warning small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Esta jurisdicción exige un código de seguridad (captcha) en cada búsqueda,
+                    así que no la podemos chequear sola en segundo plano. Vas a poder guardarla
+                    igual y te dejamos un link directo para revisarla vos cuando quieras.
+                </div>
+                {% endif %}
+                {% for campo in j.campos_formulario %}
+                <div class="mb-3">
+                    <label class="form-label">{{ campo.label }}</label>
+                    <input type="{{ campo.tipo }}" name="{{ campo.name }}" class="form-control">
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>Guardar
+                </button>
+                <a href="{{ url_for('agentes.panel_agentes') }}" class="btn btn-outline-secondary">
+                    Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function mostrarCampos(jid) {
+    document.querySelectorAll('.campos-jurisdiccion').forEach(el => el.classList.add('d-none'));
+    const activo = document.getElementById('campos-' + jid);
+    if (activo) activo.classList.remove('d-none');
+}
+</script>
+{% endblock %}
+
+
+================================================================================
 ARCHIVO: analisis_sentimientos.html
 ================================================================================
 
@@ -1410,7 +1619,7 @@ ARCHIVO: dashboard_layout.html
                 <a class="nav-link {% if active_section == 'datos' %}active{% endif %}" href="#">
                     <i class="bi bi-person-badge-fill me-2"></i> Mis datos
                 </a>
-                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="#">
+                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="{{ url_for('historial.mi_historial') }}">
                     <i class="bi bi-folder2-open me-2"></i> Mis archivos
                 </a>
                 <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}" href="#">
@@ -1420,8 +1629,9 @@ ARCHIVO: dashboard_layout.html
                     href="{{ url_for('servicios.analisis_sentimientos') }}">
                     <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
                 </a>
-                <a class="nav-link {% if active_section == 'asistentes' %}active{% endif %}" href="#">
-                    <i class="bi bi-robot me-2"></i> Asistentes IA
+                <a class="nav-link {% if active_section == 'agentes' %}active{% endif %}"
+                href="{{ url_for('agentes.panel_agentes') }}">
+                    <i class="bi bi-robot me-2"></i> Agentes Judiciales
                 </a>
                 <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
                     <i class="bi bi-activity me-2"></i> Actividad
@@ -1671,7 +1881,9 @@ ARCHIVO: dashboard_user.html
                     <i class="bi bi-folder2-open me-2 text-success"></i> Mis archivos
                 </h6>
                 <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
-                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+                <a href="{{ url_for('historial.mi_historial') }}" class="btn        btn-outline-primary btn-sm">
+                    <i class="bi bi-folder2-open me-1"></i>Ver historial
+                </a>
             </div>
         </div>
         {% else %}
@@ -1829,6 +2041,165 @@ ARCHIVO: dashboard_user.html
         </div>
     </div>
 </div>
+{% endblock %}
+
+================================================================================
+ARCHIVO: historial.html
+================================================================================
+
+<!-- templates/historial.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'archivos' %}
+{% block title %}Mi Historial - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-folder2-open me-2"></i>Mi Historial
+        </h1>
+        <p class="text-muted">Todas tus transcripciones y análisis en un solo lugar</p>
+    </div>
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
+</div>
+
+<!-- Estadísticas rápidas -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <i class="bi bi-mic-fill fs-1 text-primary"></i>
+                <h3 class="fw-bold text-petroleo mt-2">{{ total_transcripciones }}</h3>
+                <p class="text-muted mb-0">Transcripciones</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <i class="bi bi-chat-heart-fill fs-1 text-danger"></i>
+                <h3 class="fw-bold text-petroleo mt-2">{{ total_analisis }}</h3>
+                <p class="text-muted mb-0">Análisis de sentimientos</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <i class="bi bi-clock-history fs-1 text-success"></i>
+                <h3 class="fw-bold text-petroleo mt-2">{{ historial|length }}</h3>
+                <p class="text-muted mb-0">Total de actividades</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtros -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <div class="btn-group w-100" role="group">
+            <a href="{{ url_for('historial.mi_historial', filtro='todos') }}" 
+               class="btn {% if filtro == 'todos' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                <i class="bi bi-list-ul me-2"></i>Todos ({{ historial|length }})
+            </a>
+            <a href="{{ url_for('historial.mi_historial', filtro='transcripciones') }}" 
+               class="btn {% if filtro == 'transcripciones' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                <i class="bi bi-mic-fill me-2"></i>Transcripciones ({{ total_transcripciones }})
+            </a>
+            <a href="{{ url_for('historial.mi_historial', filtro='analisis') }}" 
+               class="btn {% if filtro == 'analisis' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                <i class="bi bi-chat-heart-fill me-2"></i>Análisis ({{ total_analisis }})
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Lista de historial -->
+{% if historial %}
+<div class="list-group">
+    {% for item in historial %}
+    <div class="list-group-item list-group-item-action border-0 shadow-sm mb-3">
+        <div class="d-flex w-100 justify-content-between align-items-start">
+            <div class="flex-grow-1">
+                <div class="d-flex align-items-center mb-2">
+                    {% if item.tipo == 'transcripcion' %}
+                    <span class="badge bg-primary me-2">
+                        <i class="bi bi-mic-fill"></i> Transcripción
+                    </span>
+                    {% else %}
+                    <span class="badge bg-danger me-2">
+                        <i class="bi bi-chat-heart-fill"></i> Análisis
+                    </span>
+                    {% endif %}
+                    <small class="text-muted">
+                        <i class="bi bi-clock me-1"></i>
+                        {{ item.fecha.strftime('%d/%m/%Y a las %H:%M') }}
+                    </small>
+                </div>
+                <h5 class="mb-1 text-petroleo fw-bold">{{ item.titulo }}</h5>
+                <p class="mb-2 text-muted">{{ item.resumen }}</p>
+                
+                {% if item.tipo == 'analisis' and item.estadisticas %}
+                <div class="d-flex gap-3 mt-2">
+                    <small class="text-success">
+                        <i class="bi bi-emoji-smile-fill"></i> 
+                        {{ item.estadisticas.positivos }} positivos
+                    </small>
+                    <small class="text-secondary">
+                        <i class="bi bi-emoji-neutral-fill"></i> 
+                        {{ item.estadisticas.neutrales }} neutrales
+                    </small>
+                    <small class="text-danger">
+                        <i class="bi bi-emoji-frown-fill"></i> 
+                        {{ item.estadisticas.negativos }} negativos
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+            <div>
+                {% if item.tipo == 'transcripcion' %}
+                <a href="{{ url_for('historial.ver_transcripcion', transcription_id=item.id) }}" 
+                   class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye me-1"></i>Ver
+                </a>
+                {% else %}
+                <a href="{{ url_for('historial.ver_analisis', analysis_id=item.id) }}" 
+                   class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-eye me-1"></i>Ver
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted"></i>
+        <h5 class="text-petroleo mt-3">Tu historial está vacío</h5>
+        <p class="text-muted">
+            {% if filtro == 'transcripciones' %}
+            Todavía no hiciste ninguna transcripción.
+            {% elif filtro == 'analisis' %}
+            Todavía no hiciste ningún análisis de sentimientos.
+            {% else %}
+            Todavía no tienes actividades en tu historial.
+            {% endif %}
+        </p>
+        <div class="d-flex gap-2 justify-content-center mt-3">
+            <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary">
+                <i class="bi bi-mic-fill me-2"></i>Hacer transcripción
+            </a>
+            <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-danger">
+                <i class="bi bi-chat-heart-fill me-2"></i>Hacer análisis
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 ================================================================================
@@ -2874,6 +3245,257 @@ ARCHIVO: servicios.html
         </div>
     </div>
 </section>
+{% endblock %}
+
+================================================================================
+ARCHIVO: ver_analisis.html
+================================================================================
+
+<!-- templates/ver_analisis.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'archivos' %}
+{% block title %}Ver Análisis - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+        </h1>
+        <p class="text-muted">{{ analysis.red_social|upper if analysis.red_social else 'Red Social' }}</p>
+    </div>
+    <a href="{{ url_for('historial.mi_historial') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Historial
+    </a>
+</div>
+
+{% if resultado %}
+<div class="row g-4">
+    <!-- Estadísticas -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-pie-chart-fill me-2"></i>Estadísticas
+                </h5>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-success fw-bold">
+                            <i class="bi bi-emoji-smile-fill"></i> Positivos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-success" style="width: {{ resultado.estadisticas.porcentaje_positivo }}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-secondary fw-bold">
+                            <i class="bi bi-emoji-neutral-fill"></i> Neutrales
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-secondary" style="width: {{ resultado.estadisticas.porcentaje_neutral }}%"></div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-danger fw-bold">
+                            <i class="bi bi-emoji-frown-fill"></i> Negativos
+                        </span>
+                        <span class="fw-bold">{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar bg-danger" style="width: {{ resultado.estadisticas.porcentaje_negativo }}%"></div>
+                    </div>
+                </div>
+                <hr>
+                <p class="text-muted mb-0">
+                    <strong>Total analizado:</strong> {{ resultado.estadisticas.total }} comentarios<br>
+                    <small>Fecha: {{ analysis.fecha.strftime('%d/%m/%Y %H:%M') }}</small>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resumen general -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-journal-text me-2"></i>Resumen General
+                </h5>
+                <p class="fs-5">{{ resultado.resumen_general }}</p>
+                {% if resultado.tono_general %}
+                <div class="mt-3 p-3 bg-light rounded">
+                    <strong class="text-petroleo">Tono general:</strong>
+                    <span class="text-muted">{{ resultado.tono_general }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Temas y palabras clave -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-tags-fill me-2"></i>Temas Principales
+                </h5>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for tema in resultado.temas_principales %}
+                    <span class="badge bg-info text-dark fs-6">{{ tema }}</span>
+                    {% endfor %}
+                </div>
+                {% if resultado.palabras_clave %}
+                <h6 class="text-petroleo fw-bold mt-4 mb-2">
+                    <i class="bi bi-key-fill me-2"></i>Palabras Clave
+                </h6>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for palabra in resultado.palabras_clave %}
+                    <span class="badge bg-light text-dark border">{{ palabra }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights y recomendaciones -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-3">
+                    <i class="bi bi-lightbulb-fill me-2"></i>Insights
+                </h5>
+                <ul class="list-unstyled mb-4">
+                    {% for insight in resultado.insights %}
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>{{ insight }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% if resultado.recomendaciones %}
+                <h6 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-rocket-takeoff-fill me-2"></i>Recomendaciones
+                </h6>
+                <ul class="list-unstyled mb-0">
+                    {% for rec in resultado.recomendaciones %}
+                    <li class="mb-2">
+                        <i class="bi bi-arrow-right-circle-fill text-primary me-2"></i>{{ rec }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Botones de acción -->
+<div class="mt-4 d-flex gap-2 justify-content-end">
+    <button class="btn btn-outline-primary" onclick="exportarResultado()">
+        <i class="bi bi-download me-2"></i>Exportar JSON
+    </button>
+    <button class="btn btn-outline-secondary" onclick="window.print()">
+        <i class="bi bi-printer me-2"></i>Imprimir
+    </button>
+</div>
+
+<script id="resultado-data" type="application/json">
+{{ resultado | tojson | safe }}
+</script>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function exportarResultado() {
+    const data = document.getElementById('resultado-data').textContent;
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'analisis_sentimientos.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}
+
+================================================================================
+ARCHIVO: ver_transcripcion.html
+================================================================================
+
+<!-- templates/ver_transcripcion.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'archivos' %}
+{% block title %}Ver Transcripción - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-file-text me-2"></i>Transcripción
+        </h1>
+        <p class="text-muted">{{ transcription.file.filename if transcription.file else 'Archivo' }}</p>
+    </div>
+    <a href="{{ url_for('historial.mi_historial') }}" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Volver al Historial
+    </a>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <div class="mb-3">
+            <small class="text-muted">
+                <i class="bi bi-clock me-1"></i>
+                Fecha: {{ transcription.fecha.strftime('%d/%m/%Y a las %H:%M') }}
+            </small>
+        </div>
+        <hr>
+        <div class="p-4 rounded" style="background-color: #f8f9fa; max-height: 600px; overflow-y: auto;">
+            <pre style="white-space: pre-wrap; font-family: inherit; margin: 0;">{{ transcription.texto }}</pre>
+        </div>
+        <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-outline-primary" onclick="copiarTexto()">
+                <i class="bi bi-clipboard me-2"></i>Copiar
+            </button>
+            <button class="btn btn-outline-success" onclick="descargarTexto()">
+                <i class="bi bi-download me-2"></i>Descargar
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function copiarTexto() {
+    const texto = document.querySelector('pre').innerText;
+    navigator.clipboard.writeText(texto).then(() => {
+        alert('Texto copiado al portapapeles');
+    });
+}
+
+function descargarTexto() {
+    const texto = document.querySelector('pre').innerText;
+    const blob = new Blob([texto], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'transcripcion.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+</script>
 {% endblock %}
 
 ================================================================================
