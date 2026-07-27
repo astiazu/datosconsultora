@@ -1,6 +1,7 @@
 # app/routes/servicios.py
 import os
 import json
+from uuid import uuid4
 from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -34,12 +35,15 @@ def servicio_transcripcion():
                     flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
-                filename = secure_filename(f.filename)
-                path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+                original_filename = secure_filename(f.filename)
+                filename = f"{uuid4().hex}.{ext}"
+                user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+                os.makedirs(user_dir, exist_ok=True)
+                path = os.path.join(user_dir, filename)
                 f.save(path)
                 
                 tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
-                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
+                user_file = UserFile(user_id=current_user.id, filename=original_filename, filepath=path, tipo=tipo_archivo)
                 db.session.add(user_file)
                 db.session.commit()
                 

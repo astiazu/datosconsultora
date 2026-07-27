@@ -1,8 +1,9 @@
 # app/routes/dashboard.py
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 import os
+from uuid import uuid4
 from app import db
 from app.models import UserProfile, UserFile, Transcription
 
@@ -54,10 +55,12 @@ def actualizar_avatar():
     if f and f.filename:
         ext = f.filename.rsplit(".", 1)[-1].lower()
         if ext in {"png", "jpg", "jpeg", "webp"}:
-            filename = secure_filename(f"avatar_{current_user.id}.{ext}")
-            path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+            filename = f"avatar_{uuid4().hex}.{ext}"
+            user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+            os.makedirs(user_dir, exist_ok=True)
+            path = os.path.join(user_dir, filename)
             f.save(path)
-            profile.avatar = f"/{path}"
+            profile.avatar = filename
             db.session.commit()
             flash("Avatar actualizado", "success")
         else:
@@ -66,3 +69,11 @@ def actualizar_avatar():
         flash("No seleccionaste ninguna imagen", "error")
 
     return redirect(url_for("dashboard.dashboard_user"))
+
+
+@dashboard_bp.route("/avatar/<filename>")
+@login_required
+def ver_avatar(filename):
+    if filename != secure_filename(filename) or not current_user.profile or current_user.profile.avatar != filename:
+        abort(404)
+    return send_from_directory(os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id)), filename)

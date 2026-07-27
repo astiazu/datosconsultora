@@ -50,7 +50,7 @@ body {
                 {% endif %}
                 {% endwith %}
 
-                <form method="POST">
+                <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label">Email</label>
                         <input type="email" name="email" class="form-control" required>

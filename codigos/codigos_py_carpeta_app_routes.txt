@@ -11,7 +11,6 @@ from app.services.plan_service import inicializar_planes_por_defecto
 
 admin_bp = Blueprint("admin", __name__)
 
-
 @admin_bp.before_request
 @login_required
 def check_admin():
@@ -19,13 +18,13 @@ def check_admin():
         flash("No tenés permisos de administrador", "error")
         return redirect(url_for("dashboard.dashboard_user"))
 
-
 @admin_bp.route("/")
 def admin_panel():
     usuarios = User.query.all()
     usuarios_count = len(usuarios)
     activos_count = len([u for u in usuarios if u.is_active_account])
     logs_recientes = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(10).all()
+    
     return render_template(
         "admin_panel.html",
         usuarios_count=usuarios_count,
@@ -33,27 +32,34 @@ def admin_panel():
         logs_recientes=logs_recientes,
     )
 
-
 @admin_bp.route("/usuarios")
 def admin_usuarios():
     filtro = request.args.get("filtro", "todos")
+    
     if filtro == "activos":
         usuarios = User.query.filter_by(is_active_account=True).all()
     elif filtro == "inactivos":
         usuarios = User.query.filter_by(is_active_account=False).all()
     else:
         usuarios = User.query.all()
-
+    
     roles = Role.query.all()
-    return render_template("admin_usuarios.html", usuarios=usuarios, roles=roles, filtro=filtro)
+    planes_disponibles = Plan.query.order_by(Plan.orden).all()
+    
+    return render_template(
+        "admin_usuarios.html", 
+        usuarios=usuarios, 
+        roles=roles, 
+        filtro=filtro,
+        planes_disponibles=planes_disponibles
+    )
 
-
-@admin_bp.route("/usuarios/<int:user_id>/toggle")
+@admin_bp.route("/usuarios/<int:user_id>/toggle", methods=["POST"])
 def admin_usuario_toggle(user_id):
     user = User.query.get_or_404(user_id)
     user.is_active_account = not user.is_active_account
     db.session.commit()
-
+    
     log = ActivityLog(
         user_id=current_user.id,
         accion="cambio_estado_usuario",
@@ -62,24 +68,22 @@ def admin_usuario_toggle(user_id):
     )
     db.session.add(log)
     db.session.commit()
-
+    
     flash(f"Usuario {'activado' if user.is_active_account else 'desactivado'}", "success")
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/roles", methods=["POST"])
 def admin_usuario_roles(user_id):
     user = User.query.get_or_404(user_id)
     roles_ids = request.form.getlist("roles")
-
+    
     UserRole.query.filter_by(user_id=user.id).delete()
-
+    
     for role_id in roles_ids:
         ur = UserRole(user_id=user.id, role_id=int(role_id))
         db.session.add(ur)
-
     db.session.commit()
-
+    
     log = ActivityLog(
         user_id=current_user.id,
         accion="cambio_roles",
@@ -88,20 +92,19 @@ def admin_usuario_roles(user_id):
     )
     db.session.add(log)
     db.session.commit()
-
+    
     flash("Roles actualizados", "success")
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/reset", methods=["POST"])
 def admin_usuario_reset_password(user_id):
     user = User.query.get_or_404(user_id)
     nueva_pw = request.form.get("nueva_password")
-
+    
     if nueva_pw:
         user.set_password(nueva_pw)
         db.session.commit()
-
+        
         log = ActivityLog(
             user_id=current_user.id,
             accion="reset_password",
@@ -110,13 +113,12 @@ def admin_usuario_reset_password(user_id):
         )
         db.session.add(log)
         db.session.commit()
-
+        
         flash("Contraseña actualizada", "success")
     else:
         flash("La contraseña no puede estar vacía", "error")
-
+    
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
 def admin_usuario_delete(user_id):
@@ -129,11 +131,13 @@ def admin_usuario_delete(user_id):
     email = user.email
     
     try:
-        # Eliminar registros relacionados manualmente (en orden)
+        # Importar todas las tablas relacionadas
         from app.models import (
             UserProfile, UserFile, Transcription, Assistant,
             ActivityLog, UserRole, EmailVerificationToken,
-            PasswordResetToken, WhatsAppVerification, UserPlan
+            PasswordResetToken, WhatsAppVerification, UserPlan,
+            Donation, AnalysisSession, ExpedienteMonitoreado, 
+            ExpedienteEstado, SesionJurisdiccion
         )
         
         # 1. Eliminar archivos subidos (y sus transcripciones)
@@ -141,7 +145,19 @@ def admin_usuario_delete(user_id):
             Transcription.query.filter_by(file_id=user_file.id).delete()
         UserFile.query.filter_by(user_id=user.id).delete()
         
-        # 2. Eliminar otros registros relacionados
+        # 2. Eliminar análisis de sentimientos (NUEVO)
+        AnalysisSession.query.filter_by(user_id=user.id).delete()
+        
+        # 3. Eliminar expedientes monitoreados y sus estados (NUEVO)
+        # Primero eliminar los estados (tienen FK a expediente_monitoreado)
+        for exp in ExpedienteMonitoreado.query.filter_by(user_id=user.id).all():
+            ExpedienteEstado.query.filter_by(expediente_monitoreado_id=exp.id).delete()
+        ExpedienteMonitoreado.query.filter_by(user_id=user.id).delete()
+        
+        # 4. Eliminar sesiones de jurisdicción (NUEVO)
+        SesionJurisdiccion.query.filter_by(user_id=user.id).delete()
+        
+        # 5. Eliminar otros registros relacionados
         UserProfile.query.filter_by(user_id=user.id).delete()
         Assistant.query.filter_by(user_id=user.id).delete()
         ActivityLog.query.filter_by(user_id=user.id).delete()
@@ -155,18 +171,14 @@ def admin_usuario_delete(user_id):
         if user_plan:
             db.session.delete(user_plan)
         
-        # Si existe Donation (del sistema de cafecito)
-        try:
-            from app.models import Donation
-            Donation.query.filter_by(user_id=user.id).delete()
-        except:
-            pass
+        # Donation (del sistema de cafecito)
+        Donation.query.filter_by(user_id=user.id).delete()
         
-        # 3. Ahora sí eliminar el usuario
+        # 6. Ahora sí eliminar el usuario
         db.session.delete(user)
         db.session.commit()
         
-        # 4. Registrar el log (con user_id=None porque el usuario ya no existe)
+        # 7. Registrar el log (con user_id=None porque el usuario ya no existe)
         log = ActivityLog(
             user_id=current_user.id,
             accion="borrar_usuario",
@@ -185,11 +197,10 @@ def admin_usuario_delete(user_id):
     
     return redirect(url_for("admin.admin_usuarios"))
 
-
 @admin_bp.route("/config", methods=["GET", "POST"])
 def admin_config():
     cs = ContactSettings.query.first()
-
+    
     if request.method == "POST":
         cs.email1 = request.form.get("email1", "")
         cs.email2 = request.form.get("email2", "")
@@ -199,9 +210,9 @@ def admin_config():
         cs.marca = request.form.get("marca", "")
         cs.slogan = request.form.get("slogan", "")
         cs.texto_home = request.form.get("texto_home", "")
-
+        
         db.session.commit()
-
+        
         log = ActivityLog(
             user_id=current_user.id,
             accion="config_update",
@@ -210,17 +221,16 @@ def admin_config():
         )
         db.session.add(log)
         db.session.commit()
-
+        
         flash("Configuración guardada", "success")
         return redirect(url_for("admin.admin_config"))
-
+    
     return render_template("admin_config.html", cs=cs)
-
 
 @admin_bp.route("/logs")
 def admin_logs():
     tipo = request.args.get("tipo", "todos")
-
+    
     if tipo == "todos":
         logs = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(200).all()
     else:
@@ -230,22 +240,18 @@ def admin_logs():
             .limit(200)
             .all()
         )
-
+    
     return render_template("admin_logs.html", logs=logs, tipo=tipo)
 
 # ============================================
-# GESTIÓN DE PLANES (agregado al final del archivo)
+# GESTIÓN DE PLANES
 # ============================================
-#from app.models import Plan
-#from app.services.plan_service import inicializar_planes_por_defecto
-
 
 @admin_bp.route("/planes")
 def admin_planes():
     inicializar_planes_por_defecto()
     planes = Plan.query.order_by(Plan.orden).all()
     return render_template("admin_planes.html", planes=planes)
-
 
 @admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
 def admin_plan_editar(plan_id):
@@ -277,6 +283,61 @@ def admin_plan_editar(plan_id):
     
     flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
     return redirect(url_for("admin.admin_planes"))
+
+# ============================================
+# CAMBIO DE PLAN DE USUARIO
+# ============================================
+
+@admin_bp.route("/usuarios/<int:user_id>/plan", methods=["POST"])
+def admin_usuario_plan(user_id):
+    """Permite al admin cambiar el plan de un usuario y resetear su consumo."""
+    from app.models import UserPlan, Plan
+    
+    user = User.query.get_or_404(user_id)
+    nuevo_plan_nombre = request.form.get("plan_nombre")
+    resetear_consumo = request.form.get("resetear_consumo") == "on"
+    
+    plan = Plan.query.filter_by(nombre=nuevo_plan_nombre).first()
+    if not plan:
+        flash("Plan inválido", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Buscar o crear UserPlan
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    if not user_plan:
+        user_plan = UserPlan(user_id=user.id)
+        db.session.add(user_plan)
+    
+    # Actualizar plan
+    user_plan.plan_id = plan.id
+    user_plan.plan = plan.nombre  # campo legacy
+    user_plan.limite_transcripciones = plan.limite_transcripciones_mes
+    user_plan.limite_analisis = plan.limite_analisis_mes
+    user_plan.es_lifetime = plan.es_lifetime
+    
+    # Resetear consumo si el admin lo pidió
+    if resetear_consumo:
+        user_plan.consumo_transcripciones = 0
+        user_plan.consumo_analisis = 0
+    
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="cambio_plan_usuario",
+        detalle=f"Plan de {user.email} cambiado a '{plan.display_name}'" + 
+                (" (consumo reseteado)" if resetear_consumo else ""),
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Plan de {user.email} cambiado a '{plan.display_name}'" + 
+          (" y consumo mensual reseteado." if resetear_consumo else "."), 
+          "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
 
 ================================================================================
 ARCHIVO: agentes.py
@@ -593,11 +654,11 @@ def reenviar_verificacion():
 ARCHIVO: cafecito.py
 ================================================================================
 
-# app/routes/cafecito.py
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
-from datetime import datetime, timedelta
-from app.utils.datetime_utils import utc_now
+from uuid import uuid4
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
+
 from app import db
 from app.models import Donation, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -608,95 +669,49 @@ cafecito_bp = Blueprint("cafecito", __name__)
 @cafecito_bp.route("/cafecito")
 @login_required
 def cafecito():
-    """Página de donación 'Invitame un cafecito'."""
-    # Verificar si el usuario ya tiene el badge activo
     plan = UserPlan.query.filter_by(user_id=current_user.id).first()
-    tiene_badge = plan and plan.tiene_badge_cafecito()
-    
-    # Contar donaciones del usuario
-    donaciones_count = Donation.query.filter_by(user_id=current_user.id, estado='approved').count()
-    
     return render_template(
         "cafecito.html",
-        tiene_badge=tiene_badge,
-        donaciones_count=donaciones_count
+        tiene_badge=bool(plan and plan.tiene_badge_cafecito()),
+        donaciones_count=Donation.query.filter_by(user_id=current_user.id, estado="approved").count(),
     )
 
 
 @cafecito_bp.route("/cafecito/donar", methods=["POST"])
 @login_required
 def donar():
-    """Crea preferencia de pago y redirige a Mercado Pago."""
     mensaje = request.form.get("mensaje", "").strip()
-    monto = 5000.0  # Monto fijo de $5.000 ARS
-    
+    donation = Donation(
+        user_id=current_user.id, monto=5000.0, moneda="ARS", estado="pending",
+        mensaje=mensaje, external_reference=f"donation-{uuid4().hex}",
+    )
     try:
-        mp_service = MercadoPagoService()
-        preference = mp_service.crear_preferencia_pago(current_user, monto, mensaje)
-        
-        # Guardar donación pendiente en BD
-        donation = Donation(
-            user_id=current_user.id,
-            monto=monto,
-            moneda='ARS',
-            mp_preference_id=preference["preference_id"],
-            estado='pending',
-            mensaje=mensaje
-        )
         db.session.add(donation)
         db.session.commit()
-        
-        # Redirigir a Mercado Pago
+        preference = MercadoPagoService().crear_preferencia_pago(
+            current_user, donation.external_reference, donation.monto, mensaje
+        )
+        donation.mp_preference_id = preference["preference_id"]
+        db.session.commit()
         return redirect(preference["init_point"])
-        
-    except Exception as e:
-        flash(f"Error al crear la preferencia de pago: {str(e)}", "error")
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error creando preferencia de Mercado Pago")
+        flash("No pudimos iniciar el pago. Intentá nuevamente.", "error")
         return redirect(url_for("cafecito.cafecito"))
 
 
 @cafecito_bp.route("/cafecito/exito")
 @login_required
 def exito():
-    """Página de éxito después de pagar."""
-    payment_id = request.args.get("payment_id")
-    
-    if payment_id:
-        # Verificar el pago
-        try:
-            mp_service = MercadoPagoService()
-            pago_info = mp_service.verificar_pago(payment_id)
-            
-            if pago_info["status"] == "approved":
-                # Actualizar donación
-                donation = Donation.query.filter_by(mp_payment_id=payment_id).first()
-                if donation:
-                    donation.estado = 'approved'
-                    donation.mp_payment_id = payment_id
-                    db.session.commit()
-                
-                # Activar badge de cafecito 
-                plan = UserPlan.query.filter_by(user_id=current_user.id).first()
-                if not plan:
-                    plan = UserPlan(user_id=current_user.id)
-                    db.session.add(plan)
-                
-                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
-                db.session.commit()
-                
-                flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
-            else:
-                flash("El pago está pendiente de confirmación.", "warning")
-                
-        except Exception as e:
-            flash(f"Error verificando el pago: {str(e)}", "error")
-    
+    # Nunca acreditar desde una URL controlada por el navegador.
+    flash("Recibimos tu regreso de Mercado Pago. Confirmaremos el pago automáticamente.", "info")
     return redirect(url_for("cafecito.cafecito"))
 
 
 @cafecito_bp.route("/cafecito/fallo")
 @login_required
 def fallo():
-    """Página de fallo después de intentar pagar."""
     flash("El pago no se pudo completar. Podés intentar de nuevo.", "error")
     return redirect(url_for("cafecito.cafecito"))
 
@@ -704,19 +719,20 @@ def fallo():
 @cafecito_bp.route("/cafecito/pendiente")
 @login_required
 def pendiente():
-    """Página de pago pendiente."""
     flash("Tu pago está siendo procesado. Te avisaremos cuando se confirme.", "info")
     return redirect(url_for("cafecito.cafecito"))
+
 
 ================================================================================
 ARCHIVO: dashboard.py
 ================================================================================
 
 # app/routes/dashboard.py
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 import os
+from uuid import uuid4
 from app import db
 from app.models import UserProfile, UserFile, Transcription
 
@@ -768,10 +784,12 @@ def actualizar_avatar():
     if f and f.filename:
         ext = f.filename.rsplit(".", 1)[-1].lower()
         if ext in {"png", "jpg", "jpeg", "webp"}:
-            filename = secure_filename(f"avatar_{current_user.id}.{ext}")
-            path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+            filename = f"avatar_{uuid4().hex}.{ext}"
+            user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+            os.makedirs(user_dir, exist_ok=True)
+            path = os.path.join(user_dir, filename)
             f.save(path)
-            profile.avatar = f"/{path}"
+            profile.avatar = filename
             db.session.commit()
             flash("Avatar actualizado", "success")
         else:
@@ -780,6 +798,15 @@ def actualizar_avatar():
         flash("No seleccionaste ninguna imagen", "error")
 
     return redirect(url_for("dashboard.dashboard_user"))
+
+
+@dashboard_bp.route("/avatar/<filename>")
+@login_required
+def ver_avatar(filename):
+    if filename != secure_filename(filename) or not current_user.profile or current_user.profile.avatar != filename:
+        abort(404)
+    return send_from_directory(os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id)), filename)
+
 
 ================================================================================
 ARCHIVO: historial.py
@@ -970,6 +997,7 @@ ARCHIVO: servicios.py
 # app/routes/servicios.py
 import os
 import json
+from uuid import uuid4
 from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -1003,12 +1031,15 @@ def servicio_transcripcion():
                     flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
-                filename = secure_filename(f.filename)
-                path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+                original_filename = secure_filename(f.filename)
+                filename = f"{uuid4().hex}.{ext}"
+                user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+                os.makedirs(user_dir, exist_ok=True)
+                path = os.path.join(user_dir, filename)
                 f.save(path)
                 
                 tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
-                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
+                user_file = UserFile(user_id=current_user.id, filename=original_filename, filepath=path, tipo=tipo_archivo)
                 db.session.add(user_file)
                 db.session.commit()
                 
@@ -1121,6 +1152,7 @@ def analisis_sentimientos():
     
     return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
 
+
 ================================================================================
 ARCHIVO: verificacion.py
 ================================================================================
@@ -1219,78 +1251,71 @@ def reenviar_codigo_whatsapp():
 ARCHIVO: webhook.py
 ================================================================================
 
-# app/routes/webhook.py
-from flask import Blueprint, request, jsonify
-from datetime import datetime, timedelta
-from app.utils.datetime_utils import utc_now
+import os
+import hmac
+import hashlib
+from datetime import timedelta
+
+from flask import Blueprint, current_app, jsonify, request
+
 from app import db
-from app.models import Donation, User, UserPlan
+from app.models import Donation
 from app.services.mercadopago_service import MercadoPagoService
+from app.services.plan_service import obtener_plan_usuario
+from app.utils.datetime_utils import utc_now
 
 webhook_bp = Blueprint("webhook", __name__)
 
 
+def firma_valida(x_signature, x_request_id, data_id, secret):
+    """Verifica HMAC SHA-256 según el manifiesto de Webhooks de Mercado Pago.
+
+    Es compatible con el SDK 2.2.x, que no incluye ``mercadopago.webhook``.
+    """
+    if not x_signature or not x_request_id or not data_id:
+        return False
+    values = {}
+    for item in x_signature.split(","):
+        key, separator, value = item.strip().partition("=")
+        if separator:
+            values[key] = value
+    timestamp, received_hash = values.get("ts"), values.get("v1")
+    if not timestamp or not received_hash:
+        return False
+    manifest = f"id:{str(data_id).lower()};request-id:{x_request_id};ts:{timestamp};"
+    expected_hash = hmac.new(secret.encode("utf-8"), manifest.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected_hash, received_hash)
+
+
 @webhook_bp.route("/webhook/mercadopago", methods=["POST"])
 def mercadopago_webhook():
-    """
-    Webhook para recibir notificaciones de Mercado Pago.
-    MP envía POST a esta URL cuando hay un cambio en el estado del pago.
-    """
+    """El webhook firmado, no la URL de retorno, acredita el pago."""
+    payload = request.get_json(silent=True) or {}
+    payment_id = request.args.get("data.id") or payload.get("data", {}).get("id")
+    secret = os.environ.get("MP_WEBHOOK_SECRET")
+    if not secret or not payment_id:
+        return jsonify({"error": "notificación inválida"}), 401
+    if not firma_valida(
+        request.headers.get("x-signature"), request.headers.get("x-request-id"), payment_id, secret
+    ):
+        return jsonify({"error": "firma inválida"}), 401
     try:
-        # Mercado Pago envía diferentes tipos de notificaciones
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({"status": "ok"}), 200
-        
-        # Filtrar solo notificaciones de pagos
-        if data.get("type") == "payment":
-            payment_id = data.get("data", {}).get("id")
-            
-            if payment_id:
-                # Verificar el pago
-                mp_service = MercadoPagoService()
-                pago_info = mp_service.verificar_pago(payment_id)
-                
-                if pago_info["status"] == "approved":
-                    # Buscar la donación por external_reference
-                    external_ref = pago_info.get("external_reference", "")
-                    
-                    # Extraer user_id del external_reference (formato: "user-{id}-{timestamp}")
-                    if external_ref.startswith("user-"):
-                        parts = external_ref.split("-")
-                        if len(parts) >= 2:
-                            user_id = int(parts[1])
-                            
-                            # Actualizar donación
-                            donation = Donation.query.filter_by(
-                                mp_preference_id=payment_id,
-                                user_id=user_id
-                            ).first()
-                            
-                            if donation:
-                                donation.estado = 'approved'
-                                donation.mp_payment_id = payment_id
-                                db.session.commit()
-                                
-                                # Activar badge de cafecito 
-                                plan = UserPlan.query.filter_by(user_id=user_id).first()
-                                if not plan:
-                                    plan = UserPlan(user_id=user_id)
-                                    db.session.add(plan)
-                                
-                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
-                                db.session.commit()
-                                
-                                print(f"✅ Donación confirmada para user_id={user_id}")
-        
+        pago = MercadoPagoService().verificar_pago(payment_id)
+        donation = Donation.query.filter_by(external_reference=pago.get("external_reference")).first()
+        if not donation:
+            return jsonify({"status": "ignored"}), 200
+        if donation.mp_payment_id and donation.mp_payment_id != str(payment_id):
+            return jsonify({"error": "pago ya asociado"}), 409
+        donation.mp_payment_id = str(payment_id)
+        donation.estado = pago["status"]
+        if pago["status"] == "approved":
+            plan = obtener_plan_usuario(donation.user)
+            plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
+        db.session.commit()
         return jsonify({"status": "ok"}), 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error procesando webhook Mercado Pago")
+        return jsonify({"status": "error"}), 500
 
 

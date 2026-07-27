@@ -1,73 +1,66 @@
-# app/routes/webhook.py
-from flask import Blueprint, request, jsonify
-from datetime import datetime, timedelta
-from app.utils.datetime_utils import utc_now
+import os
+import hmac
+import hashlib
+from datetime import timedelta
+
+from flask import Blueprint, current_app, jsonify, request
+
 from app import db
-from app.models import Donation, User, UserPlan
+from app.models import Donation
 from app.services.mercadopago_service import MercadoPagoService
+from app.services.plan_service import obtener_plan_usuario
+from app.utils.datetime_utils import utc_now
 
 webhook_bp = Blueprint("webhook", __name__)
 
 
+def firma_valida(x_signature, x_request_id, data_id, secret):
+    """Verifica HMAC SHA-256 según el manifiesto de Webhooks de Mercado Pago.
+
+    Es compatible con el SDK 2.2.x, que no incluye ``mercadopago.webhook``.
+    """
+    if not x_signature or not x_request_id or not data_id:
+        return False
+    values = {}
+    for item in x_signature.split(","):
+        key, separator, value = item.strip().partition("=")
+        if separator:
+            values[key] = value
+    timestamp, received_hash = values.get("ts"), values.get("v1")
+    if not timestamp or not received_hash:
+        return False
+    manifest = f"id:{str(data_id).lower()};request-id:{x_request_id};ts:{timestamp};"
+    expected_hash = hmac.new(secret.encode("utf-8"), manifest.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected_hash, received_hash)
+
+
 @webhook_bp.route("/webhook/mercadopago", methods=["POST"])
 def mercadopago_webhook():
-    """
-    Webhook para recibir notificaciones de Mercado Pago.
-    MP envía POST a esta URL cuando hay un cambio en el estado del pago.
-    """
+    """El webhook firmado, no la URL de retorno, acredita el pago."""
+    payload = request.get_json(silent=True) or {}
+    payment_id = request.args.get("data.id") or payload.get("data", {}).get("id")
+    secret = os.environ.get("MP_WEBHOOK_SECRET")
+    if not secret or not payment_id:
+        return jsonify({"error": "notificación inválida"}), 401
+    if not firma_valida(
+        request.headers.get("x-signature"), request.headers.get("x-request-id"), payment_id, secret
+    ):
+        return jsonify({"error": "firma inválida"}), 401
     try:
-        # Mercado Pago envía diferentes tipos de notificaciones
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({"status": "ok"}), 200
-        
-        # Filtrar solo notificaciones de pagos
-        if data.get("type") == "payment":
-            payment_id = data.get("data", {}).get("id")
-            
-            if payment_id:
-                # Verificar el pago
-                mp_service = MercadoPagoService()
-                pago_info = mp_service.verificar_pago(payment_id)
-                
-                if pago_info["status"] == "approved":
-                    # Buscar la donación por external_reference
-                    external_ref = pago_info.get("external_reference", "")
-                    
-                    # Extraer user_id del external_reference (formato: "user-{id}-{timestamp}")
-                    if external_ref.startswith("user-"):
-                        parts = external_ref.split("-")
-                        if len(parts) >= 2:
-                            user_id = int(parts[1])
-                            
-                            # Actualizar donación
-                            donation = Donation.query.filter_by(
-                                mp_preference_id=payment_id,
-                                user_id=user_id
-                            ).first()
-                            
-                            if donation:
-                                donation.estado = 'approved'
-                                donation.mp_payment_id = payment_id
-                                db.session.commit()
-                                
-                                # Activar badge de cafecito 
-                                plan = UserPlan.query.filter_by(user_id=user_id).first()
-                                if not plan:
-                                    plan = UserPlan(user_id=user_id)
-                                    db.session.add(plan)
-                                
-                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
-                                db.session.commit()
-                                
-                                print(f"✅ Donación confirmada para user_id={user_id}")
-        
+        pago = MercadoPagoService().verificar_pago(payment_id)
+        donation = Donation.query.filter_by(external_reference=pago.get("external_reference")).first()
+        if not donation:
+            return jsonify({"status": "ignored"}), 200
+        if donation.mp_payment_id and donation.mp_payment_id != str(payment_id):
+            return jsonify({"error": "pago ya asociado"}), 409
+        donation.mp_payment_id = str(payment_id)
+        donation.estado = pago["status"]
+        if pago["status"] == "approved":
+            plan = obtener_plan_usuario(donation.user)
+            plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
+        db.session.commit()
         return jsonify({"status": "ok"}), 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error procesando webhook Mercado Pago")
+        return jsonify({"status": "error"}), 500

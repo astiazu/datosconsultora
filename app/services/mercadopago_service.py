@@ -4,6 +4,7 @@ import mercadopago
 from datetime import datetime, timedelta
 from app.utils.datetime_utils import utc_now
 from flask import url_for
+from flask import current_app
 
 
 class MercadoPagoService:
@@ -15,7 +16,7 @@ class MercadoPagoService:
             raise ValueError("MP_ACCESS_TOKEN no configurado en variables de entorno")
         self.sdk = mercadopago.SDK(access_token)
     
-    def crear_preferencia_pago(self, user, monto=5000.0, mensaje=""):
+    def crear_preferencia_pago(self, user, external_reference, monto=5000.0, mensaje=""):
         """
         Crea una preferencia de pago en Mercado Pago.
         
@@ -39,7 +40,7 @@ class MercadoPagoService:
                 "name": user.nombre,
                 "email": user.email,
             },
-            "external_reference": f"user-{user.id}-{utc_now().timestamp()}",
+            "external_reference": external_reference,
             "back_urls": {
                 "success": url_for('cafecito.exito', _external=True),
                 "failure": url_for('cafecito.fallo', _external=True),
@@ -52,7 +53,15 @@ class MercadoPagoService:
         
         try:
             preference_response = self.sdk.preference().create(preference_data)
-            preference = preference_response["response"]
+            preference = preference_response.get("response", {})
+            if not isinstance(preference, dict) or "id" not in preference:
+                status = preference_response.get("status", "desconocido")
+                detalle = preference.get("message") if isinstance(preference, dict) else None
+                detalle = detalle or preference.get("error") if isinstance(preference, dict) else detalle
+                current_app.logger.error(
+                    "Mercado Pago rechazó la preferencia (status=%s, detalle=%s)", status, detalle or preference
+                )
+                raise ValueError(f"Mercado Pago rechazó la preferencia (HTTP {status}).")
             
             return {
                 "preference_id": preference["id"],

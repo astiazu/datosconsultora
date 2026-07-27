@@ -4,12 +4,12 @@ Flask + Flask-Login + SQLAlchemy
 Colores: azul petróleo #004d5c / gris peltre #8a8d93
 
 pip install -r requirements.txt
-python app.py
+python run.py
 http://localhost:5000
 
-Usuarios demo:
-- Admin: admin@datosconsultora.ar / admin123
-- Cliente: cliente@demo.com / demo123
+Configurá en `.env` como mínimo `SECRET_KEY` y `ADMIN_PASSWORD`; nunca uses
+credenciales de ejemplo en producción. Para Mercado Pago también se requieren
+`MP_ACCESS_TOKEN` y `MP_WEBHOOK_SECRET`.
 
 Features:
 - Login de clientes, solo cuentas activas entran al panel

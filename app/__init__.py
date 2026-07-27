@@ -4,6 +4,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_mail import Mail
+from flask_wtf.csrf import CSRFProtect
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,12 +12,13 @@ load_dotenv()
 db = SQLAlchemy()
 login_manager = LoginManager()
 mail = Mail()
+csrf = CSRFProtect()
 
 login_manager.login_view = "auth.login"
 login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
 
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esto-en-desarrollo")
+    SECRET_KEY = os.environ.get("SECRET_KEY")
     
     # Soporte dual: PostgreSQL (Render) o SQLite (local)
     database_url = os.environ.get("DATABASE_URL")
@@ -46,17 +48,25 @@ class Config:
         "MAIL_DEFAULT_SENDER", 
         "DatosConsultora <noreply@datosconsultora.ar>"
     )
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY es obligatoria; configurala en el entorno.")
+    if not os.path.isabs(app.config["UPLOAD_FOLDER"]):
+        app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, app.config["UPLOAD_FOLDER"])
     
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     
     db.init_app(app)
     login_manager.init_app(app)
     mail.init_app(app)
+    csrf.init_app(app)
     
     from app.models import User, ContactSettings
     
@@ -89,6 +99,7 @@ def create_app():
     app.register_blueprint(verificacion_bp)
     app.register_blueprint(cafecito_bp)             
     app.register_blueprint(webhook_bp)              
+    csrf.exempt(webhook_bp)
     app.register_blueprint(planes_bp)
     app.register_blueprint(historial_bp)
     app.register_blueprint(agentes_bp)
@@ -110,7 +121,9 @@ def init_db(app):
             db.session.add(Role(nombre="usuario", descripcion="Usuario estándar"))
         
         if not User.query.filter_by(email="admin@datosconsultora.ar").first():
-            admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+            admin_pw = os.environ.get("ADMIN_PASSWORD")
+            if not admin_pw:
+                raise RuntimeError("ADMIN_PASSWORD es obligatoria al crear el administrador inicial.")
             u = User(
                 nombre="Admin",
                 email="admin@datosconsultora.ar",

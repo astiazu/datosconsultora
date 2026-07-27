@@ -98,15 +98,16 @@
                                     <i class="bi bi-trophy-fill"></i>
                                 </button>
                                 <!-- Activar/Desactivar -->
-                                <a href="{{ url_for('admin.admin_usuario_toggle', user_id=u.id) }}"
-                                   class="btn btn-outline-secondary"
-                                   title="Activar/Desactivar">
+                                <form method="post" action="{{ url_for('admin.admin_usuario_toggle', user_id=u.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-secondary" title="Activar/Desactivar">
                                     {% if u.is_active_account %}
                                     <i class="bi bi-toggle-on"></i>
                                     {% else %}
                                     <i class="bi bi-toggle-off"></i>
                                     {% endif %}
-                                </a>
+                                    </button>
+                                </form>
                                 <!-- Roles -->
                                 <button class="btn btn-outline-primary"
                                         data-bs-toggle="modal"

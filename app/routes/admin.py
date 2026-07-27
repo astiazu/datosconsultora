@@ -50,7 +50,7 @@ def admin_usuarios():
         planes_disponibles=planes_disponibles
     )
 
-@admin_bp.route("/usuarios/<int:user_id>/toggle")
+@admin_bp.route("/usuarios/<int:user_id>/toggle", methods=["POST"])
 def admin_usuario_toggle(user_id):
     user = User.query.get_or_404(user_id)
     user.is_active_account = not user.is_active_account

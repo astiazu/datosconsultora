@@ -207,6 +207,7 @@ class Donation(db.Model):
     moneda = db.Column(db.String(10), default='ARS')
     mp_payment_id = db.Column(db.String(100), unique=True, nullable=True)
     mp_preference_id = db.Column(db.String(100), nullable=True)
+    external_reference = db.Column(db.String(100), unique=True, nullable=False)
     estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
     mensaje = db.Column(db.String(500), default='')
     fecha = db.Column(db.DateTime, default=utc_now)

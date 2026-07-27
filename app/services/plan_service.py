@@ -61,8 +61,9 @@ def puede_transcribir(user):
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_transcripciones_mes if plan else 5
     if limite >= 999999:
-        return True, user_plan.consumo_transcripciones, limite
-    return user_plan.consumo_transcripciones < limite, user_plan.consumo_transcripciones, limite
+        return True, user_plan.consumo_transcripciones_mes(), limite
+    uso = user_plan.consumo_transcripciones_mes()
+    return uso < limite, uso, limite
 
 def registrar_uso_transcripcion(user):
     user_plan = obtener_plan_usuario(user)
@@ -74,8 +75,9 @@ def puede_analizar(user):
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_analisis_mes if plan else 3
     if limite >= 999999:
-        return True, user_plan.consumo_analisis, limite
-    return user_plan.consumo_analisis < limite, user_plan.consumo_analisis, limite
+        return True, user_plan.consumo_analisis_mes(), limite
+    uso = user_plan.consumo_analisis_mes()
+    return uso < limite, uso, limite
 
 def registrar_uso_analisis(user):
     user_plan = obtener_plan_usuario(user)

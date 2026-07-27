@@ -8,6 +8,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_mail import Mail
+from flask_wtf.csrf import CSRFProtect
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,12 +16,13 @@ load_dotenv()
 db = SQLAlchemy()
 login_manager = LoginManager()
 mail = Mail()
+csrf = CSRFProtect()
 
 login_manager.login_view = "auth.login"
 login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
 
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "cambia-esto-en-desarrollo")
+    SECRET_KEY = os.environ.get("SECRET_KEY")
     
     # Soporte dual: PostgreSQL (Render) o SQLite (local)
     database_url = os.environ.get("DATABASE_URL")
@@ -50,17 +52,25 @@ class Config:
         "MAIL_DEFAULT_SENDER", 
         "DatosConsultora <noreply@datosconsultora.ar>"
     )
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY es obligatoria; configurala en el entorno.")
+    if not os.path.isabs(app.config["UPLOAD_FOLDER"]):
+        app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, app.config["UPLOAD_FOLDER"])
     
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
     
     db.init_app(app)
     login_manager.init_app(app)
     mail.init_app(app)
+    csrf.init_app(app)
     
     from app.models import User, ContactSettings
     
@@ -93,6 +103,7 @@ def create_app():
     app.register_blueprint(verificacion_bp)
     app.register_blueprint(cafecito_bp)             
     app.register_blueprint(webhook_bp)              
+    csrf.exempt(webhook_bp)
     app.register_blueprint(planes_bp)
     app.register_blueprint(historial_bp)
     app.register_blueprint(agentes_bp)
@@ -114,7 +125,9 @@ def init_db(app):
             db.session.add(Role(nombre="usuario", descripcion="Usuario estándar"))
         
         if not User.query.filter_by(email="admin@datosconsultora.ar").first():
-            admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+            admin_pw = os.environ.get("ADMIN_PASSWORD")
+            if not admin_pw:
+                raise RuntimeError("ADMIN_PASSWORD es obligatoria al crear el administrador inicial.")
             u = User(
                 nombre="Admin",
                 email="admin@datosconsultora.ar",
@@ -136,6 +149,7 @@ app = create_app()
 # ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
 with app.app_context():
     init_db(app)
+
 
 ================================================================================
 ARCHIVO: models.py
@@ -269,6 +283,27 @@ class Assistant(db.Model):
     creado = db.Column(db.DateTime, default=utc_now)
     user = db.relationship("User", backref=db.backref("assistants", lazy="dynamic"))
 
+class AnalysisSession(db.Model):
+    """Registro de cada análisis de sentimientos realizado."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    red_social = db.Column(db.String(50))
+    contexto = db.Column(db.String(500))
+    total_comentarios = db.Column(db.Integer)
+    resultado_json = db.Column(db.Text)  # JSON completo del análisis
+    
+    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
+    
+    def obtener_resultado(self):
+        """Convierte el JSON string a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}
 
 class UserPlan(db.Model):
     """Plan actual de un usuario."""
@@ -329,6 +364,7 @@ class Donation(db.Model):
     moneda = db.Column(db.String(10), default='ARS')
     mp_payment_id = db.Column(db.String(100), unique=True, nullable=True)
     mp_preference_id = db.Column(db.String(100), nullable=True)
+    external_reference = db.Column(db.String(100), unique=True, nullable=False)
     estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
     mensaje = db.Column(db.String(500), default='')
     fecha = db.Column(db.DateTime, default=utc_now)
@@ -372,28 +408,6 @@ class Plan(db.Model):
             'actividad_completa': self.incluye_actividad_completa,
         }
         return features_map.get(feature, False)
-
-class AnalysisSession(db.Model):
-    """Registro de cada análisis de sentimientos realizado."""
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    fecha = db.Column(db.DateTime, default=utc_now)
-    red_social = db.Column(db.String(50))
-    contexto = db.Column(db.String(500))
-    total_comentarios = db.Column(db.Integer)
-    resultado_json = db.Column(db.Text)  # JSON completo del análisis
-    
-    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
-    
-    def obtener_resultado(self):
-        """Convierte el JSON string a dict."""
-        import json
-        if self.resultado_json:
-            try:
-                return json.loads(self.resultado_json)
-            except:
-                return {}
-        return {}
 
 class ExpedienteMonitoreado(db.Model):
     """Un expediente que un usuario pidio seguir, en alguna jurisdiccion."""
@@ -471,6 +485,875 @@ class SesionJurisdiccion(db.Model):
 
 
 ================================================================================
+ARCHIVO: mic\adapters\adapter_factory.py
+================================================================================
+
+# app/mic/adapters/adapter_factory.py
+# from app.mic.adapters.csv.csv_adapter import CSVAdapter
+from app.mic.adapters.facebook.facebook_adapter import FacebookAdapter
+# from app.mic.adapters.instagram.instagram_adapter import InstagramAdapter
+# from app.mic.adapters.whatsapp.whatsapp_adapter import WhatsAppAdapter
+
+
+class AdapterFactory:
+    _adapters = {
+        "facebook": FacebookAdapter,
+  #      "instagram": InstagramAdapter,
+  #      "whatsapp": WhatsAppAdapter,
+  #      "csv": CSVAdapter,
+    }
+
+    @classmethod
+    def create(cls, source):
+        if source not in cls._adapters:
+            raise ValueError(f"No existe adapter para {source}")
+        return cls._adapters[source]()
+
+================================================================================
+ARCHIVO: mic\adapters\base_adapter.py
+================================================================================
+
+# app/mic/adapters/base_adapter.py
+from abc import ABC
+from abc import abstractmethod
+
+from app.mic.domain.entities.conversation import Conversation
+
+
+class BaseAdapter(ABC):
+
+    """
+    Contrato para todos los adaptadores.
+    """
+
+    @abstractmethod
+    def convert(self, data) -> Conversation:
+        pass
+
+================================================================================
+ARCHIVO: mic\adapters\facebook\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\adapters\facebook\facebook_adapter.py
+================================================================================
+
+# app\mic\facebook\facebook_adapter.py
+from datetime import datetime
+from app.mic.adapters.base_adapter import BaseAdapter
+from app.mic.builders.conversation_builder import ConversationBuilder
+from app.mic.domain.enums import SourceType
+
+class FacebookAdapter(BaseAdapter):
+    """
+    Convierte la respuesta de Facebook
+    en una Conversation.
+    """
+    def convert(self, data):
+        builder = ConversationBuilder()
+        builder.create(
+            conversation_id=data["post_id"],
+            source=SourceType.FACEBOOK,
+            title=data.get("title", "Facebook"),
+            created_at=datetime.now()
+        )
+
+        users = {}
+
+        for comment in data["comments"]:
+
+            uid = comment["user_id"]
+
+            if uid not in users:
+                users[uid] = True
+                builder.add_participant(
+                    participant_id=uid,
+                    display_name=comment["user_name"]
+                )
+
+            builder.add_message(
+                message_id=comment["comment_id"],
+                participant_id=uid,
+                text=comment["text"],
+                created_at=comment["date"]
+            )
+
+        return builder.build()
+
+================================================================================
+ARCHIVO: mic\adapters\facebook\sample_data.py
+================================================================================
+
+from datetime import datetime
+
+facebook_post = {
+
+    "post_id": "POST-001",
+
+    "title": "¿Qué opinás del proyecto?",
+
+    "comments": [
+
+        {
+            "comment_id": "1",
+            "user_id": "100",
+            "user_name": "José",
+            "text": "Excelente iniciativa",
+            "date": datetime.now()
+        },
+
+        {
+            "comment_id": "2",
+            "user_id": "101",
+            "user_name": "María",
+            "text": "No me convence",
+            "date": datetime.now()
+        },
+
+        {
+            "comment_id": "3",
+            "user_id": "102",
+            "user_name": "Pedro",
+            "text": "Habrá que esperar...",
+            "date": datetime.now()
+        }
+
+    ]
+}
+
+================================================================================
+ARCHIVO: mic\builders\builder_result.py
+================================================================================
+
+# app/mic/builders/builder_result.py
+from dataclasses import dataclass, field
+from typing import List
+
+from app.mic.domain.entities.conversation import Conversation
+
+
+@dataclass(slots=True)
+class BuildStatistics:
+    """
+    Estadísticas generadas durante la construcción.
+    """
+    participants_added: int = 0
+    messages_added: int = 0
+    duplicate_participants: int = 0
+    duplicate_messages: int = 0
+    empty_messages: int = 0
+
+
+@dataclass(slots=True)
+class BuilderResult:
+    success: bool
+    conversation: Conversation | None = None
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+    statistics: BuildStatistics = field(
+        default_factory=BuildStatistics
+    )
+
+    def add_warning(self, message: str):
+        self.warnings.append(message)
+
+    def add_error(self, message: str):
+        self.errors.append(message)
+
+
+================================================================================
+ARCHIVO: mic\builders\conversation_builder.py
+================================================================================
+
+# app/mic/builders/conversation_builder.py
+from __future__ import annotations
+
+from datetime import datetime
+
+from app.mic.builders.builder_result import BuilderResult
+
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+
+from app.mic.domain.enums import SourceType
+from app.mic.domain.enums import ParticipantRole
+
+
+class ConversationBuilder:
+    """
+    Builder oficial del MIC.
+    Todos los conectores deberán utilizar esta clase.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    # ---------------------------------------------------------
+
+    def reset(self):
+        self._conversation: Conversation | None = None
+        self._result = BuilderResult(success=True)
+        return self
+
+    # ---------------------------------------------------------
+
+    def create(
+        self,
+        conversation_id: str,
+        source: SourceType,
+        title: str,
+        created_at: datetime | None = None,
+    ):
+
+        self._conversation = Conversation(
+            conversation_id=conversation_id,
+            source=source,
+            title=title,
+            created_at=created_at or datetime.now(),
+        )
+        return self
+
+    # ---------------------------------------------------------
+
+    def add_participant(
+        self,
+        participant_id: str,
+        display_name: str,
+        role: ParticipantRole = ParticipantRole.UNKNOWN,
+        metadata: dict | None = None,
+    ):
+
+        if self._conversation is None:
+            self._result.add_error(
+                "Debe crear primero la conversación."
+            )
+            return self
+
+        exists = any(
+            p.participant_id == participant_id
+            for p in self._conversation.participants
+        )
+
+        if exists:
+            self._result.statistics.duplicate_participants += 1
+            self._result.add_warning(
+                f"Participante duplicado: {participant_id}"
+            )
+            return self
+
+        participant = Participant(
+            participant_id=participant_id,
+            display_name=display_name,
+            role=role,
+            metadata=metadata or {},
+        )
+        self._conversation.add_participant(participant)
+        self._result.statistics.participants_added += 1
+
+        return self
+
+    # ---------------------------------------------------------
+
+    def add_message(
+        self,
+        message_id: str,
+        participant_id: str,
+        text: str,
+        created_at: datetime | None = None,
+        reply_to: str | None = None,
+        reactions: int = 0,
+    ):
+
+        if self._conversation is None:
+            self._result.add_error(
+                "Debe crear primero la conversación."
+            )
+            return self
+
+        text = text.strip()
+
+        if not text:
+            self._result.statistics.empty_messages += 1
+            self._result.add_warning(
+                f"Mensaje vacío descartado ({message_id})"
+            )
+            return self
+
+        participant_exists = any(
+            p.participant_id == participant_id
+            for p in self._conversation.participants
+        )
+
+        if not participant_exists:
+            self._result.add_error(
+                f"Participante inexistente: {participant_id}"
+            )
+            return self
+        duplicated = any(
+            m.message_id == message_id
+            for m in self._conversation.messages
+        )
+
+        if duplicated:
+            self._result.statistics.duplicate_messages += 1
+            self._result.add_warning(
+                f"Mensaje duplicado: {message_id}"
+            )
+            return self
+
+        message = Message(
+            message_id=message_id,
+            participant_id=participant_id,
+            text=text,
+            created_at=created_at or datetime.now(),
+            reply_to=reply_to,
+            reactions=reactions,
+        )
+        self._conversation.add_message(message)
+        self._result.statistics.messages_added += 1
+        return self
+
+    # ---------------------------------------------------------
+
+    def build(self) -> BuilderResult:
+
+        if self._conversation is None:
+            self._result.success = False
+            self._result.add_error(
+                "No existe ninguna conversación."
+            )
+            return self._result
+
+        if len(self._conversation.participants) == 0:
+            self._result.success = False
+            self._result.add_error(
+                "La conversación no tiene participantes."
+            )
+
+        if len(self._conversation.messages) == 0:
+            self._result.success = False
+            self._result.add_error(
+                "La conversación no tiene mensajes."
+            )
+
+        self._result.conversation = self._conversation
+        self._result.success = len(self._result.errors) == 0
+        result = self._result
+        self.reset()
+
+        return result
+
+================================================================================
+ARCHIVO: mic\builders\init.py
+================================================================================
+
+from .conversation_builder import ConversationBuilder
+from .builder_result import BuilderResult
+
+__all__ = [
+    "ConversationBuilder",
+    "BuilderResult",
+]
+
+================================================================================
+ARCHIVO: mic\domain\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\domain\enums.py
+================================================================================
+
+from enum import Enum
+
+
+class SourceType(str, Enum):
+    """Origen de una conversación."""
+
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+    WHATSAPP = "whatsapp"
+    YOUTUBE = "youtube"
+    X = "x"
+    TIKTOK = "tiktok"
+    CSV = "csv"
+    EXCEL = "excel"
+    TEXT = "text"
+    API = "api"
+    UNKNOWN = "unknown"
+
+
+class EmotionType(str, Enum):
+    """Emoción predominante."""
+
+    JOY = "joy"
+    SADNESS = "sadness"
+    ANGER = "anger"
+    FEAR = "fear"
+    SURPRISE = "surprise"
+    DISGUST = "disgust"
+    NEUTRAL = "neutral"
+
+
+class SentimentType(str, Enum):
+    """Polaridad tradicional."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+    MIXED = "mixed"
+
+
+class IronyType(str, Enum):
+    """Clasificación de ironía."""
+
+    NONE = "none"
+    IRONY = "irony"
+    SARCASM = "sarcasm"
+    SATIRE = "satire"
+    HUMOR = "humor"
+
+
+class InsightType(str, Enum):
+    """Tipos de insight generados."""
+
+    TREND = "trend"
+    ALERT = "alert"
+    OPPORTUNITY = "opportunity"
+    RISK = "risk"
+    NARRATIVE = "narrative"
+    HYPOTHESIS = "hypothesis"
+
+
+class ParticipantRole(str, Enum):
+    """Rol dentro de la conversación."""
+
+    AUTHOR = "author"
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+    MEMBER = "member"
+    UNKNOWN = "unknown"
+
+================================================================================
+ARCHIVO: mic\domain\entities\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\domain\entities\analysis_context.py
+================================================================================
+
+from dataclasses import dataclass
+
+
+@dataclass(slots=True)
+class AnalysisContext:
+
+    language: str = "es"
+
+    country: str = "AR"
+
+    domain: str = "general"
+
+    client: str = ""
+
+    campaign: str = ""
+
+    model: str = ""
+
+    model_version: str = ""
+
+================================================================================
+ARCHIVO: mic\domain\entities\attachment.py
+================================================================================
+
+from dataclasses import dataclass
+
+
+@dataclass(slots=True)
+class Attachment:
+    """
+    Archivo adjunto asociado a un mensaje.
+    """
+
+    attachment_id: str
+
+    type: str
+
+    url: str
+
+    size: int | None = None
+
+================================================================================
+ARCHIVO: mic\domain\entities\conversation.py
+================================================================================
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Dict, Any
+
+from app.mic.domain.enums import SourceType
+from .message import Message
+from .participant import Participant
+
+
+@dataclass(slots=True)
+class Conversation:
+    """
+    Entidad principal del MIC.
+
+    Todo el motor trabaja sobre una conversación,
+    independientemente de la plataforma de origen.
+    """
+    conversation_id: str
+    source: SourceType
+    title: str
+    created_at: datetime
+    participants: List[Participant] = field(default_factory=list)
+    messages: List[Message] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def add_message(self, message: Message):
+        self.messages.append(message)
+
+    def add_participant(self, participant: Participant):
+        self.participants.append(participant)
+
+    @property
+    def total_messages(self):
+        return len(self.messages)
+
+    @property
+    def total_participants(self):
+        return len(self.participants)
+
+    @property
+    def is_empty(self):
+        return len(self.messages) == 0
+
+    @property
+    def has_participants(self):
+        return len(self.participants) > 0
+
+    @property
+    def has_messages(self):
+        return len(self.messages) > 0
+
+================================================================================
+ARCHIVO: mic\domain\entities\insight.py
+================================================================================
+
+from dataclasses import dataclass
+
+from app.mic.domain.enums import InsightType
+
+
+@dataclass(slots=True)
+class Insight:
+
+    insight_type: InsightType
+
+    title: str
+
+    description: str
+
+    confidence: float
+
+================================================================================
+ARCHIVO: mic\domain\entities\message.py
+================================================================================
+
+
+# app/mic/domain/estities/message.py
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Dict, Any
+
+from .attachment import Attachment
+
+
+@dataclass(slots=True)
+class Message:
+    message_id: str
+    participant_id: str
+    text: str
+    created_at: datetime
+    reply_to: str | None = None
+    reactions: int = 0
+    attachments: List[Attachment] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def add_attachment(self, attachment: Attachment):
+        self.attachments.append(attachment)
+
+        
+
+================================================================================
+ARCHIVO: mic\domain\entities\participant.py
+================================================================================
+
+
+# app/mic/domain/entities/participant.py
+from dataclasses import dataclass, field
+from typing import Dict, Any
+
+from app.mic.domain.enums import ParticipantRole
+
+
+@dataclass(slots=True)
+class Participant:
+    """
+    Representa una persona que participa en una conversación.
+    """
+
+    participant_id: str
+
+    display_name: str
+
+    role: ParticipantRole = ParticipantRole.UNKNOWN
+
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def add_metadata(self, key: str, value: Any) -> None:
+        self.metadata[key] = value
+
+        
+
+================================================================================
+ARCHIVO: mic\domain\value_objects\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\domain\value_objects\analysis_context.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\interfaces\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\interfaces\analyzer.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\interfaces\connector.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\interfaces\memory.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\pipeline\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\pipeline\context.py
+================================================================================
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from app.mic.domain.entities.conversation import Conversation
+
+
+@dataclass(slots=True)
+class PipelineContext:
+    """
+    Contexto compartido entre todos los pasos del pipeline.
+    """
+
+    conversation: Conversation
+
+    data: dict[str, Any] = field(default_factory=dict)
+
+    warnings: list[str] = field(default_factory=list)
+
+    errors: list[str] = field(default_factory=list)
+
+    def set(self, key: str, value: Any):
+
+        self.data[key] = value
+
+    def get(self, key: str, default=None):
+
+        return self.data.get(key, default)
+
+    def warning(self, msg: str):
+
+        self.warnings.append(msg)
+
+    def error(self, msg: str):
+
+        self.errors.append(msg)
+
+================================================================================
+ARCHIVO: mic\pipeline\pipeline.py
+================================================================================
+
+
+# app/mic/pipeline/pipeline.py
+from app.mic.pipeline.context import PipelineContext
+from app.mic.pipeline.result import PipelineResult
+
+
+class Pipeline:
+
+    def __init__(self):
+
+        self.steps = []
+
+    def add(self, step):
+
+        self.steps.append(step)
+
+        return self
+
+    def run(self, conversation):
+
+        context = PipelineContext(conversation)
+
+        for step in self.steps:
+
+            step.execute(context)
+
+            if context.errors:
+
+                break
+
+        return PipelineResult(
+
+            success=len(context.errors) == 0,
+
+            data=context.data,
+
+            warnings=context.warnings,
+
+            errors=context.errors
+
+        )
+
+================================================================================
+ARCHIVO: mic\pipeline\result.py
+================================================================================
+
+# app/mic/pipeline/result.py
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class PipelineResult:
+    """
+    Resultado final de la ejecución del Pipeline.
+    """
+
+    success: bool
+
+    data: dict[str, Any] = field(default_factory=dict)
+
+    warnings: list[str] = field(default_factory=list)
+
+    errors: list[str] = field(default_factory=list)
+    def get(self, key: str, default=None):
+
+        return self.data.get(key, default)
+
+    def warning(self, msg: str):
+
+        self.warnings.append(msg)
+
+    def error(self, msg: str):
+
+        self.errors.append(msg)
+
+================================================================================
+ARCHIVO: mic\pipeline\step.py
+================================================================================
+
+from abc import ABC, abstractmethod
+
+from app.mic.pipeline.context import PipelineContext
+
+
+class PipelineStep(ABC):
+
+    """
+    Clase base para todos los pasos del pipeline.
+    """
+
+    name = "Unnamed Step"
+
+    @abstractmethod
+    def execute(self, context: PipelineContext):
+
+        pass
+
+================================================================================
+ARCHIVO: mic\pipeline\steps\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: mic\pipeline\steps\clean_step.py
+================================================================================
+
+from app.mic.pipeline.step import PipelineStep
+
+
+class CleanStep(PipelineStep):
+
+    name = "Clean Conversation"
+
+    def execute(self, context):
+
+        for message in context.conversation.messages:
+
+            message.text = message.text.strip()
+
+================================================================================
+ARCHIVO: mic\pipeline\steps\validation_step.py
+================================================================================
+
+from app.mic.pipeline.step import PipelineStep
+
+
+class ValidationStep(PipelineStep):
+
+    name = "Validate Conversation"
+
+    def execute(self, context):
+
+        if not context.conversation.messages:
+
+            context.error("La conversación no contiene mensajes.")
+
+        if not context.conversation.participants:
+
+            context.error("La conversación no posee participantes.")
+
+================================================================================
 ARCHIVO: routes\admin.py
 ================================================================================
 
@@ -483,7 +1366,6 @@ from app.services.plan_service import inicializar_planes_por_defecto
 
 admin_bp = Blueprint("admin", __name__)
 
-
 @admin_bp.before_request
 @login_required
 def check_admin():
@@ -491,13 +1373,13 @@ def check_admin():
         flash("No tenés permisos de administrador", "error")
         return redirect(url_for("dashboard.dashboard_user"))
 
-
 @admin_bp.route("/")
 def admin_panel():
     usuarios = User.query.all()
     usuarios_count = len(usuarios)
     activos_count = len([u for u in usuarios if u.is_active_account])
     logs_recientes = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(10).all()
+    
     return render_template(
         "admin_panel.html",
         usuarios_count=usuarios_count,
@@ -505,27 +1387,34 @@ def admin_panel():
         logs_recientes=logs_recientes,
     )
 
-
 @admin_bp.route("/usuarios")
 def admin_usuarios():
     filtro = request.args.get("filtro", "todos")
+    
     if filtro == "activos":
         usuarios = User.query.filter_by(is_active_account=True).all()
     elif filtro == "inactivos":
         usuarios = User.query.filter_by(is_active_account=False).all()
     else:
         usuarios = User.query.all()
-
+    
     roles = Role.query.all()
-    return render_template("admin_usuarios.html", usuarios=usuarios, roles=roles, filtro=filtro)
+    planes_disponibles = Plan.query.order_by(Plan.orden).all()
+    
+    return render_template(
+        "admin_usuarios.html", 
+        usuarios=usuarios, 
+        roles=roles, 
+        filtro=filtro,
+        planes_disponibles=planes_disponibles
+    )
 
-
-@admin_bp.route("/usuarios/<int:user_id>/toggle")
+@admin_bp.route("/usuarios/<int:user_id>/toggle", methods=["POST"])
 def admin_usuario_toggle(user_id):
     user = User.query.get_or_404(user_id)
     user.is_active_account = not user.is_active_account
     db.session.commit()
-
+    
     log = ActivityLog(
         user_id=current_user.id,
         accion="cambio_estado_usuario",
@@ -534,24 +1423,22 @@ def admin_usuario_toggle(user_id):
     )
     db.session.add(log)
     db.session.commit()
-
+    
     flash(f"Usuario {'activado' if user.is_active_account else 'desactivado'}", "success")
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/roles", methods=["POST"])
 def admin_usuario_roles(user_id):
     user = User.query.get_or_404(user_id)
     roles_ids = request.form.getlist("roles")
-
+    
     UserRole.query.filter_by(user_id=user.id).delete()
-
+    
     for role_id in roles_ids:
         ur = UserRole(user_id=user.id, role_id=int(role_id))
         db.session.add(ur)
-
     db.session.commit()
-
+    
     log = ActivityLog(
         user_id=current_user.id,
         accion="cambio_roles",
@@ -560,20 +1447,19 @@ def admin_usuario_roles(user_id):
     )
     db.session.add(log)
     db.session.commit()
-
+    
     flash("Roles actualizados", "success")
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/reset", methods=["POST"])
 def admin_usuario_reset_password(user_id):
     user = User.query.get_or_404(user_id)
     nueva_pw = request.form.get("nueva_password")
-
+    
     if nueva_pw:
         user.set_password(nueva_pw)
         db.session.commit()
-
+        
         log = ActivityLog(
             user_id=current_user.id,
             accion="reset_password",
@@ -582,13 +1468,12 @@ def admin_usuario_reset_password(user_id):
         )
         db.session.add(log)
         db.session.commit()
-
+        
         flash("Contraseña actualizada", "success")
     else:
         flash("La contraseña no puede estar vacía", "error")
-
+    
     return redirect(url_for("admin.admin_usuarios"))
-
 
 @admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
 def admin_usuario_delete(user_id):
@@ -601,11 +1486,13 @@ def admin_usuario_delete(user_id):
     email = user.email
     
     try:
-        # Eliminar registros relacionados manualmente (en orden)
+        # Importar todas las tablas relacionadas
         from app.models import (
             UserProfile, UserFile, Transcription, Assistant,
             ActivityLog, UserRole, EmailVerificationToken,
-            PasswordResetToken, WhatsAppVerification, UserPlan
+            PasswordResetToken, WhatsAppVerification, UserPlan,
+            Donation, AnalysisSession, ExpedienteMonitoreado, 
+            ExpedienteEstado, SesionJurisdiccion
         )
         
         # 1. Eliminar archivos subidos (y sus transcripciones)
@@ -613,7 +1500,19 @@ def admin_usuario_delete(user_id):
             Transcription.query.filter_by(file_id=user_file.id).delete()
         UserFile.query.filter_by(user_id=user.id).delete()
         
-        # 2. Eliminar otros registros relacionados
+        # 2. Eliminar análisis de sentimientos (NUEVO)
+        AnalysisSession.query.filter_by(user_id=user.id).delete()
+        
+        # 3. Eliminar expedientes monitoreados y sus estados (NUEVO)
+        # Primero eliminar los estados (tienen FK a expediente_monitoreado)
+        for exp in ExpedienteMonitoreado.query.filter_by(user_id=user.id).all():
+            ExpedienteEstado.query.filter_by(expediente_monitoreado_id=exp.id).delete()
+        ExpedienteMonitoreado.query.filter_by(user_id=user.id).delete()
+        
+        # 4. Eliminar sesiones de jurisdicción (NUEVO)
+        SesionJurisdiccion.query.filter_by(user_id=user.id).delete()
+        
+        # 5. Eliminar otros registros relacionados
         UserProfile.query.filter_by(user_id=user.id).delete()
         Assistant.query.filter_by(user_id=user.id).delete()
         ActivityLog.query.filter_by(user_id=user.id).delete()
@@ -627,18 +1526,14 @@ def admin_usuario_delete(user_id):
         if user_plan:
             db.session.delete(user_plan)
         
-        # Si existe Donation (del sistema de cafecito)
-        try:
-            from app.models import Donation
-            Donation.query.filter_by(user_id=user.id).delete()
-        except:
-            pass
+        # Donation (del sistema de cafecito)
+        Donation.query.filter_by(user_id=user.id).delete()
         
-        # 3. Ahora sí eliminar el usuario
+        # 6. Ahora sí eliminar el usuario
         db.session.delete(user)
         db.session.commit()
         
-        # 4. Registrar el log (con user_id=None porque el usuario ya no existe)
+        # 7. Registrar el log (con user_id=None porque el usuario ya no existe)
         log = ActivityLog(
             user_id=current_user.id,
             accion="borrar_usuario",
@@ -657,11 +1552,10 @@ def admin_usuario_delete(user_id):
     
     return redirect(url_for("admin.admin_usuarios"))
 
-
 @admin_bp.route("/config", methods=["GET", "POST"])
 def admin_config():
     cs = ContactSettings.query.first()
-
+    
     if request.method == "POST":
         cs.email1 = request.form.get("email1", "")
         cs.email2 = request.form.get("email2", "")
@@ -671,9 +1565,9 @@ def admin_config():
         cs.marca = request.form.get("marca", "")
         cs.slogan = request.form.get("slogan", "")
         cs.texto_home = request.form.get("texto_home", "")
-
+        
         db.session.commit()
-
+        
         log = ActivityLog(
             user_id=current_user.id,
             accion="config_update",
@@ -682,17 +1576,16 @@ def admin_config():
         )
         db.session.add(log)
         db.session.commit()
-
+        
         flash("Configuración guardada", "success")
         return redirect(url_for("admin.admin_config"))
-
+    
     return render_template("admin_config.html", cs=cs)
-
 
 @admin_bp.route("/logs")
 def admin_logs():
     tipo = request.args.get("tipo", "todos")
-
+    
     if tipo == "todos":
         logs = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(200).all()
     else:
@@ -702,22 +1595,18 @@ def admin_logs():
             .limit(200)
             .all()
         )
-
+    
     return render_template("admin_logs.html", logs=logs, tipo=tipo)
 
 # ============================================
-# GESTIÓN DE PLANES (agregado al final del archivo)
+# GESTIÓN DE PLANES
 # ============================================
-#from app.models import Plan
-#from app.services.plan_service import inicializar_planes_por_defecto
-
 
 @admin_bp.route("/planes")
 def admin_planes():
     inicializar_planes_por_defecto()
     planes = Plan.query.order_by(Plan.orden).all()
     return render_template("admin_planes.html", planes=planes)
-
 
 @admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
 def admin_plan_editar(plan_id):
@@ -749,6 +1638,61 @@ def admin_plan_editar(plan_id):
     
     flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
     return redirect(url_for("admin.admin_planes"))
+
+# ============================================
+# CAMBIO DE PLAN DE USUARIO
+# ============================================
+
+@admin_bp.route("/usuarios/<int:user_id>/plan", methods=["POST"])
+def admin_usuario_plan(user_id):
+    """Permite al admin cambiar el plan de un usuario y resetear su consumo."""
+    from app.models import UserPlan, Plan
+    
+    user = User.query.get_or_404(user_id)
+    nuevo_plan_nombre = request.form.get("plan_nombre")
+    resetear_consumo = request.form.get("resetear_consumo") == "on"
+    
+    plan = Plan.query.filter_by(nombre=nuevo_plan_nombre).first()
+    if not plan:
+        flash("Plan inválido", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Buscar o crear UserPlan
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    if not user_plan:
+        user_plan = UserPlan(user_id=user.id)
+        db.session.add(user_plan)
+    
+    # Actualizar plan
+    user_plan.plan_id = plan.id
+    user_plan.plan = plan.nombre  # campo legacy
+    user_plan.limite_transcripciones = plan.limite_transcripciones_mes
+    user_plan.limite_analisis = plan.limite_analisis_mes
+    user_plan.es_lifetime = plan.es_lifetime
+    
+    # Resetear consumo si el admin lo pidió
+    if resetear_consumo:
+        user_plan.consumo_transcripciones = 0
+        user_plan.consumo_analisis = 0
+    
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="cambio_plan_usuario",
+        detalle=f"Plan de {user.email} cambiado a '{plan.display_name}'" + 
+                (" (consumo reseteado)" if resetear_consumo else ""),
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Plan de {user.email} cambiado a '{plan.display_name}'" + 
+          (" y consumo mensual reseteado." if resetear_consumo else "."), 
+          "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
 
 ================================================================================
 ARCHIVO: routes\agentes.py
@@ -1065,11 +2009,11 @@ def reenviar_verificacion():
 ARCHIVO: routes\cafecito.py
 ================================================================================
 
-# app/routes/cafecito.py
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
-from datetime import datetime, timedelta
-from app.utils.datetime_utils import utc_now
+from uuid import uuid4
+
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
+
 from app import db
 from app.models import Donation, UserPlan
 from app.services.mercadopago_service import MercadoPagoService
@@ -1080,95 +2024,49 @@ cafecito_bp = Blueprint("cafecito", __name__)
 @cafecito_bp.route("/cafecito")
 @login_required
 def cafecito():
-    """Página de donación 'Invitame un cafecito'."""
-    # Verificar si el usuario ya tiene el badge activo
     plan = UserPlan.query.filter_by(user_id=current_user.id).first()
-    tiene_badge = plan and plan.tiene_badge_cafecito()
-    
-    # Contar donaciones del usuario
-    donaciones_count = Donation.query.filter_by(user_id=current_user.id, estado='approved').count()
-    
     return render_template(
         "cafecito.html",
-        tiene_badge=tiene_badge,
-        donaciones_count=donaciones_count
+        tiene_badge=bool(plan and plan.tiene_badge_cafecito()),
+        donaciones_count=Donation.query.filter_by(user_id=current_user.id, estado="approved").count(),
     )
 
 
 @cafecito_bp.route("/cafecito/donar", methods=["POST"])
 @login_required
 def donar():
-    """Crea preferencia de pago y redirige a Mercado Pago."""
     mensaje = request.form.get("mensaje", "").strip()
-    monto = 5000.0  # Monto fijo de $5.000 ARS
-    
+    donation = Donation(
+        user_id=current_user.id, monto=5000.0, moneda="ARS", estado="pending",
+        mensaje=mensaje, external_reference=f"donation-{uuid4().hex}",
+    )
     try:
-        mp_service = MercadoPagoService()
-        preference = mp_service.crear_preferencia_pago(current_user, monto, mensaje)
-        
-        # Guardar donación pendiente en BD
-        donation = Donation(
-            user_id=current_user.id,
-            monto=monto,
-            moneda='ARS',
-            mp_preference_id=preference["preference_id"],
-            estado='pending',
-            mensaje=mensaje
-        )
         db.session.add(donation)
         db.session.commit()
-        
-        # Redirigir a Mercado Pago
+        preference = MercadoPagoService().crear_preferencia_pago(
+            current_user, donation.external_reference, donation.monto, mensaje
+        )
+        donation.mp_preference_id = preference["preference_id"]
+        db.session.commit()
         return redirect(preference["init_point"])
-        
-    except Exception as e:
-        flash(f"Error al crear la preferencia de pago: {str(e)}", "error")
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error creando preferencia de Mercado Pago")
+        flash("No pudimos iniciar el pago. Intentá nuevamente.", "error")
         return redirect(url_for("cafecito.cafecito"))
 
 
 @cafecito_bp.route("/cafecito/exito")
 @login_required
 def exito():
-    """Página de éxito después de pagar."""
-    payment_id = request.args.get("payment_id")
-    
-    if payment_id:
-        # Verificar el pago
-        try:
-            mp_service = MercadoPagoService()
-            pago_info = mp_service.verificar_pago(payment_id)
-            
-            if pago_info["status"] == "approved":
-                # Actualizar donación
-                donation = Donation.query.filter_by(mp_payment_id=payment_id).first()
-                if donation:
-                    donation.estado = 'approved'
-                    donation.mp_payment_id = payment_id
-                    db.session.commit()
-                
-                # Activar badge de cafecito 
-                plan = UserPlan.query.filter_by(user_id=current_user.id).first()
-                if not plan:
-                    plan = UserPlan(user_id=current_user.id)
-                    db.session.add(plan)
-                
-                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
-                db.session.commit()
-                
-                flash("¡Gracias por tu cafecito! ❤️ Tu badge está activo.", "success")
-            else:
-                flash("El pago está pendiente de confirmación.", "warning")
-                
-        except Exception as e:
-            flash(f"Error verificando el pago: {str(e)}", "error")
-    
+    # Nunca acreditar desde una URL controlada por el navegador.
+    flash("Recibimos tu regreso de Mercado Pago. Confirmaremos el pago automáticamente.", "info")
     return redirect(url_for("cafecito.cafecito"))
 
 
 @cafecito_bp.route("/cafecito/fallo")
 @login_required
 def fallo():
-    """Página de fallo después de intentar pagar."""
     flash("El pago no se pudo completar. Podés intentar de nuevo.", "error")
     return redirect(url_for("cafecito.cafecito"))
 
@@ -1176,19 +2074,20 @@ def fallo():
 @cafecito_bp.route("/cafecito/pendiente")
 @login_required
 def pendiente():
-    """Página de pago pendiente."""
     flash("Tu pago está siendo procesado. Te avisaremos cuando se confirme.", "info")
     return redirect(url_for("cafecito.cafecito"))
+
 
 ================================================================================
 ARCHIVO: routes\dashboard.py
 ================================================================================
 
 # app/routes/dashboard.py
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, send_from_directory, abort
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 import os
+from uuid import uuid4
 from app import db
 from app.models import UserProfile, UserFile, Transcription
 
@@ -1240,10 +2139,12 @@ def actualizar_avatar():
     if f and f.filename:
         ext = f.filename.rsplit(".", 1)[-1].lower()
         if ext in {"png", "jpg", "jpeg", "webp"}:
-            filename = secure_filename(f"avatar_{current_user.id}.{ext}")
-            path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+            filename = f"avatar_{uuid4().hex}.{ext}"
+            user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+            os.makedirs(user_dir, exist_ok=True)
+            path = os.path.join(user_dir, filename)
             f.save(path)
-            profile.avatar = f"/{path}"
+            profile.avatar = filename
             db.session.commit()
             flash("Avatar actualizado", "success")
         else:
@@ -1252,6 +2153,15 @@ def actualizar_avatar():
         flash("No seleccionaste ninguna imagen", "error")
 
     return redirect(url_for("dashboard.dashboard_user"))
+
+
+@dashboard_bp.route("/avatar/<filename>")
+@login_required
+def ver_avatar(filename):
+    if filename != secure_filename(filename) or not current_user.profile or current_user.profile.avatar != filename:
+        abort(404)
+    return send_from_directory(os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id)), filename)
+
 
 ================================================================================
 ARCHIVO: routes\historial.py
@@ -1442,6 +2352,7 @@ ARCHIVO: routes\servicios.py
 # app/routes/servicios.py
 import os
 import json
+from uuid import uuid4
 from flask import Blueprint, render_template, request, flash, current_app, redirect, url_for
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -1475,12 +2386,15 @@ def servicio_transcripcion():
                     flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
-                filename = secure_filename(f.filename)
-                path = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
+                original_filename = secure_filename(f.filename)
+                filename = f"{uuid4().hex}.{ext}"
+                user_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id))
+                os.makedirs(user_dir, exist_ok=True)
+                path = os.path.join(user_dir, filename)
                 f.save(path)
                 
                 tipo_archivo = "audio" if ext in ["mp3", "wav", "m4a", "flac", "ogg"] else "video"
-                user_file = UserFile(user_id=current_user.id, filename=filename, filepath=path, tipo=tipo_archivo)
+                user_file = UserFile(user_id=current_user.id, filename=original_filename, filepath=path, tipo=tipo_archivo)
                 db.session.add(user_file)
                 db.session.commit()
                 
@@ -1593,6 +2507,7 @@ def analisis_sentimientos():
     
     return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
 
+
 ================================================================================
 ARCHIVO: routes\verificacion.py
 ================================================================================
@@ -1691,79 +2606,72 @@ def reenviar_codigo_whatsapp():
 ARCHIVO: routes\webhook.py
 ================================================================================
 
-# app/routes/webhook.py
-from flask import Blueprint, request, jsonify
-from datetime import datetime, timedelta
-from app.utils.datetime_utils import utc_now
+import os
+import hmac
+import hashlib
+from datetime import timedelta
+
+from flask import Blueprint, current_app, jsonify, request
+
 from app import db
-from app.models import Donation, User, UserPlan
+from app.models import Donation
 from app.services.mercadopago_service import MercadoPagoService
+from app.services.plan_service import obtener_plan_usuario
+from app.utils.datetime_utils import utc_now
 
 webhook_bp = Blueprint("webhook", __name__)
 
 
+def firma_valida(x_signature, x_request_id, data_id, secret):
+    """Verifica HMAC SHA-256 según el manifiesto de Webhooks de Mercado Pago.
+
+    Es compatible con el SDK 2.2.x, que no incluye ``mercadopago.webhook``.
+    """
+    if not x_signature or not x_request_id or not data_id:
+        return False
+    values = {}
+    for item in x_signature.split(","):
+        key, separator, value = item.strip().partition("=")
+        if separator:
+            values[key] = value
+    timestamp, received_hash = values.get("ts"), values.get("v1")
+    if not timestamp or not received_hash:
+        return False
+    manifest = f"id:{str(data_id).lower()};request-id:{x_request_id};ts:{timestamp};"
+    expected_hash = hmac.new(secret.encode("utf-8"), manifest.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected_hash, received_hash)
+
+
 @webhook_bp.route("/webhook/mercadopago", methods=["POST"])
 def mercadopago_webhook():
-    """
-    Webhook para recibir notificaciones de Mercado Pago.
-    MP envía POST a esta URL cuando hay un cambio en el estado del pago.
-    """
+    """El webhook firmado, no la URL de retorno, acredita el pago."""
+    payload = request.get_json(silent=True) or {}
+    payment_id = request.args.get("data.id") or payload.get("data", {}).get("id")
+    secret = os.environ.get("MP_WEBHOOK_SECRET")
+    if not secret or not payment_id:
+        return jsonify({"error": "notificación inválida"}), 401
+    if not firma_valida(
+        request.headers.get("x-signature"), request.headers.get("x-request-id"), payment_id, secret
+    ):
+        return jsonify({"error": "firma inválida"}), 401
     try:
-        # Mercado Pago envía diferentes tipos de notificaciones
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({"status": "ok"}), 200
-        
-        # Filtrar solo notificaciones de pagos
-        if data.get("type") == "payment":
-            payment_id = data.get("data", {}).get("id")
-            
-            if payment_id:
-                # Verificar el pago
-                mp_service = MercadoPagoService()
-                pago_info = mp_service.verificar_pago(payment_id)
-                
-                if pago_info["status"] == "approved":
-                    # Buscar la donación por external_reference
-                    external_ref = pago_info.get("external_reference", "")
-                    
-                    # Extraer user_id del external_reference (formato: "user-{id}-{timestamp}")
-                    if external_ref.startswith("user-"):
-                        parts = external_ref.split("-")
-                        if len(parts) >= 2:
-                            user_id = int(parts[1])
-                            
-                            # Actualizar donación
-                            donation = Donation.query.filter_by(
-                                mp_preference_id=payment_id,
-                                user_id=user_id
-                            ).first()
-                            
-                            if donation:
-                                donation.estado = 'approved'
-                                donation.mp_payment_id = payment_id
-                                db.session.commit()
-                                
-                                # Activar badge de cafecito 
-                                plan = UserPlan.query.filter_by(user_id=user_id).first()
-                                if not plan:
-                                    plan = UserPlan(user_id=user_id)
-                                    db.session.add(plan)
-                                
-                                plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
-                                db.session.commit()
-                                
-                                print(f"✅ Donación confirmada para user_id={user_id}")
-        
+        pago = MercadoPagoService().verificar_pago(payment_id)
+        donation = Donation.query.filter_by(external_reference=pago.get("external_reference")).first()
+        if not donation:
+            return jsonify({"status": "ignored"}), 200
+        if donation.mp_payment_id and donation.mp_payment_id != str(payment_id):
+            return jsonify({"error": "pago ya asociado"}), 409
+        donation.mp_payment_id = str(payment_id)
+        donation.estado = pago["status"]
+        if pago["status"] == "approved":
+            plan = obtener_plan_usuario(donation.user)
+            plan.fecha_expiracion_cafecito = utc_now() + timedelta(days=30)
+        db.session.commit()
         return jsonify({"status": "ok"}), 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Error procesando webhook Mercado Pago")
+        return jsonify({"status": "error"}), 500
 
 
 ================================================================================
@@ -1774,7 +2682,9 @@ ARCHIVO: services\mercadopago_service.py
 import os
 import mercadopago
 from datetime import datetime, timedelta
+from app.utils.datetime_utils import utc_now
 from flask import url_for
+from flask import current_app
 
 
 class MercadoPagoService:
@@ -1786,7 +2696,7 @@ class MercadoPagoService:
             raise ValueError("MP_ACCESS_TOKEN no configurado en variables de entorno")
         self.sdk = mercadopago.SDK(access_token)
     
-    def crear_preferencia_pago(self, user, monto=5000.0, mensaje=""):
+    def crear_preferencia_pago(self, user, external_reference, monto=5000.0, mensaje=""):
         """
         Crea una preferencia de pago en Mercado Pago.
         
@@ -1810,7 +2720,7 @@ class MercadoPagoService:
                 "name": user.nombre,
                 "email": user.email,
             },
-            "external_reference": f"user-{user.id}-{datetime.utcnow().timestamp()}",
+            "external_reference": external_reference,
             "back_urls": {
                 "success": url_for('cafecito.exito', _external=True),
                 "failure": url_for('cafecito.fallo', _external=True),
@@ -1823,7 +2733,15 @@ class MercadoPagoService:
         
         try:
             preference_response = self.sdk.preference().create(preference_data)
-            preference = preference_response["response"]
+            preference = preference_response.get("response", {})
+            if not isinstance(preference, dict) or "id" not in preference:
+                status = preference_response.get("status", "desconocido")
+                detalle = preference.get("message") if isinstance(preference, dict) else None
+                detalle = detalle or preference.get("error") if isinstance(preference, dict) else detalle
+                current_app.logger.error(
+                    "Mercado Pago rechazó la preferencia (status=%s, detalle=%s)", status, detalle or preference
+                )
+                raise ValueError(f"Mercado Pago rechazó la preferencia (HTTP {status}).")
             
             return {
                 "preference_id": preference["id"],
@@ -1850,6 +2768,7 @@ class MercadoPagoService:
             }
         except Exception as e:
             raise Exception(f"Error verificando pago: {str(e)}")
+
 
 ================================================================================
 ARCHIVO: services\plan_service.py
@@ -1918,8 +2837,9 @@ def puede_transcribir(user):
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_transcripciones_mes if plan else 5
     if limite >= 999999:
-        return True, user_plan.consumo_transcripciones, limite
-    return user_plan.consumo_transcripciones < limite, user_plan.consumo_transcripciones, limite
+        return True, user_plan.consumo_transcripciones_mes(), limite
+    uso = user_plan.consumo_transcripciones_mes()
+    return uso < limite, uso, limite
 
 def registrar_uso_transcripcion(user):
     user_plan = obtener_plan_usuario(user)
@@ -1931,13 +2851,15 @@ def puede_analizar(user):
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_analisis_mes if plan else 3
     if limite >= 999999:
-        return True, user_plan.consumo_analisis, limite
-    return user_plan.consumo_analisis < limite, user_plan.consumo_analisis, limite
+        return True, user_plan.consumo_analisis_mes(), limite
+    uso = user_plan.consumo_analisis_mes()
+    return uso < limite, uso, limite
 
 def registrar_uso_analisis(user):
     user_plan = obtener_plan_usuario(user)
     user_plan.consumo_analisis += 1
     db.session.commit()
+
 
 ================================================================================
 ARCHIVO: services\translation_service.py
@@ -2909,6 +3831,271 @@ class OpenAIBackend(TranscriptionBackend):
     
     def get_name(self) -> str:
         return "OpenAI Whisper API"
+
+================================================================================
+ARCHIVO: tests\__init__.py
+================================================================================
+
+
+
+================================================================================
+ARCHIVO: tests\conftest.py
+================================================================================
+
+"""
+Fixtures compartidas para todos los tests del MIC.
+"""
+
+from datetime import datetime
+
+import pytest
+
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+from app.mic.domain.enums import SourceType
+
+
+@pytest.fixture
+def conversation():
+
+    c = Conversation(
+        conversation_id="conversation-demo",
+        source=SourceType.TEXT,
+        title="Conversación Demo",
+        created_at=datetime.now(),
+    )
+
+    c.add_participant(
+        Participant(
+            participant_id="user_1",
+            display_name="José"
+        )
+    )
+
+    c.add_message(
+        Message(
+            message_id="msg_1",
+            participant_id="user_1",
+            text=" Hola Mundo ",
+            created_at=datetime.now()
+        )
+    )
+
+    return c
+
+
+
+
+
+================================================================================
+ARCHIVO: tests\pipeline_example.py
+================================================================================
+
+# app/examples/pipeline_example.py
+from datetime import datetime
+
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+from app.mic.domain.enums import SourceType
+
+from app.mic.pipeline import Pipeline
+
+from app.mic.pipeline.steps.clean_step import CleanStep
+from app.mic.pipeline.steps.validation_step import ValidationStep
+
+
+conversation = Conversation(
+    conversation_id="1",
+    source=SourceType.TEXT,
+    title="Demo",
+    created_at=datetime.now()
+)
+
+conversation.add_participant(
+    Participant(
+        participant_id="1",
+        display_name="José"
+    )
+)
+
+conversation.add_message(
+    Message(
+        message_id="1",
+        participant_id="1",
+        text="   Hola Mundo    ",
+        created_at=datetime.now()
+    )
+)
+
+pipeline = Pipeline()
+
+pipeline.add(CleanStep())
+
+pipeline.add(ValidationStep())
+
+result = pipeline.run(conversation)
+
+print(result.success)
+
+print(conversation.messages[0].text)
+
+
+================================================================================
+ARCHIVO: tests\test_builder.py
+================================================================================
+
+from app.mic.builders.conversation_builder import ConversationBuilder
+from app.mic.domain.enums import SourceType
+
+
+def test_builder():
+
+    builder = ConversationBuilder()
+
+    result = (
+        builder
+        .create(
+            conversation_id="1",
+            source=SourceType.TEXT,
+            title="Demo"
+        )
+        .add_participant(
+            participant_id="u1",
+            display_name="José"
+        )
+        .add_message(
+            message_id="m1",
+            participant_id="u1",
+            text="Hola mundo"
+        )
+        .build()
+    )
+
+    assert result.success
+    assert result.conversation.total_messages == 1
+    assert result.conversation.total_participants == 1
+
+================================================================================
+ARCHIVO: tests\test_conversation.py
+================================================================================
+
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+
+
+def test_conversation_creation(conversation):
+
+    assert conversation.title == "Conversación Demo"
+
+    assert conversation.total_messages == 1
+
+    assert conversation.total_participants == 1
+
+
+def test_add_participant(conversation):
+
+    conversation.add_participant(
+        Participant(
+            participant_id="2",
+            display_name="María"
+        )
+    )
+
+    assert conversation.total_participants == 2
+
+
+def test_add_message(conversation):
+
+    conversation.add_message(
+        Message(
+            message_id="2",
+            participant_id="2",
+            text="Segundo mensaje",
+            created_at=conversation.created_at
+        )
+    )
+
+    assert conversation.total_messages == 2
+
+================================================================================
+ARCHIVO: tests\test_facebook_adapter.py
+================================================================================
+
+from app.mic.adapters.facebook.facebook_adapter import FacebookAdapter
+from app.mic.adapters.facebook.sample_data import facebook_post
+
+
+def test_facebook_adapter():
+    adapter = FacebookAdapter()
+    result = adapter.convert(facebook_post)
+    assert result.success
+    conversation = result.conversation
+    assert conversation.title == "¿Qué opinás del proyecto?"
+    assert conversation.total_participants == 3
+    assert conversation.total_messages == 3
+
+================================================================================
+ARCHIVO: tests\test_pipeline.py
+================================================================================
+
+
+# app/mic/pipeline/test_pipeline.py
+from app.mic.pipeline.pipeline import Pipeline
+
+from app.mic.pipeline.steps.clean_step import CleanStep
+
+from app.mic.pipeline.steps.validation_step import ValidationStep
+
+
+def test_pipeline(conversation):
+
+    pipeline = Pipeline()
+
+    pipeline.add(CleanStep())
+
+    pipeline.add(ValidationStep())
+
+    result = pipeline.run(conversation)
+
+    assert result.success
+
+    assert conversation.messages[0].text == "Hola Mundo"
+
+================================================================================
+ARCHIVO: tests\test_validation.py
+================================================================================
+
+from datetime import datetime
+
+from app.mic.domain.entities.conversation import Conversation
+
+from app.mic.domain.enums import SourceType
+
+from app.mic.pipeline.pipeline import Pipeline
+
+from app.mic.pipeline.steps.validation_step import ValidationStep
+
+
+def test_validation_without_messages():
+
+    c = Conversation(
+        conversation_id="1",
+        source=SourceType.TEXT,
+        title="Vacía",
+        created_at=datetime.now()
+    )
+
+    pipeline = Pipeline()
+
+    pipeline.add(ValidationStep())
+
+    result = pipeline.run(c)
+
+    assert result.success is False
+
+    assert len(result.errors) == 2
 
 ================================================================================
 ARCHIVO: utils\datetime_utils.py
