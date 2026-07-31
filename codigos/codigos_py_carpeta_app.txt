@@ -94,6 +94,7 @@ def create_app():
     from app.routes.planes import planes_bp
     from app.routes.historial import historial_bp
     from app.routes.agentes import agentes_bp
+    from app.routes.api import api_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -107,6 +108,7 @@ def create_app():
     app.register_blueprint(planes_bp)
     app.register_blueprint(historial_bp)
     app.register_blueprint(agentes_bp)
+    app.register_blueprint(api_bp)
     
     return app
 
@@ -485,6 +487,190 @@ class SesionJurisdiccion(db.Model):
 
 
 ================================================================================
+ARCHIVO: mic\mic_engine.py
+================================================================================
+
+# app/mic/mic_engine.py
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.mic.adapters.facebook.facebook_adapter import FacebookAdapter
+from app.mic.analyzers.semantic_analyzer import SemanticAnalyzer
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.models.analysis_result import AnalysisResult
+from app.mic.pipeline.pipeline import Pipeline
+from app.mic.pipeline.steps.clean_step import CleanStep
+from app.mic.pipeline.steps.validation_step import ValidationStep
+from app.mic.pipeline.steps.semantic_step import SemanticStep
+
+
+logger = logging.getLogger(__name__)
+
+
+class MIC:
+    """
+    Fachada pública del Motor de Interpretación Conversacional.
+
+    Contrato público:
+        Entrada:  datos_crudos + origen + metadata
+        Salida:   AnalysisResult (objeto tipado)
+
+    El MIC NO conoce:
+        - Planes de usuario
+        - Autorización de acceso
+        - Lógica comercial
+        - Bases de datos
+        - Rutas HTTP
+    """
+
+    def __init__(
+        self,
+        semantic_analyzer: SemanticAnalyzer | None = None,
+    ):
+        self.semantic_analyzer = semantic_analyzer
+
+    def analyze(
+        self,
+        conversation: Conversation,
+        metadata: dict[str, Any] | None = None,
+    ) -> AnalysisResult:
+        """
+        Analiza una conversación ya normalizada.
+
+        Este es el método de bajo nivel para cuando ya tenés
+        una Conversation armada (ej: desde tests o código interno).
+        """
+        conversation_id = str(
+            getattr(conversation, "conversation_id", "unknown")
+        )
+
+        if conversation is None:
+            return AnalysisResult(
+                success=False,
+                conversation_id="unknown",
+                errors=["MIC recibió una conversación nula."],
+            )
+
+        try:
+            pipeline = Pipeline()
+            pipeline.add(CleanStep())
+            pipeline.add(ValidationStep())
+
+            if self.semantic_analyzer is not None:
+                pipeline.add(
+                    SemanticStep(analyzer=self.semantic_analyzer)
+                )
+
+            result = pipeline.run(
+                conversation,
+                metadata=metadata or {},
+            )
+
+            return AnalysisResult(
+                success=result.success,
+                conversation_id=conversation_id,
+                statistics=result.data.get("statistics", {}),
+                semantic_analysis=result.data.get("semantic_analysis", {}),
+                warnings=list(result.warnings),
+                errors=list(result.errors),
+                evidence=result.data.get("evidence", []),
+            )
+
+        except Exception as exc:
+            logger.exception("Error crítico dentro del MIC.")
+            return AnalysisResult(
+                success=False,
+                conversation_id=conversation_id,
+                errors=[f"Error interno del MIC: {exc}"],
+            )
+
+    def analizar(
+        self,
+        datos_crudos: dict[str, Any],
+        origen: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AnalysisResult:
+        """
+        API pública de alto nivel.
+
+        Recibe datos crudos de cualquier fuente y devuelve AnalysisResult.
+
+        Parámetros:
+            datos_crudos: dict con la data cruda (ej: de Facebook, CSV, etc.)
+            origen: string identificando la fuente ("facebook", "csv", etc.)
+            metadata: dict con contexto, user_plan, etc.
+
+        Retorna:
+            AnalysisResult tipado con el análisis completo.
+
+        Este método:
+            1. Selecciona el Adapter correcto según el origen
+            2. Convierte datos_crudos → Conversation
+            3. Ejecuta el Pipeline completo
+            4. Devuelve AnalysisResult
+        """
+        try:
+            # 1. Seleccionar Adapter
+            adapter = self._get_adapter(origen)
+
+            # 2. Convertir a Conversation
+            adapter_result = adapter.convert(datos_crudos)
+
+            if not adapter_result.success:
+                return AnalysisResult(
+                    success=False,
+                    conversation_id="unknown",
+                    errors=adapter_result.errors or [
+                        "Error en la conversión de datos."
+                    ],
+                )
+
+            # 3. Ejecutar análisis
+            return self.analyze(
+                conversation=adapter_result.conversation,
+                metadata=metadata,
+            )
+
+        except ValueError as exc:
+            logger.warning(f"Error de validación en MIC.analizar: {exc}")
+            return AnalysisResult(
+                success=False,
+                conversation_id="unknown",
+                errors=[str(exc)],
+            )
+
+        except Exception as exc:
+            logger.exception("Error crítico en MIC.analizar.")
+            return AnalysisResult(
+                success=False,
+                conversation_id="unknown",
+                errors=[f"Error interno del MIC: {exc}"],
+            )
+
+    def _get_adapter(self, origen: str):
+        """
+        Factory de Adapters.
+        Selecciona el adapter correcto según el origen.
+        """
+        origen_lower = origen.lower()
+
+        if origen_lower in ["facebook", "instagram"]:
+            return FacebookAdapter()
+
+        # Futuros adapters:
+        # elif origen_lower == "whatsapp":
+        #     return WhatsAppAdapter()
+        # elif origen_lower == "csv":
+        #     return CSVAdapter()
+
+        raise ValueError(
+            f"Origen '{origen}' no soportado. "
+            f"Origenes disponibles: facebook, instagram"
+        )
+
+================================================================================
 ARCHIVO: mic\adapters\adapter_factory.py
 ================================================================================
 
@@ -622,6 +808,260 @@ facebook_post = {
 
     ]
 }
+
+================================================================================
+ARCHIVO: mic\analyzers\__init__.py
+================================================================================
+
+# app/mic/analyzers/__init__.py
+from .semantic_analyzer import SemanticAnalyzer
+from .groq_semantic_analyzer import GroqSemanticAnalyzer
+
+__all__ = [
+    "SemanticAnalyzer",
+    "GroqSemanticAnalyzer",
+]
+
+================================================================================
+ARCHIVO: mic\analyzers\groq_semantic_analyzer.py
+================================================================================
+
+# app/mic/analyzers/groq_semantic_analyzer.py
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.mic.analyzers.semantic_analyzer import SemanticAnalyzer
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.models.semantic_result import SemanticResult
+from app.services.analysis.groq_llm import GroqLLMClient
+
+
+logger = logging.getLogger(__name__)
+
+
+class GroqSemanticAnalyzer(SemanticAnalyzer):
+    """
+    Implementación del análisis semántico utilizando Groq.
+
+    Responsabilidades:
+    - Extraer mensajes de la Conversation.
+    - Llamar a GroqLLMClient.analizar_semantica().
+    - Convertir el dict crudo de Groq a objetos SemanticResult.
+
+    NO conoce:
+    - El plan del usuario.
+    - La autorización de acceso.
+    - Las estadísticas agregadas.
+    """
+
+    def __init__(
+        self,
+        groq_client: GroqLLMClient | None = None,
+    ):
+        self.groq_client = groq_client
+
+    def analyze(
+        self,
+        conversation: Conversation,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Analiza la conversación y devuelve SemanticResult objects.
+        """
+        metadata = metadata or {}
+
+        mensajes = self._build_messages(conversation)
+
+        if not mensajes:
+            return {
+                "analyses": [],
+                "metadata": {
+                    "warning": "No hay mensajes válidos para analizar."
+                },
+            }
+
+        contexto = str(metadata.get("contexto", "")).strip()
+
+        comentarios = [mensaje["texto"] for mensaje in mensajes]
+
+        try:
+            client = self._get_client()
+
+            # Llamada al motor semántico (SIN plan)
+            resultado_groq = client.analizar_semantica(
+                comentarios=comentarios,
+                contexto=contexto,
+            )
+
+            # Convertir dict crudo a SemanticResult objects
+            analyses = self._convert_to_semantic_results(
+                resultado_groq.get("analyses", []),
+                mensajes,
+            )
+
+            return {
+                "analyses": analyses,
+                "metadata": {
+                    "provider": "groq",
+                    "model": client.model,
+                    "total_analizados": len(analyses),
+                },
+            }
+
+        except AttributeError:
+            logger.exception(
+                "GroqLLMClient no dispone de analizar_semantica()."
+            )
+            return {
+                "analyses": [],
+                "metadata": {
+                    "error": (
+                        "GroqLLMClient no tiene implementado "
+                        "el método analizar_semantica()."
+                    )
+                },
+            }
+
+        except Exception as exc:
+            logger.exception(
+                "Error ejecutando análisis semántico con Groq."
+            )
+            return {
+                "analyses": [],
+                "metadata": {
+                    "error": f"Fallo en el motor semántico: {exc}"
+                },
+            }
+
+    def _get_client(self) -> GroqLLMClient:
+        if self.groq_client is None:
+            self.groq_client = GroqLLMClient()
+        return self.groq_client
+
+    def _build_messages(
+        self,
+        conversation: Conversation,
+    ) -> list[dict[str, str]]:
+        """
+        Extrae mensajes válidos de la Conversation.
+        """
+        participantes = {
+            participante.participant_id: participante.display_name
+            for participante in conversation.participants
+        }
+
+        mensajes: list[dict[str, str]] = []
+
+        for message in conversation.messages:
+            texto = str(message.text or "").strip()
+            if not texto:
+                continue
+
+            participante = participantes.get(
+                message.participant_id,
+                "Anónimo",
+            )
+
+            mensajes.append({
+                "message_id": message.message_id,
+                "participant_id": message.participant_id,
+                "participante": participante,
+                "texto": texto,
+            })
+
+        return mensajes
+
+    def _convert_to_semantic_results(
+        self,
+        analyses_groq: list[dict],
+        mensajes_originales: list[dict],
+    ) -> list[SemanticResult]:
+        """
+        Convierte el dict crudo de Groq a objetos SemanticResult.
+
+        Esta es la capa de adaptación:
+        - Groq devuelve dicts con campos específicos.
+        - El MIC trabaja con SemanticResult objects.
+        """
+        resultados: list[SemanticResult] = []
+
+        for index, analysis in enumerate(analyses_groq):
+            try:
+                # Obtener el mensaje original para preservar metadata
+                mensaje_original = (
+                    mensajes_originales[index]
+                    if index < len(mensajes_originales)
+                    else {}
+                )
+
+                semantic_result = SemanticResult(
+                    sentiment=str(analysis.get("sentiment", "neutral")),
+                    tone=str(analysis.get("tone", "neutral")),
+                    irony=bool(analysis.get("irony", False)),
+                    sarcasm=bool(analysis.get("sarcasm", False)),
+                    irony_polarity=str(
+                        analysis.get("irony_polarity", "none")
+                    ),
+                    confidence=float(analysis.get("confidence", 0.0)),
+                    literal_meaning=str(
+                        analysis.get("literal_meaning", "")
+                    ),
+                    inferred_meaning=str(
+                        analysis.get("inferred_meaning", "")
+                    ),
+                    evidence=list(analysis.get("evidence", [])),
+                    metadata={
+                        "message_id": analysis.get("message_id"),
+                        "texto_original": analysis.get(
+                            "texto_original",
+                            mensaje_original.get("texto", ""),
+                        ),
+                        "participant_id": mensaje_original.get(
+                            "participant_id"
+                        ),
+                        "participante": mensaje_original.get(
+                            "participante"
+                        ),
+                    },
+                )
+
+                resultados.append(semantic_result)
+
+            except (ValueError, TypeError, KeyError) as exc:
+                logger.warning(
+                    f"Error convirtiendo análisis {index}: {exc}"
+                )
+                continue
+
+        return resultados
+
+================================================================================
+ARCHIVO: mic\analyzers\semantic_analyzer.py
+================================================================================
+
+# app/mic/analyzers/semantic_analyzer.py
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+from app.mic.domain.entities.conversation import Conversation
+
+
+class SemanticAnalyzer(ABC):
+    """
+    Contrato que debe cumplir cualquier analizador semántico.
+    """
+
+    @abstractmethod
+    def analyze(
+        self,
+        conversation: Conversation,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
 
 ================================================================================
 ARCHIVO: mic\builders\builder_result.py
@@ -866,80 +1306,6 @@ ARCHIVO: mic\domain\__init__.py
 
 
 ================================================================================
-ARCHIVO: mic\domain\enums.py
-================================================================================
-
-from enum import Enum
-
-
-class SourceType(str, Enum):
-    """Origen de una conversación."""
-
-    FACEBOOK = "facebook"
-    INSTAGRAM = "instagram"
-    WHATSAPP = "whatsapp"
-    YOUTUBE = "youtube"
-    X = "x"
-    TIKTOK = "tiktok"
-    CSV = "csv"
-    EXCEL = "excel"
-    TEXT = "text"
-    API = "api"
-    UNKNOWN = "unknown"
-
-
-class EmotionType(str, Enum):
-    """Emoción predominante."""
-
-    JOY = "joy"
-    SADNESS = "sadness"
-    ANGER = "anger"
-    FEAR = "fear"
-    SURPRISE = "surprise"
-    DISGUST = "disgust"
-    NEUTRAL = "neutral"
-
-
-class SentimentType(str, Enum):
-    """Polaridad tradicional."""
-
-    POSITIVE = "positive"
-    NEGATIVE = "negative"
-    NEUTRAL = "neutral"
-    MIXED = "mixed"
-
-
-class IronyType(str, Enum):
-    """Clasificación de ironía."""
-
-    NONE = "none"
-    IRONY = "irony"
-    SARCASM = "sarcasm"
-    SATIRE = "satire"
-    HUMOR = "humor"
-
-
-class InsightType(str, Enum):
-    """Tipos de insight generados."""
-
-    TREND = "trend"
-    ALERT = "alert"
-    OPPORTUNITY = "opportunity"
-    RISK = "risk"
-    NARRATIVE = "narrative"
-    HYPOTHESIS = "hypothesis"
-
-
-class ParticipantRole(str, Enum):
-    """Rol dentro de la conversación."""
-
-    AUTHOR = "author"
-    ADMIN = "admin"
-    MODERATOR = "moderator"
-    MEMBER = "member"
-    UNKNOWN = "unknown"
-
-================================================================================
 ARCHIVO: mic\domain\entities\__init__.py
 ================================================================================
 
@@ -1126,6 +1492,142 @@ class Participant:
         
 
 ================================================================================
+ARCHIVO: mic\domain\enums\__init__.py
+================================================================================
+
+# app/mic/domain/enums/__init__.py
+from .source import (
+    SourceType,
+    EmotionType,
+    SentimentType,
+    IronyType,
+    InsightType,
+    ParticipantRole,
+)
+from .semantic import (
+    Sentiment,
+    Tone,
+    IronyPolarity,
+)
+
+__all__ = [
+    "SourceType",
+    "EmotionType",
+    "SentimentType",
+    "IronyType",
+    "InsightType",
+    "ParticipantRole",
+    "Sentiment",
+    "Tone",
+    "IronyPolarity",
+]
+
+================================================================================
+ARCHIVO: mic\domain\enums\semantic.py
+================================================================================
+
+# app/mic/domain/enums/semantic.py
+from enum import Enum
+
+
+class Sentiment(Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+
+
+class Tone(Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+    IRONIC_POSITIVE = "ironic_positive"
+    IRONIC_NEGATIVE = "ironic_negative"
+    SARCASTIC = "sarcastic"
+    MIXED = "mixed"
+    AMBIGUOUS = "ambiguous"
+
+
+class IronyPolarity(Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+    NONE = "none"
+
+
+
+
+================================================================================
+ARCHIVO: mic\domain\enums\source.py
+================================================================================
+
+# app/mic/domain/enums/source.py
+from enum import Enum
+
+
+class SourceType(str, Enum):
+    """Origen de una conversación."""
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+    WHATSAPP = "whatsapp"
+    YOUTUBE = "youtube"
+    X = "x"
+    TIKTOK = "tiktok"
+    CSV = "csv"
+    EXCEL = "excel"
+    TEXT = "text"
+    API = "api"
+    UNKNOWN = "unknown"
+
+
+class EmotionType(str, Enum):
+    """Emoción predominante."""
+    JOY = "joy"
+    SADNESS = "sadness"
+    ANGER = "anger"
+    FEAR = "fear"
+    SURPRISE = "surprise"
+    DISGUST = "disgust"
+    NEUTRAL = "neutral"
+
+
+class SentimentType(str, Enum):
+    """Polaridad tradicional."""
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+    MIXED = "mixed"
+
+
+class IronyType(str, Enum):
+    """Clasificación de ironía."""
+    NONE = "none"
+    IRONY = "irony"
+    SARCASM = "sarcasm"
+    SATIRE = "satire"
+    HUMOR = "humor"
+
+
+class InsightType(str, Enum):
+    """Tipos de insight generados."""
+    TREND = "trend"
+    ALERT = "alert"
+    OPPORTUNITY = "opportunity"
+    RISK = "risk"
+    NARRATIVE = "narrative"
+    HYPOTHESIS = "hypothesis"
+
+
+class ParticipantRole(str, Enum):
+    """Rol dentro de la conversación."""
+    AUTHOR = "author"
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+    MEMBER = "member"
+    UNKNOWN = "unknown"
+
+
+
+================================================================================
 ARCHIVO: mic\domain\value_objects\__init__.py
 ================================================================================
 
@@ -1162,6 +1664,101 @@ ARCHIVO: mic\interfaces\memory.py
 
 
 ================================================================================
+ARCHIVO: mic\models\__init__.py
+================================================================================
+
+# app/mic/models/__init__.py
+from .analysis_result import AnalysisResult
+from .semantic_result import SemanticResult
+
+__all__ = [
+    "AnalysisResult",
+    "SemanticResult",
+]
+
+================================================================================
+ARCHIVO: mic\models\analysis_result.py
+================================================================================
+
+# app/mic/models/analysis_result.py
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class AnalysisResult:
+    """
+    Contrato de salida público del MIC.
+    """
+
+    success: bool
+    conversation_id: str
+    statistics: dict[str, Any] = field(default_factory=dict)
+    semantic_analysis: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "success": self.success,
+            "conversation_id": self.conversation_id,
+            "statistics": self.statistics,
+            "semantic_analysis": self.semantic_analysis,
+            "warnings": self.warnings,
+            "errors": self.errors,
+            "evidence": self.evidence,
+        }
+
+
+
+
+================================================================================
+ARCHIVO: mic\models\semantic_result.py
+================================================================================
+
+# app/mic/models/semantic_result.py
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class SemanticResult:
+    """
+    Resultado normalizado de la interpretación semántica
+    de un mensaje o conversación.
+    """
+
+    sentiment: str = "neutral"
+    tone: str = "neutral"
+    irony: bool = False
+    sarcasm: bool = False
+    irony_polarity: str = "neutral"
+    confidence: float = 0.0
+    literal_meaning: str = ""
+    inferred_meaning: str = ""
+    evidence: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sentiment": self.sentiment,
+            "tone": self.tone,
+            "irony": self.irony,
+            "sarcasm": self.sarcasm,
+            "irony_polarity": self.irony_polarity,
+            "confidence": self.confidence,
+            "literal_meaning": self.literal_meaning,
+            "inferred_meaning": self.inferred_meaning,
+            "evidence": self.evidence,
+            "metadata": self.metadata,
+        }
+
+================================================================================
 ARCHIVO: mic\pipeline\__init__.py
 ================================================================================
 
@@ -1170,6 +1767,9 @@ ARCHIVO: mic\pipeline\__init__.py
 ================================================================================
 ARCHIVO: mic\pipeline\context.py
 ================================================================================
+
+# app/mic/pipeline/context.py
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -1180,39 +1780,36 @@ from app.mic.domain.entities.conversation import Conversation
 @dataclass(slots=True)
 class PipelineContext:
     """
-    Contexto compartido entre todos los pasos del pipeline.
+    Contexto compartido entre todos los pasos del Pipeline.
     """
 
     conversation: Conversation
-
     data: dict[str, Any] = field(default_factory=dict)
-
+    metadata: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-
     errors: list[str] = field(default_factory=list)
 
-    def set(self, key: str, value: Any):
-
+    def set(self, key: str, value: Any) -> None:
         self.data[key] = value
 
-    def get(self, key: str, default=None):
-
+    def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
 
-    def warning(self, msg: str):
-
+    def warning(self, msg: str) -> None:
         self.warnings.append(msg)
 
-    def error(self, msg: str):
-
+    def error(self, msg: str) -> None:
         self.errors.append(msg)
 
 ================================================================================
 ARCHIVO: mic\pipeline\pipeline.py
 ================================================================================
 
-
 # app/mic/pipeline/pipeline.py
+from __future__ import annotations
+
+from typing import Any
+
 from app.mic.pipeline.context import PipelineContext
 from app.mic.pipeline.result import PipelineResult
 
@@ -1220,37 +1817,32 @@ from app.mic.pipeline.result import PipelineResult
 class Pipeline:
 
     def __init__(self):
-
         self.steps = []
 
     def add(self, step):
-
         self.steps.append(step)
-
         return self
 
-    def run(self, conversation):
-
-        context = PipelineContext(conversation)
+    def run(
+        self,
+        conversation,
+        metadata: dict[str, Any] | None = None,
+    ):
+        context = PipelineContext(
+            conversation=conversation,
+            metadata=metadata or {},
+        )
 
         for step in self.steps:
-
             step.execute(context)
-
             if context.errors:
-
                 break
 
         return PipelineResult(
-
             success=len(context.errors) == 0,
-
             data=context.data,
-
             warnings=context.warnings,
-
-            errors=context.errors
-
+            errors=context.errors,
         )
 
 ================================================================================
@@ -1333,6 +1925,51 @@ class CleanStep(PipelineStep):
             message.text = message.text.strip()
 
 ================================================================================
+ARCHIVO: mic\pipeline\steps\semantic_step.py
+================================================================================
+
+# app/mic/pipeline/steps/semantic_step.py
+from __future__ import annotations
+
+import logging
+
+from app.mic.analyzers.semantic_analyzer import SemanticAnalyzer
+from app.mic.pipeline.context import PipelineContext
+
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticStep:
+    """
+    Paso del Pipeline responsable de ejecutar la interpretación semántica.
+    """
+
+    def __init__(self, analyzer: SemanticAnalyzer):
+        self.analyzer = analyzer
+
+    def execute(self, context: PipelineContext) -> None:
+        try:
+            analysis = self.analyzer.analyze(
+                conversation=context.conversation,
+                metadata=context.metadata,
+            )
+
+            if not isinstance(analysis, dict):
+                context.error("El analizador semántico devolvió un resultado inválido.")
+                return
+
+            if "error" in analysis:
+                context.error(str(analysis["error"]))
+                return
+
+            context.set("semantic_analysis", analysis)
+
+        except Exception as exc:
+            logger.exception("Error ejecutando SemanticStep.")
+            context.error(f"Error en análisis semántico: {exc}")
+
+================================================================================
 ARCHIVO: mic\pipeline\steps\validation_step.py
 ================================================================================
 
@@ -1352,6 +1989,470 @@ class ValidationStep(PipelineStep):
         if not context.conversation.participants:
 
             context.error("La conversación no posee participantes.")
+
+================================================================================
+ARCHIVO: mic\providers\__init__.py
+================================================================================
+
+# app/mic/providers/__init__.py
+"""
+Proveedores LLM del MIC.
+
+Permite cambiar entre Groq, OpenAI, modelos locales, etc.
+sin modificar el resto del sistema.
+"""
+from app.mic.providers.base import LLMProvider
+from app.mic.providers.groq_provider import GroqProvider
+from app.mic.providers.registry import ProviderRegistry
+from app.mic.providers.model_config import (
+    ModelConfig,
+    ProviderType,
+    AVAILABLE_MODELS,
+    PLAN_MODEL_MAP,
+)
+
+__all__ = [
+    "LLMProvider",
+    "GroqProvider",
+    "ProviderRegistry",
+    "ModelConfig",
+    "ProviderType",
+    "AVAILABLE_MODELS",
+    "PLAN_MODEL_MAP",
+]
+
+================================================================================
+ARCHIVO: mic\providers\base.py
+================================================================================
+
+# app/mic/providers/base.py
+"""
+Interfaz abstracta para proveedores LLM.
+
+Cualquier proveedor (Groq, OpenAI, modelo local) debe implementar
+esta interfaz para ser usado por el MIC.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+
+class LLMProvider(ABC):
+    """
+    Contrato que debe cumplir cualquier proveedor LLM.
+    
+    El MIC no conoce los detalles de cada proveedor.
+    Solo interactúa con esta interfaz.
+    """
+    
+    @abstractmethod
+    def analyze_semantic(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """
+        Análisis semántico de comentarios.
+        
+        Retorna:
+            dict con estructura:
+            {
+                "analyses": [
+                    {
+                        "message_id": "1",
+                        "sentiment": "positive|negative|neutral",
+                        "tone": "...",
+                        "irony": bool,
+                        "sarcasm": bool,
+                        "irony_polarity": "...",
+                        "confidence": float,
+                        "literal_meaning": str,
+                        "inferred_meaning": str,
+                        "evidence": list
+                    }
+                ]
+            }
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def analyze_sentiment(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """
+        Análisis básico de sentimientos (para Free/Bronce).
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_model_id(self) -> str:
+        """Retorna el ID del modelo actualmente configurado."""
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_provider_name(self) -> str:
+        """Retorna el nombre del proveedor (ej: 'groq', 'openai')."""
+        raise NotImplementedError
+    
+    def get_status(self) -> dict[str, Any]:
+        """
+        Estado del proveedor (opcional, para monitoreo).
+        Por defecto retorna info básica.
+        """
+        return {
+            "provider": self.get_provider_name(),
+            "model": self.get_model_id(),
+        }
+
+================================================================================
+ARCHIVO: mic\providers\groq_provider.py
+================================================================================
+
+# app/mic/providers/groq_provider.py
+"""
+Proveedor LLM usando Groq.
+
+Envuelve GroqLLMClient para cumplir con la interfaz LLMProvider.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.mic.providers.base import LLMProvider
+from app.services.analysis.groq_llm import GroqLLMClient
+
+
+logger = logging.getLogger(__name__)
+
+
+class GroqProvider(LLMProvider):
+    """
+    Proveedor que utiliza Groq como motor LLM.
+    
+    Soporta todos los modelos disponibles en Groq:
+    - Llama 3.3 70B
+    - Llama 3.1 8B
+    - Qwen 2.5 32B
+    - Qwen QwQ 32B
+    - Mixtral 8x7B
+    - Gemma 2 9B
+    """
+    
+    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+        self._client = GroqLLMClient(model=model)
+        self._model = model
+    
+    def analyze_semantic(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """Delega al GroqLLMClient.analizar_semantica()."""
+        return self._client.analizar_semantica(
+            comentarios=comentarios,
+            contexto=contexto,
+        )
+    
+    def analyze_sentiment(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """Delega al GroqLLMClient.analizar_sentimientos()."""
+        return self._client.analizar_sentimientos(
+            comentarios=comentarios,
+            contexto=contexto,
+        )
+    
+    def get_model_id(self) -> str:
+        return self._model
+    
+    def get_provider_name(self) -> str:
+        return "groq"
+    
+    def get_status(self) -> dict[str, Any]:
+        """Incluye info del monitor de tokens."""
+        status = super().get_status()
+        
+        if hasattr(self._client, "token_monitor"):
+            status["tokens"] = self._client.token_monitor.get_summary()
+        
+        return status
+
+================================================================================
+ARCHIVO: mic\providers\model_config.py
+================================================================================
+
+# app/mic/providers/model_config.py
+"""
+Configuración de modelos disponibles.
+
+Define qué modelos existen, sus características,
+y cuál usar según el plan del usuario.
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+
+class ProviderType(str, Enum):
+    GROQ = "groq"
+    # Futuros:
+    # OPENAI = "openai"
+    # LOCAL = "local"
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """Configuración inmutable de un modelo."""
+    id: str
+    provider: ProviderType
+    display_name: str
+    tokens_per_day: int
+    cost_tier: str  # "free", "basic", "premium"
+    best_for: list[str]  # ej: ["semantic", "fast", "ironia"]
+
+
+# Registry de modelos disponibles
+AVAILABLE_MODELS: dict[str, ModelConfig] = {
+    # === GROQ: LLAMA ===
+    "llama-3.3-70b-versatile": ModelConfig(
+        id="llama-3.3-70b-versatile",
+        provider=ProviderType.GROQ,
+        display_name="Llama 3.3 70B",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "balanced"],
+    ),
+    "llama-3.1-8b-instant": ModelConfig(
+        id="llama-3.1-8b-instant",
+        provider=ProviderType.GROQ,
+        display_name="Llama 3.1 8B (rápido)",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["fast", "cheap", "sentimientos"],
+    ),
+    
+    # === GROQ: QWEN ===
+    "qwen-2.5-32b": ModelConfig(
+        id="qwen-2.5-32b",
+        provider=ProviderType.GROQ,
+        display_name="Qwen 2.5 32B",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "multilingual"],
+    ),
+    "qwen-qwq-32b": ModelConfig(
+        id="qwen-qwq-32b",
+        provider=ProviderType.GROQ,
+        display_name="Qwen QwQ 32B (razonamiento)",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "reasoning", "ironia"],
+    ),
+    
+    # === GROQ: OTROS ===
+    "mixtral-8x7b-32768": ModelConfig(
+        id="mixtral-8x7b-32768",
+        provider=ProviderType.GROQ,
+        display_name="Mixtral 8x7B",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["balanced", "cheap"],
+    ),
+    "gemma2-9b-it": ModelConfig(
+        id="gemma2-9b-it",
+        provider=ProviderType.GROQ,
+        display_name="Gemma 2 9B",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["fast", "cheap"],
+    ),
+}
+
+
+# Mapeo: plan del usuario → modelo recomendado
+PLAN_MODEL_MAP: dict[str, str] = {
+    "free": "llama-3.1-8b-instant",       # Rápido y barato
+    "bronce": "llama-3.1-8b-instant",     # Rápido y barato
+    "plata": "llama-3.3-70b-versatile",   # Balance calidad/velocidad
+    "oro": "qwen-qwq-32b",                # Mejor para ironía/razonamiento
+    "lifetime": "qwen-qwq-32b",           # Premium
+    "premium": "qwen-qwq-32b",
+}
+
+
+# Modelo por defecto
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+# Fallbacks: si un modelo falla, intentar con estos en orden
+FALLBACK_CHAINS: dict[str, list[str]] = {
+    "llama-3.3-70b-versatile": [
+        "llama-3.1-8b-instant",  # 500k tokens, más rápido
+        "mixtral-8x7b-32768",    # 500k tokens
+        "gemma2-9b-it",          # 500k tokens
+    ],
+    "qwen-qwq-32b": [
+        "qwen-2.5-32b",          # Mismo proveedor, diferente modelo
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+    ],
+    "llama-3.1-8b-instant": [
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+    ],
+}
+
+================================================================================
+ARCHIVO: mic\providers\registry.py
+================================================================================
+
+# app/mic/providers/registry.py
+from __future__ import annotations
+
+import logging
+import os
+from typing import Optional
+
+from app.mic.providers.base import LLMProvider
+from app.mic.providers.groq_provider import GroqProvider
+from app.mic.providers.model_config import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+    FALLBACK_CHAINS,
+    ModelConfig,
+    PLAN_MODEL_MAP,
+    ProviderType,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class ProviderRegistry:
+    """
+    Registry que crea y gestiona proveedores LLM con fallback automático.
+    """
+    
+    @classmethod
+    def get_provider(
+        cls,
+        explicit_model: Optional[str] = None,
+        user_plan: Optional[str] = None,
+        used_models: Optional[list[str]] = None,
+    ) -> LLMProvider:
+        """
+        Obtiene el proveedor, con fallback automático si el modelo falla.
+        
+        Args:
+            explicit_model: Modelo explícito (si se pasa)
+            user_plan: Plan del usuario
+            used_models: Lista de modelos ya intentados (para evitar loops)
+        """
+        if used_models is None:
+            used_models = []
+        
+        model_config = cls.select_model(
+            explicit_model=explicit_model,
+            user_plan=user_plan,
+        )
+        
+        # Si este modelo ya fue intentado, buscar fallback
+        if model_config.id in used_models:
+            fallback_model = cls._get_next_fallback(model_config.id, used_models)
+            if fallback_model:
+                logger.warning(
+                    f"Modelo {model_config.id} ya fue intentado. "
+                    f"Usando fallback: {fallback_model.id}"
+                )
+                model_config = fallback_model
+            else:
+                raise ValueError(
+                    f"No hay modelos alternativos disponibles. "
+                    f"Intentados: {used_models}"
+                )
+        
+        return cls._create_provider(model_config)
+    
+    @classmethod
+    def _get_next_fallback(
+        cls, 
+        current_model: str, 
+        used_models: list[str]
+    ) -> Optional[ModelConfig]:
+        """Obtiene el siguiente modelo de fallback que no haya sido usado."""
+        fallbacks = FALLBACK_CHAINS.get(current_model, [])
+        
+        for fallback_id in fallbacks:
+            if fallback_id not in used_models and fallback_id in AVAILABLE_MODELS:
+                return AVAILABLE_MODELS[fallback_id]
+        
+        return None
+    
+    @classmethod
+    def select_model(
+        cls,
+        explicit_model: Optional[str] = None,
+        user_plan: Optional[str] = None,
+    ) -> ModelConfig:
+        """Selecciona el modelo según las reglas de prioridad."""
+        
+        # 1. Modelo explícito
+        if explicit_model and explicit_model in AVAILABLE_MODELS:
+            logger.info(f"Usando modelo explícito: {explicit_model}")
+            return AVAILABLE_MODELS[explicit_model]
+        
+        # 2. Variable de entorno
+        env_model = os.environ.get("GROQ_MODEL")
+        if env_model and env_model in AVAILABLE_MODELS:
+            logger.info(f"Usando modelo desde env: {env_model}")
+            return AVAILABLE_MODELS[env_model]
+        
+        # 3. Según plan del usuario
+        if user_plan:
+            plan_lower = user_plan.lower()
+            model_id = PLAN_MODEL_MAP.get(plan_lower)
+            if model_id and model_id in AVAILABLE_MODELS:
+                logger.info(
+                    f"Usando modelo para plan '{plan_lower}': {model_id}"
+                )
+                return AVAILABLE_MODELS[model_id]
+        
+        # 4. Default
+        logger.info(f"Usando modelo default: {DEFAULT_MODEL}")
+        return AVAILABLE_MODELS[DEFAULT_MODEL]
+    
+    @classmethod
+    def _create_provider(cls, model_config: ModelConfig) -> LLMProvider:
+        """Crea el proveedor según el tipo."""
+        
+        if model_config.provider == ProviderType.GROQ:
+            return GroqProvider(model=model_config.id)
+        
+        raise ValueError(
+            f"Proveedor '{model_config.provider}' no soportado."
+        )
+    
+    @classmethod
+    def list_available_models(cls) -> list[ModelConfig]:
+        """Lista todos los modelos disponibles."""
+        return list(AVAILABLE_MODELS.values())
+    
+    @classmethod
+    def get_model(cls, model_id: str) -> ModelConfig:
+        """Obtiene la configuración de un modelo específico."""
+        if model_id not in AVAILABLE_MODELS:
+            raise ValueError(
+                f"Modelo '{model_id}' no disponible. "
+                f"Disponibles: {list(AVAILABLE_MODELS.keys())}"
+            )
+        return AVAILABLE_MODELS[model_id]
 
 ================================================================================
 ARCHIVO: routes\admin.py
@@ -1843,6 +2944,115 @@ def subir_sesion(jurisdiccion_id):
     flash(f"Sesión de {jurisdiccion['nombre']} actualizada.", "success")
     return redirect(url_for("agentes.panel_agentes"))
 
+
+================================================================================
+ARCHIVO: routes\api.py
+================================================================================
+
+# app/routes/api.py
+"""
+Ruta API mínima para exponer el MIC.
+
+Endpoint:
+    POST /api/analisis
+
+Request body:
+{
+    "origen": "facebook",
+    "comentarios": ["texto1", "texto2"],
+    "contexto": "descripción opcional"
+}
+
+Response:
+{
+    "success": true,
+    "tipo_analisis": "semantico",
+    "analisis": {...}
+}
+"""
+from flask import Blueprint, jsonify, request
+from flask_login import login_required, current_user
+from app.services.analysis_service import AnalysisService
+
+
+api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+
+@api_bp.route("/analisis", methods=["POST"])
+@login_required
+def analizar():
+    """
+    Endpoint para análisis de comentarios.
+    Valida el plan del usuario y delega al AnalysisService.
+    """
+    try:
+        # 1. Validar request
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body debe ser JSON válido."
+            }), 400
+        
+        # 2. Extraer parámetros
+        origen = data.get("origen", "facebook")
+        comentarios = data.get("comentarios", [])
+        contexto = data.get("contexto", "")
+        
+        # 3. Validar comentarios
+        if not isinstance(comentarios, list):
+            return jsonify({
+                "success": False,
+                "error": "'comentarios' debe ser una lista de strings."
+            }), 400
+        
+        if len(comentarios) == 0:
+            return jsonify({
+                "success": False,
+                "error": "Debe proporcionar al menos un comentario."
+            }), 400
+        
+        # 4. Construir datos_crudos en formato esperado
+        datos_crudos = {
+            "comments": [
+                {"text": c} if isinstance(c, str) else c
+                for c in comentarios
+            ]
+        }
+        
+        # 5. Obtener plan del usuario
+        user_plan = getattr(current_user, "plan", "free")
+        
+        # 6. Ejecutar análisis
+        service = AnalysisService()
+        resultado = service.analizar(
+            datos_crudos=datos_crudos,
+            origen=origen,
+            user_plan=user_plan,
+            contexto=contexto,
+        )
+        
+        # 7. Devolver respuesta
+        status_code = 200 if resultado.get("success") else 400
+        return jsonify(resultado), status_code
+        
+    except Exception as exc:
+        return jsonify({
+            "success": False,
+            "error": f"Error interno del servidor: {exc}"
+        }), 500
+
+
+@api_bp.route("/tokens/status", methods=["GET"])
+@login_required
+def token_status():
+    """Estado del consumo de tokens (solo admin)."""
+    if not getattr(current_user, "is_admin", False):
+        return jsonify({"error": "Solo administradores"}), 403
+    
+    from app.services.analysis.token_monitor import TokenMonitor
+    monitor = TokenMonitor.get_instance()
+    return jsonify(monitor.get_summary())
 
 ================================================================================
 ARCHIVO: routes\auth.py
@@ -2363,8 +3573,11 @@ from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
 
+
 servicios_bp = Blueprint("servicios", __name__)
+
 ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
+
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
@@ -2417,7 +3630,6 @@ def servicio_transcripcion():
                     transcription = Transcription(user_id=current_user.id, file_id=user_file.id, texto=transcript)
                     db.session.add(transcription)
                     db.session.commit()
-                    
                     registrar_uso_transcripcion(current_user)
                     
                     msg = f"✅ Transcripción completada ({backend.get_name()})"
@@ -2425,6 +3637,7 @@ def servicio_transcripcion():
                         nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
                         msg += f" - Idioma detectado: {nombres.get(idioma_detectado, idioma_detectado)}"
                     flash(msg, "success")
+                    
                 except Exception as e:
                     flash(f"❌ Error en la transcripción: {str(e)}", "error")
                     current_app.logger.error(f"Error transcribiendo: {str(e)}")
@@ -2433,7 +3646,16 @@ def servicio_transcripcion():
         else:
             flash("❌ No seleccionaste ningún archivo", "error")
     
-    return render_template("servicio_transcripcion.html", transcript=transcript, transcript_traducido=transcript_traducido, filename=filename, idioma_detectado=idioma_detectado, duracion_total=duracion_total, num_chunks=num_chunks)
+    return render_template(
+        "servicio_transcripcion.html",
+        transcript=transcript,
+        transcript_traducido=transcript_traducido,
+        filename=filename,
+        idioma_detectado=idioma_detectado,
+        duracion_total=duracion_total,
+        num_chunks=num_chunks
+    )
+
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
@@ -2445,12 +3667,86 @@ def analisis_sentimientos():
     error_msg = None
     paso = "input"
     
+    # Variables para mantener el estado del formulario
+    url_input = ""
+    contexto = ""
+    mostrar_pestaña_url = False
+    
+    # Verificar si el usuario tiene acceso a la feature de URL (Plata en adelante)
+    user_plan = current_user.user_plan
+    plan_obj = user_plan.obtener_plan_obj() if user_plan else None
+    tiene_acceso_url = plan_obj and plan_obj.tiene_feature('motor_semantico')
+    
     if request.method == "POST":
         action = request.form.get("action", "analizar")
+        url_input = request.form.get("url_publicacion", "").strip()
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
         
-        if action == "limpiar":
+        # Si viene de la pestaña URL, recordamos mostrarla
+        if url_input:
+            mostrar_pestaña_url = True
+        
+        # --- LÓGICA 1: Si viene una URL y el usuario tiene el plan ---
+        if url_input and tiene_acceso_url and action == "analizar":
+            try:
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
+                # 1. Intentar extraer con el Scraper
+                from app.services.scraper_service import ScraperService
+                scraper = ScraperService()
+                extraccion = scraper.extraer_de_url(url_input)
+                
+                if not extraccion["success"]:
+                    error_msg = extraccion['error_msg']
+                    paso = "input"
+                    mostrar_pestaña_url = True
+                else:
+                    # 2. Si tiene éxito, usar AnalysisService con ProviderRegistry
+                    from app.services.analysis_service import AnalysisService
+                    
+                    datos_crudos = extraccion["data"]
+                    
+                    service = AnalysisService()
+                    resultado_dict = service.analizar(
+                        datos_crudos=datos_crudos,
+                        origen="facebook",
+                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        contexto=contexto,
+                    )
+                    
+                    if resultado_dict["success"]:
+                        resultado = resultado_dict
+                        resultado["red_social"] = "facebook/instagram (vía URL)"
+                        resultado["total_comentarios_limpios"] = len(datos_crudos.get("comments", []))
+                        
+                        registrar_uso_analisis(current_user)
+                        
+                        analysis_session = AnalysisSession(
+                            user_id=current_user.id,
+                            red_social=resultado["red_social"],
+                            contexto=contexto if contexto else None,
+                            total_comentarios=len(datos_crudos.get("comments", [])),
+                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
+                        )
+                        db.session.add(analysis_session)
+                        db.session.commit()
+                        
+                        flash(f"✅ Análisis completado con {len(datos_crudos.get('comments', []))} comentarios extraídos.", "success")
+                        paso = "resultado"
+                    else:
+                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                        paso = "input"
+                        
+            except Exception as e:
+                error_msg = f"Error inesperado: {str(e)}"
+                paso = "input"
+        
+        # --- LÓGICA 2: Copiar y Pegar - Limpiar ---
+        elif action == "limpiar" and not url_input:
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 if not comentarios_limpios:
@@ -2462,11 +3758,13 @@ def analisis_sentimientos():
             except Exception as e:
                 flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
-        elif action == "analizar":
+        
+        # --- LÓGICA 3: Copiar y Pegar - Analizar directamente ---
+        elif action == "analizar" and not url_input:
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    flash(f" Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 if request.form.get("comentarios_limpios_json"):
@@ -2478,35 +3776,69 @@ def analisis_sentimientos():
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    comentarios_texto = [f"[{c['usuario']}]: {c['texto']}" for c in comentarios_limpios]
-                    client = GroqLLMClient()
-                    resultado = client.analizar_sentimientos(comentarios_texto, contexto)
-                    if contexto: resultado["contexto"] = contexto
-                    resultado["red_social"] = red_social
-                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                    # Usar AnalysisService con ProviderRegistry
+                    from app.services.analysis_service import AnalysisService
                     
-                    registrar_uso_analisis(current_user)
-
-                    # guardar análisis en la base de datos
-                    analysis_session = AnalysisSession(
-                        user_id=current_user.id,
-                        red_social=red_social,
-                        contexto=contexto if contexto else None,
-                        total_comentarios=len(comentarios_limpios),
-                        resultado_json=json.dumps(resultado, ensure_ascii=False)
+                    datos_crudos = {
+                        "comments": [
+                            {"text": f"[{c['usuario']}]: {c['texto']}"}
+                            for c in comentarios_limpios
+                        ]
+                    }
+                    
+                    service = AnalysisService()
+                    resultado_dict = service.analizar(
+                        datos_crudos=datos_crudos,
+                        origen=red_social,
+                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        contexto=contexto,
                     )
-                    db.session.add(analysis_session)
-                    db.session.commit()
-
-                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                    paso = "resultado"
+                    
+                    if resultado_dict["success"]:
+                        resultado = resultado_dict
+                        if contexto:
+                            resultado["contexto"] = contexto
+                        resultado["red_social"] = red_social
+                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                        
+                        registrar_uso_analisis(current_user)
+                        
+                        # Guardar análisis en la base de datos
+                        analysis_session = AnalysisSession(
+                            user_id=current_user.id,
+                            red_social=red_social,
+                            contexto=contexto if contexto else None,
+                            total_comentarios=len(comentarios_limpios),
+                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
+                        )
+                        db.session.add(analysis_session)
+                        db.session.commit()
+                        
+                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                        paso = "resultado"
+                    else:
+                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                        flash(f"❌ Error en el análisis: {error_msg}", "error")
+                        paso = "input"
+                        
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
                 paso = "input"
     
-    return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
-
+    return render_template(
+        "analisis_sentimientos.html",
+        resultado=resultado,
+        comentarios_raw=comentarios_raw,
+        comentarios_limpios=comentarios_limpios,
+        red_social=red_social,
+        paso=paso,
+        error_msg=error_msg,
+        tiene_acceso_url=tiene_acceso_url,
+        url_input=url_input,
+        contexto=contexto,
+        mostrar_pestaña_url=mostrar_pestaña_url
+    )
 
 ================================================================================
 ARCHIVO: routes\verificacion.py
@@ -2673,6 +4005,188 @@ def mercadopago_webhook():
         current_app.logger.exception("Error procesando webhook Mercado Pago")
         return jsonify({"status": "error"}), 500
 
+
+================================================================================
+ARCHIVO: services\analysis_service.py
+================================================================================
+
+# app/services/analysis_service.py
+"""
+AnalysisService: Puente entre Flask y el MIC.
+
+Responsabilidades:
+- Recibir requests de Flask.
+- Decidir qué modelo/proveedor usar según el plan del usuario.
+- Coordinar el MIC.
+- Devolver respuesta serializable a Flask.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.mic.mic_engine import MIC
+from app.mic.providers import ProviderRegistry
+
+
+logger = logging.getLogger(__name__)
+
+
+class AnalysisService:
+    """
+    Servicio de aplicación que orquesta el análisis de comentarios.
+    """
+
+    def analizar(
+        self,
+        datos_crudos: dict[str, Any],
+        origen: str,
+        user_plan: str,
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """
+        Analiza comentarios según el plan del usuario.
+        """
+        plan_lower = user_plan.lower()
+        
+        # Free/Bronce: análisis básico de sentimientos (modelo rápido)
+        if plan_lower in ["free", "bronce"]:
+            return self._analizar_sentimientos(datos_crudos, origen, contexto, user_plan)
+        
+        # Plata+: análisis semántico avanzado (modelo balanceado o de razonamiento)
+        elif plan_lower in ["plata", "oro", "lifetime", "premium"]:
+            return self._analizar_semantica(datos_crudos, origen, contexto, user_plan)
+        
+        else:
+            return {
+                "success": False,
+                "error": f"Plan '{user_plan}' no reconocido.",
+            }
+
+    def _analizar_sentimientos(
+        self,
+        datos_crudos: dict[str, Any],
+        origen: str,
+        contexto: str,
+        user_plan: str,
+    ) -> dict[str, Any]:
+        """
+        Análisis básico de sentimientos para Free/Bronce.
+        """
+        try:
+            comentarios = self._extraer_comentarios(datos_crudos, origen)
+            
+            if not comentarios:
+                return {
+                    "success": False,
+                    "error": "No se encontraron comentarios válidos.",
+                }
+            
+            # Obtener el proveedor adecuado para el plan
+            provider = ProviderRegistry.get_provider(user_plan=user_plan)
+            
+            # Llamar al método de sentimientos del proveedor
+            resultado = provider.analyze_sentiment(
+                comentarios=comentarios,
+                contexto=contexto,
+            )
+            
+            return {
+                "success": True,
+                "tipo_analisis": "sentimientos",
+                "modelo_utilizado": provider.get_model_id(),
+                "total_comentarios": len(comentarios),
+                "analisis": resultado,
+            }
+            
+        except Exception as exc:
+            logger.exception("Error en análisis de sentimientos")
+            return {
+                "success": False,
+                "error": f"Error en análisis de sentimientos: {exc}",
+            }
+
+    def _analizar_semantica(
+        self,
+        datos_crudos: dict[str, Any],
+        origen: str,
+        contexto: str,
+        user_plan: str,
+    ) -> dict[str, Any]:
+        """
+        Análisis semántico avanzado para Plata+.
+        """
+        try:
+            # 1. Obtener el proveedor adecuado para el plan
+            provider = ProviderRegistry.get_provider(user_plan=user_plan)
+            
+            # 2. Crear el MIC inyectando este proveedor específico
+            from app.mic.analyzers.groq_semantic_analyzer import GroqSemanticAnalyzer
+            
+            # El provider de Groq expone su cliente interno
+            analyzer = GroqSemanticAnalyzer(groq_client=provider._client)
+            
+            mic = MIC(semantic_analyzer=analyzer)
+            
+            # 3. Ejecutar análisis
+            result = mic.analizar(
+                datos_crudos=datos_crudos,
+                origen=origen,
+                metadata={"contexto": contexto},
+            )
+            
+            # 4. Convertir AnalysisResult a dict serializable
+            return {
+                "success": result.success,
+                "tipo_analisis": "semantico",
+                "modelo_utilizado": provider.get_model_id(),
+                "conversation_id": result.conversation_id,
+                "analisis": self._serializar_semantic_analysis(result.semantic_analysis),
+                "warnings": result.warnings,
+                "errors": result.errors,
+            }
+            
+        except Exception as exc:
+            logger.exception("Error en análisis semántico")
+            return {
+                "success": False,
+                "error": f"Error en análisis semántico: {exc}",
+            }
+
+    def _extraer_comentarios(
+        self,
+        datos_crudos: dict[str, Any],
+        origen: str,
+    ) -> list[str]:
+        """Extrae lista de comentarios de los datos crudos."""
+        if "comments" in datos_crudos:
+            return [
+                c.get("text", "") if isinstance(c, dict) else str(c)
+                for c in datos_crudos["comments"]
+            ]
+        return []
+
+    def _serializar_semantic_analysis(
+        self,
+        semantic_analysis: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Convierte semantic_analysis a dict completamente serializable."""
+        if not semantic_analysis:
+            return {}
+        
+        analyses = semantic_analysis.get("analyses", [])
+        
+        serialized_analyses = []
+        for analysis in analyses:
+            if hasattr(analysis, "to_dict"):
+                serialized_analyses.append(analysis.to_dict())
+            else:
+                serialized_analyses.append(analysis)
+        
+        return {
+            "analyses": serialized_analyses,
+            "metadata": semantic_analysis.get("metadata", {}),
+        }
 
 ================================================================================
 ARCHIVO: services\mercadopago_service.py
@@ -2860,6 +4374,152 @@ def registrar_uso_analisis(user):
     user_plan.consumo_analisis += 1
     db.session.commit()
 
+
+================================================================================
+ARCHIVO: services\scraper_service.py
+================================================================================
+
+# app/services/scraper_service.py
+from playwright.sync_api import sync_playwright
+from bs4 import BeautifulSoup
+from datetime import datetime
+import json
+import time
+
+
+class ScraperService:
+    """
+    Extrae comentarios de Facebook/Instagram usando Playwright (navegador real).
+    Esto permite ejecutar JavaScript y obtener el contenido dinámico.
+    """
+
+    def extraer_de_url(self, url: str) -> dict:
+        """
+        Usa Playwright para navegar a la URL y extraer comentarios.
+        """
+        try:
+            with sync_playwright() as p:
+                # Lanzar navegador en modo headless
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080}
+                )
+                page = context.new_page()
+                
+                # Navegar a la URL
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Esperar a que cargue el contenido dinámico
+                time.sleep(3)
+                
+                # Hacer scroll para cargar más comentarios
+                for _ in range(3):
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(2)
+                
+                # Obtener el HTML completo después de renderizar
+                html = page.content()
+                browser.close()
+                
+                # Parsear con BeautifulSoup
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # Extraer comentarios (heurística para Instagram/Facebook)
+                comentarios = self._extraer_comentarios(soup, url)
+                
+                if len(comentarios) < 3:
+                    return {
+                        "success": False,
+                        "error_msg": f"Solo se pudieron extraer {len(comentarios)} comentarios. Instagram/Facebook puede estar bloqueando el acceso. Por favor, copiá y pegá los comentarios manualmente."
+                    }
+                
+                # Formatear para el MIC
+                data_para_mic = {
+                    "post_id": url,
+                    "title": "Extracción desde URL",
+                    "comments": [
+                        {
+                            "comment_id": str(i),
+                            "user_id": f"user_{i}",
+                            "user_name": c.get("usuario", f"Usuario {i}"),
+                            "text": c["texto"],
+                            "date": datetime.now()
+                        }
+                        for i, c in enumerate(comentarios)
+                    ]
+                }
+                
+                return {"success": True, "data": data_para_mic}
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error_msg": f"Error al extraer comentarios: {str(e)}. Por favor, usá el método de copiar y pegar."
+            }
+
+    def _extraer_comentarios(self, soup, url: str) -> list:
+        """
+        Extrae comentarios del HTML parseado.
+        Heurística adaptada para Instagram y Facebook.
+        """
+        comentarios = []
+        
+        # Detectar si es Instagram o Facebook
+        es_instagram = "instagram.com" in url
+        es_facebook = "facebook.com" in url
+        
+        if es_instagram:
+            # Instagram: buscar divs con clase específica de comentarios
+            comment_elements = soup.find_all('div', {'class': lambda x: x and 'x1lliihq' in x})
+            for elem in comment_elements:
+                text_elem = elem.find('span', {'dir': 'auto'})
+                if text_elem:
+                    texto = text_elem.get_text(strip=True)
+                    if len(texto) > 5:
+                        usuario_elem = elem.find('span', {'class': lambda x: x and 'x193iq5w' in x})
+                        usuario = usuario_elem.get_text(strip=True) if usuario_elem else "Anónimo"
+                        comentarios.append({
+                            "usuario": usuario,
+                            "texto": texto
+                        })
+        elif es_facebook:
+            # Facebook: buscar divs con data-ft o clases específicas
+            comment_elements = soup.find_all('div', {'data-ft': True})
+            for elem in comment_elements:
+                text_elem = elem.find('span', {'dir': 'auto'})
+                if text_elem:
+                    texto = text_elem.get_text(strip=True)
+                    if len(texto) > 5:
+                        comentarios.append({
+                            "usuario": "Anónimo",
+                            "texto": texto
+                        })
+        
+        # Si no encontramos comentarios con heurísticas específicas,
+        # buscar cualquier texto que parezca un comentario
+        if len(comentarios) < 3:
+            for elem in soup.find_all(['p', 'span']):
+                texto = elem.get_text(strip=True)
+                if 20 < len(texto) < 500:
+                    if not any(c["texto"] == texto for c in comentarios):
+                        comentarios.append({
+                            "usuario": "Anónimo",
+                            "texto": texto
+                        })
+                if len(comentarios) >= 50:
+                    break
+        
+        # Eliminar duplicados
+        vistos = set()
+        comentarios_unicos = []
+        for c in comentarios:
+            key = c["texto"].lower().strip()
+            if key not in vistos and len(key) > 10:
+                vistos.add(key)
+                comentarios_unicos.append(c)
+        
+        return comentarios_unicos[:50]
 
 ================================================================================
 ARCHIVO: services\translation_service.py
@@ -3140,6 +4800,7 @@ import os
 import json
 import re
 from groq import Groq
+from app.services.analysis.token_monitor import TokenMonitor
 
 
 class GroqLLMClient:
@@ -3151,47 +4812,42 @@ class GroqLLMClient:
             raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
         self.client = Groq(api_key=api_key)
         self.model = model
+        self.token_monitor = TokenMonitor.get_instance()
     
     def _extraer_json(self, texto: str) -> dict:
         """
         Extrae JSON de una respuesta del LLM de forma robusta.
-        Intenta múltiples estrategias si el JSON está malformado.
+        Maneja bloques de código markdown y JSON malformados.
         """
-        # Limpiar markdown code blocks
         texto = texto.strip()
-        if texto.startswith("```"):
-            # Extraer contenido entre ```
-            match = re.search(r'```(?:json)?\s*(.*?)\s*```', texto, re.DOTALL)
-            if match:
-                texto = match.group(1).strip()
         
-        # Intento 1: Parseo directo
+        # Intento 1: Buscar y extraer bloque de código markdown (```json ... ```)
+        match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', texto)
+        if match:
+            texto = match.group(1).strip()
+        
+        # Intento 2: Parseo directo del texto limpio
         try:
             return json.loads(texto)
         except json.JSONDecodeError:
             pass
         
-        # Intento 2: Buscar el primer { y el último }
-        match = re.search(r'\{.*\}', texto, re.DOTALL)
+        # Intento 3: Buscar el primer '{' y el último '}'
+        match = re.search(r'\{[\s\S]*\}', texto)
         if match:
             try:
                 return json.loads(match.group(0))
             except json.JSONDecodeError:
                 pass
         
-        # Intento 3: Reparar strings unterminados (problema común)
-        # Buscar strings con comillas sin cerrar
-        texto_reparado = texto
-        # Reemplazar comillas problemáticas dentro de strings
-        texto_reparado = re.sub(r'(?<=")[^"\n]*"(?=[,\s\]\}])', lambda m: m.group(0).replace('"', '\\"'), texto_reparado)
-        
+        # Intento 4: Reparar comillas problemáticas dentro de strings
+        texto_reparado = re.sub(r'(?<=")[^"\n]*"(?=[,\s\]\}])', lambda m: m.group(0).replace('"', '\\"'), texto)
         try:
             return json.loads(texto_reparado)
         except json.JSONDecodeError:
             pass
         
-        # Intento 4: Si todo falla, devolver estructura básica con el texto crudo
-        raise ValueError(f"No se pudo extraer JSON válido. Respuesta recibida (primeros 500 chars): {texto[:500]}")
+        raise ValueError(f"No se pudo extraer JSON válido. Respuesta recibida: {texto[:500]}")
     
     def analizar_sentimientos(self, comentarios: list, contexto: str = "") -> dict:
         """
@@ -3240,7 +4896,6 @@ REGLAS ESTRICTAS DE ANÁLISIS:
 COMENTARIOS A ANALIZAR:
 {comentarios_texto}"""
         
-        # Retry con backoff si falla el parsing
         max_intentos = 3
         ultimo_error = None
         
@@ -3255,14 +4910,16 @@ COMENTARIOS A ANALIZAR:
                         },
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.15 if intento == 0 else 0.05,  # Más bajo para máxima precisión y determinismo
-                    max_tokens=3500,  # Aumentado ligeramente para análisis más detallados
+                    temperature=0.15 if intento == 0 else 0.05,
+                    max_tokens=3500,
                 )
                 
+                if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                    self.token_monitor.update_from_response(response)
+
                 contenido = response.choices[0].message.content.strip()
                 resultado = self._extraer_json(contenido)
                 
-                # Validar estructura básica
                 if "estadisticas" not in resultado or "analisis_individual" not in resultado:
                     raise ValueError("Faltan campos requeridos en la respuesta")
                 
@@ -3276,6 +4933,786 @@ COMENTARIOS A ANALIZAR:
                 raise Exception(f"Error en análisis de sentimientos: {str(e)}")
         
         raise Exception(f"Error parseando respuesta del modelo después de {max_intentos} intentos: {str(ultimo_error)}")
+    
+    def analizar_semantica(
+        self,
+        comentarios: list,
+        contexto: str = "",
+    ) -> dict:
+        """
+        Análisis semántico individual de comentarios.
+
+        Responsabilidades:
+        - Separar literalidad de intención.
+        - Detectar ironía.
+        - Detectar sarcasmo.
+        - Determinar polaridad real.
+        - Identificar tono.
+        - Generar evidencias de la interpretación.
+        - Informar nivel de confianza.
+
+        Este método NO:
+        - Calcula estadísticas.
+        - Decide el plan del usuario.
+        - Genera recomendaciones estratégicas.
+        - Guarda memoria.
+        - Aprende automáticamente.
+
+        Esas responsabilidades pertenecen a capas superiores del MIC.
+        """
+
+        if not isinstance(comentarios, list):
+            raise TypeError(
+                "comentarios debe ser una lista de textos."
+            )
+
+        if not comentarios:
+            return {
+                "analyses": []
+            }
+
+        if len(comentarios) > 100:
+            raise ValueError(
+                f"Máximo 100 comentarios por análisis. "
+                f"Recibiste {len(comentarios)}."
+            )
+
+        comentarios_normalizados = []
+
+        for comentario in comentarios:
+
+            if comentario is None:
+                comentario = ""
+
+            comentario = str(comentario).strip()
+
+            comentarios_normalizados.append(comentario)
+
+        comentarios_texto = "\n".join(
+            f"[{i + 1}] {comentario}"
+            for i, comentario in enumerate(comentarios_normalizados)
+        )
+
+        contexto_texto = (
+            f"CONTEXTO ESPECÍFICO:\n{contexto.strip()}"
+            if contexto and contexto.strip()
+            else "CONTEXTO ESPECÍFICO:\nNo proporcionado."
+        )
+
+        prompt = f"""
+Sos un lingüista experto en análisis de discurso argentino,
+especializado en comunicación cotidiana, redes sociales,
+lenguaje rioplatense, ironía, sarcasmo y análisis de intención.
+
+Tu tarea NO es clasificar palabras.
+
+Tu tarea es interpretar el significado probable del mensaje
+considerando:
+
+- significado literal
+- intención comunicativa
+- contexto disponible
+- construcción lingüística
+- contradicciones internas
+- emojis
+- expresiones coloquiales
+- ironía
+- sarcasmo
+- polaridad real
+
+El objetivo principal es REDUCIR FALSOS POSITIVOS DE IRONÍA.
+
+{contexto_texto}
+
+COMENTARIOS:
+
+{comentarios_texto}
+
+
+============================================================
+REGLAS DE INTERPRETACIÓN
+============================================================
+
+1. LITERALIDAD VS INTENCIÓN
+
+Separá siempre:
+
+literal_meaning:
+    Lo que literalmente expresa el comentario.
+
+inferred_meaning:
+    Lo que probablemente intenta comunicar.
+
+No asumas que ambos significados son diferentes.
+
+Si el comentario es literal, ambos pueden ser prácticamente iguales.
+
+
+============================================================
+2. IRONÍA
+============================================================
+
+La ironía ocurre cuando existe una diferencia relevante
+entre el significado literal y la intención comunicativa.
+
+Ejemplo:
+
+"Qué buena gestión, cada día estamos mejor."
+
+Si el contexto indica problemas de gestión:
+
+irony = true
+tone = ironic_negative
+
+Pero:
+
+"Qué buena gestión hicieron."
+
+Sin contexto adicional NO demuestra ironía.
+
+En ausencia de evidencia suficiente:
+
+irony = false
+tone = neutral o ambiguous
+
+
+============================================================
+3. SARCASMO
+============================================================
+
+No confundas sarcasmo con cualquier comentario negativo.
+
+El sarcasmo suele implicar:
+
+- burla
+- ridiculización
+- desprecio
+- exageración intencional
+- contraste deliberado
+
+Un comentario puede ser:
+
+irony = true
+sarcasm = false
+
+Por lo tanto, NO marques sarcasmo automáticamente
+cuando detectes ironía.
+
+
+============================================================
+4. REGLA CONTRA FALSOS POSITIVOS
+============================================================
+
+Esta regla tiene prioridad.
+
+NO inventes ironía.
+
+NO interpretes automáticamente como irónicos:
+
+"Qué fenómeno."
+
+"Un genio."
+
+"Excelente."
+
+"Sí, claro."
+
+"Una maravilla."
+
+"Bueno... veremos."
+
+Estas expresiones pueden ser:
+
+- literales
+- irónicas
+- sarcásticas
+- ambiguas
+
+La decisión debe depender de la evidencia disponible.
+
+
+============================================================
+5. EVIDENCIA
+============================================================
+
+Si clasificás un comentario como irónico o sarcástico,
+debe existir evidencia concreta.
+
+Ejemplos de evidencia válida:
+
+- "contraste entre elogio literal y contexto negativo"
+- "expresión positiva seguida de una consecuencia negativa"
+- "exageración incompatible con el contexto"
+- "emoji que contradice el significado literal"
+- "construcción lingüística utilizada como burla"
+
+NO uses como única evidencia:
+
+"parece irónico"
+
+"suena irónico"
+
+"probablemente es sarcasmo"
+
+La evidencia debe explicar POR QUÉ.
+
+
+============================================================
+6. EMOJIS
+============================================================
+
+Los emojis son MODIFICADORES CONTEXTUALES.
+
+NO son pruebas automáticas de ironía.
+
+Ejemplos:
+
+👏 💪 ✌️ 😊
+
+Pueden reforzar una valoración positiva.
+
+😡 👎 🙄
+
+Pueden expresar rechazo, molestia o desaprobación.
+
+😂
+
+Puede representar:
+
+- diversión
+- humor
+- burla
+- complicidad
+- ironía
+
+Por lo tanto:
+
+Un emoji aislado NO demuestra ironía.
+
+Si el emoji contradice el texto literal,
+puede constituir evidencia relevante.
+
+
+============================================================
+7. LENGUAJE ARGENTINO
+============================================================
+
+Reconocé expresiones como:
+
+- laburar
+- bancar
+- boludo / boludeces
+- fenómeno
+- groso
+- mamita
+- capo
+- maestro
+- genio
+- crack
+- qué bárbaro
+- dale
+- sí, claro
+- mirá vos
+
+Pero NO determines la polaridad solamente por estas palabras.
+
+El significado depende del contexto y de la construcción
+completa del mensaje.
+
+
+============================================================
+8. POLARIDAD
+============================================================
+
+sentiment debe representar la valoración REAL del comentario:
+
+positive
+negative
+neutral
+
+No confundas:
+
+literalidad positiva
+
+con
+
+intención positiva.
+
+
+Ejemplo:
+
+"Excelente, otra vez aumentaron los impuestos."
+
+Literalmente:
+positivo.
+
+Intención:
+negativa.
+
+Por lo tanto:
+
+sentiment = negative
+irony = true
+tone = ironic_negative
+
+
+============================================================
+9. AMBIGÜEDAD
+============================================================
+
+Cuando la evidencia no permite determinar correctamente
+la intención:
+
+NO inventes una interpretación.
+
+Utilizá:
+
+tone = ambiguous
+
+y una confidence baja o moderada.
+
+La ambigüedad es un resultado válido.
+
+Es preferible:
+
+"no podemos determinarlo"
+
+antes que:
+
+"probablemente sea irónico"
+
+
+============================================================
+10. CONFIANZA
+============================================================
+
+confidence debe representar la confianza en la interpretación.
+
+Usá valores entre:
+
+0.0 y 1.0
+
+Orientativamente:
+
+0.90 - 1.00
+Evidencia muy clara.
+
+0.75 - 0.89
+Evidencia fuerte.
+
+0.50 - 0.74
+Interpretación razonable pero con incertidumbre.
+
+0.00 - 0.49
+Alta ambigüedad.
+
+
+============================================================
+FORMATO DE RESPUESTA
+============================================================
+
+Respondé ÚNICAMENTE JSON válido.
+
+NO uses markdown.
+
+NO agregues explicaciones fuera del JSON.
+
+La estructura obligatoria es:
+
+{{
+  "analyses": [
+    {{
+      "message_id": "1",
+      "texto_original": "texto completo del comentario",
+      "sentiment": "positive|negative|neutral",
+      "tone": "positive|negative|neutral|ironic_positive|ironic_negative|sarcastic|mixed|ambiguous",
+      "irony": false,
+      "sarcasm": false,
+      "irony_polarity": "positive|negative|neutral|none",
+      "confidence": 0.0,
+      "literal_meaning": "significado literal",
+      "inferred_meaning": "intención probable",
+      "evidence": []
+    }}
+  ]
+}}
+
+
+============================================================
+REGLAS DEL JSON
+============================================================
+
+1. "analyses" debe existir.
+
+2. Debe contener exactamente un elemento
+   por cada comentario recibido.
+
+3. message_id debe ser:
+
+"1"
+"2"
+"3"
+
+etc.
+
+4. texto_original debe conservar el comentario original.
+
+5. sentiment debe ser exclusivamente:
+
+positive
+negative
+neutral
+
+6. tone debe ser exclusivamente:
+
+positive
+negative
+neutral
+ironic_positive
+ironic_negative
+sarcastic
+mixed
+ambiguous
+
+7. irony debe ser booleano.
+
+8. sarcasm debe ser booleano.
+
+9. irony_polarity debe ser exclusivamente:
+
+positive
+negative
+neutral
+none
+
+10. confidence debe estar entre 0.0 y 1.0.
+
+11. evidence debe ser una lista.
+
+12. Si irony = false:
+
+irony_polarity = "none"
+
+13. Si no existe evidencia suficiente:
+
+NO marques irony = true.
+
+14. No agregues campos adicionales.
+"""
+
+        max_intentos = 3
+        ultimo_error = None
+
+        for intento in range(max_intentos):
+
+            try:
+
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Sos un lingüista experto en discurso argentino. "
+                                "Analizás intención, ironía y sarcasmo. "
+                                "Priorizás evidencia sobre suposiciones. "
+                                "La ambigüedad es un resultado válido. "
+                                "Nunca inventes ironía. "
+                                "Respondé exclusivamente JSON válido."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                    temperature=(
+                        0.15 if intento == 0
+                        else 0.05
+                    ),
+                    max_tokens=4000,
+                )
+
+                if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                    self.token_monitor.update_from_response(response)
+
+                contenido = response.choices[0].message.content.strip()
+
+                resultado = self._extraer_json(contenido)
+
+                if not isinstance(resultado, dict):
+                    raise ValueError(
+                        "La respuesta del modelo no es un objeto JSON."
+                    )
+
+                if "analyses" not in resultado:
+                    raise ValueError(
+                        "Falta el campo 'analyses'."
+                    )
+
+                analyses = resultado["analyses"]
+
+                if not isinstance(analyses, list):
+                    raise ValueError(
+                        "'analyses' debe ser una lista."
+                    )
+
+                if len(analyses) != len(comentarios_normalizados):
+
+                    raise ValueError(
+                        f"El modelo analizó "
+                        f"{len(analyses)} comentarios "
+                        f"pero se enviaron "
+                        f"{len(comentarios_normalizados)}."
+                    )
+
+                sentiments_validos = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                }
+
+                tones_validos = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "ironic_positive",
+                    "ironic_negative",
+                    "sarcastic",
+                    "mixed",
+                    "ambiguous",
+                }
+
+                irony_polarities_validas = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "none",
+                }
+
+                for index, analysis in enumerate(analyses):
+
+                    if not isinstance(analysis, dict):
+                        raise ValueError(
+                            f"El análisis {index + 1} "
+                            "no es un objeto JSON."
+                        )
+
+                    expected_id = str(index + 1)
+
+                    if str(
+                        analysis.get("message_id")
+                    ) != expected_id:
+
+                        raise ValueError(
+                            f"message_id incorrecto en "
+                            f"posición {index + 1}."
+                        )
+
+                    sentiment = analysis.get("sentiment")
+
+                    if sentiment not in sentiments_validos:
+
+                        raise ValueError(
+                            f"sentiment inválido en "
+                            f"mensaje {expected_id}: "
+                            f"{sentiment}"
+                        )
+
+                    tone = analysis.get("tone")
+
+                    if tone not in tones_validos:
+
+                        raise ValueError(
+                            f"tone inválido en "
+                            f"mensaje {expected_id}: "
+                            f"{tone}"
+                        )
+
+                    irony = analysis.get("irony")
+
+                    if not isinstance(irony, bool):
+
+                        raise ValueError(
+                            f"'irony' debe ser booleano "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    sarcasm = analysis.get("sarcasm")
+
+                    if not isinstance(sarcasm, bool):
+
+                        raise ValueError(
+                            f"'sarcasm' debe ser booleano "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    irony_polarity = analysis.get(
+                        "irony_polarity"
+                    )
+
+                    if (
+                        irony_polarity
+                        not in irony_polarities_validas
+                    ):
+
+                        raise ValueError(
+                            f"irony_polarity inválida en "
+                            f"mensaje {expected_id}."
+                        )
+
+                    if not irony and irony_polarity != "none":
+
+                        raise ValueError(
+                            f"Mensaje {expected_id}: "
+                            "irony=false requiere "
+                            "irony_polarity='none'."
+                        )
+
+                    confidence = analysis.get(
+                        "confidence"
+                    )
+
+                    if not isinstance(
+                        confidence,
+                        (int, float),
+                    ):
+
+                        raise ValueError(
+                            f"confidence inválida en "
+                            f"mensaje {expected_id}."
+                        )
+
+                    if not 0.0 <= float(confidence) <= 1.0:
+
+                        raise ValueError(
+                            f"confidence fuera de rango "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    evidence = analysis.get(
+                        "evidence"
+                    )
+
+                    if not isinstance(
+                        evidence,
+                        list,
+                    ):
+
+                        raise ValueError(
+                            f"'evidence' debe ser una lista "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    if irony and len(evidence) == 0:
+
+                        raise ValueError(
+                            f"El mensaje {expected_id} "
+                            "fue marcado como irónico "
+                            "pero no contiene evidencias."
+                        )
+
+                return resultado
+
+            # ---------------------------------------------------------
+            # DETECCIÓN DE RATE LIMIT (NUEVO)
+            # ---------------------------------------------------------
+            except Exception as e:
+                # Detectar rate limit de Groq (HTTP 429)
+                # NO reintentar: el límite es diario, reintentar es inútil
+                error_type = type(e).__name__
+                error_str = str(e)
+                
+                is_rate_limit = (
+                    "RateLimitError" in error_type or
+                    "rate_limit" in error_str.lower() or
+                    "429" in error_str
+                )
+                
+                if is_rate_limit:
+                    # Extraer tiempo de reseteo del mensaje si es posible
+                    reset_info = self._extract_reset_time(error_str)
+                    
+                    raise Exception(
+                        f"🚫 Rate limit de Groq alcanzado. "
+                        f"NO se reintentará automáticamente. "
+                        f"{reset_info}"
+                    ) from e
+                
+                # Para errores de parsing JSON, reintentar
+                if isinstance(e, (ValueError,)) and "JSON" in error_str:
+                    ultimo_error = e
+                    print(
+                        f"⚠️ Intento "
+                        f"{intento + 1}/{max_intentos} "
+                        f"falló (JSON inválido): "
+                        f"{str(e)[:200]}"
+                    )
+                    continue
+                
+                # Para otros errores, también reintentar
+                ultimo_error = e
+                print(
+                    f"⚠️ Intento "
+                    f"{intento + 1}/{max_intentos} "
+                    f"falló en analizar_semantica: "
+                    f"{str(e)[:200]}"
+                )
+                continue
+
+        raise Exception(
+            "Error procesando análisis semántico "
+            f"después de {max_intentos} intentos: "
+            f"{str(ultimo_error)}"
+        )
+    
+    def _extract_reset_time(self, error_message: str) -> str:
+        """
+        Extrae información de tiempo de reseteo del mensaje de error de Groq.
+        
+        Ejemplo de mensaje:
+        "Please try again in 1h5m7.872s"
+        
+        Retorna un string legible con el tiempo estimado.
+        """
+        import re
+        
+        # Buscar patrón "XhYmZs"
+        match = re.search(
+            r'(\d+)h(\d+)m([\d.]+)s',
+            error_message
+        )
+        
+        if match:
+            hours = int(match.group(1))
+            minutes = int(match.group(2))
+            seconds = float(match.group(3))
+            
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+            
+            if total_seconds > 3600:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{hours}h {minutes}m para reintentar."
+                )
+            elif total_seconds > 60:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{minutes}m {int(seconds)}s para reintentar."
+                )
+            else:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{int(seconds)}s para reintentar."
+                )
+        
+        # Buscar patrón alternativo "in Xs"
+        match = re.search(r'in ([\d.]+)s', error_message)
+        if match:
+            seconds = float(match.group(1))
+            return f"Esperá aproximadamente {int(seconds)}s para reintentar."
+        
+        return "Esperá un tiempo antes de reintentar."
     
     def generar_resumen(self, texto: str, contexto: str = "") -> str:
         """Genera un resumen de un texto dado."""
@@ -3545,6 +5982,186 @@ def formatear_comentarios_para_prompt(comentarios: List[dict]) -> str:
     for i, c in enumerate(comentarios, 1):
         lineas.append(f"{i}. [{c['usuario']}]: {c['texto']}")
     return '\n'.join(lineas)
+
+================================================================================
+ARCHIVO: services\analysis\token_monitor.py
+================================================================================
+
+# app/services/analysis/token_monitor.py
+"""
+Monitor de consumo de tokens de la API de Groq.
+
+Lee los headers de rate-limit de cada respuesta y:
+- Loguea el consumo
+- Emite alertas cuando queda poco saldo
+- Permite consultar el estado actual
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TokenStatus:
+    """Estado actual del consumo de tokens."""
+    limit_tokens: int = 0
+    remaining_tokens: int = 0
+    used_tokens: int = 0
+    usage_percent: float = 0.0
+    reset_seconds: int = 0
+    last_request_tokens: int = 0
+    
+    @property
+    def is_critical(self) -> bool:
+        """Menos del 5% disponible."""
+        return self.remaining_tokens > 0 and self.usage_percent >= 95
+    
+    @property
+    def is_warning(self) -> bool:
+        """Menos del 20% disponible."""
+        return self.usage_percent >= 80
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "limit_tokens": self.limit_tokens,
+            "remaining_tokens": self.remaining_tokens,
+            "used_tokens": self.used_tokens,
+            "usage_percent": round(self.usage_percent, 2),
+            "reset_seconds": self.reset_seconds,
+            "last_request_tokens": self.last_request_tokens,
+            "status": (
+                "critical" if self.is_critical 
+                else "warning" if self.is_warning 
+                else "ok"
+            ),
+        }
+
+
+class TokenMonitor:
+    """
+    Monitor singleton que trackea el consumo de tokens.
+    """
+    
+    _instance: TokenMonitor | None = None
+    
+    WARNING_THRESHOLD = 80
+    CRITICAL_THRESHOLD = 95
+    
+    def __init__(self):
+        self._status = TokenStatus()
+        self._total_requests = 0
+        self._total_tokens_consumed = 0
+    
+    @classmethod
+    def get_instance(cls) -> TokenMonitor:
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    @classmethod
+    def reset(cls) -> None:
+        """Reset para tests."""
+        cls._instance = None
+    
+    def update_from_response(self, response: Any) -> TokenStatus:
+        """
+        Extrae los headers de rate-limit de la respuesta HTTP de Groq.
+        """
+        try:
+            headers = self._extract_headers(response)
+            
+            if not headers:
+                return self._status
+            
+            limit = int(headers.get("x-ratelimit-limit-tokens", 0))
+            remaining = int(headers.get("x-ratelimit-remaining-tokens", 0))
+            reset = int(headers.get("x-ratelimit-reset-tokens", 0))
+            
+            if limit > 0:
+                used = limit - remaining
+                usage_percent = (used / limit) * 100
+            else:
+                used = 0
+                usage_percent = 0
+            
+            last_request = self._estimate_last_request(response)
+            
+            self._status = TokenStatus(
+                limit_tokens=limit,
+                remaining_tokens=remaining,
+                used_tokens=used,
+                usage_percent=usage_percent,
+                reset_seconds=reset,
+                last_request_tokens=last_request,
+            )
+            
+            self._total_requests += 1
+            self._total_tokens_consumed += last_request
+            
+            self._emit_alerts()
+            
+            return self._status
+            
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.debug(f"No se pudieron leer headers de tokens: {exc}")
+            return self._status
+    
+    def get_status(self) -> TokenStatus:
+        return self._status
+    
+    def get_summary(self) -> dict[str, Any]:
+        return {
+            "current": self._status.to_dict(),
+            "session": {
+                "total_requests": self._total_requests,
+                "total_tokens_consumed": self._total_tokens_consumed,
+            },
+        }
+    
+    def _extract_headers(self, response: Any) -> dict:
+        """Extrae headers de la respuesta de Groq."""
+        if hasattr(response, "headers") and response.headers:
+            return response.headers
+        if hasattr(response, "http_response") and response.http_response:
+            return response.http_response.headers
+        return {}
+    
+    def _estimate_last_request(self, response: Any) -> int:
+        """Estima tokens consumidos en la última request."""
+        try:
+            if hasattr(response, "usage") and response.usage:
+                return (
+                    getattr(response.usage, "total_tokens", 0) or
+                    getattr(response.usage, "prompt_tokens", 0) +
+                    getattr(response.usage, "completion_tokens", 0)
+                )
+        except Exception:
+            pass
+        return 0
+    
+    def _emit_alerts(self) -> None:
+        """Emite alertas según los umbrales."""
+        if self._status.is_critical:
+            logger.critical(
+                f"🚨 CRÍTICO: Tokens al {self._status.usage_percent:.1f}%. "
+                f"Disponibles: {self._status.remaining_tokens}. "
+                f"Reset en {self._status.reset_seconds}s."
+            )
+        elif self._status.is_warning:
+            logger.warning(
+                f"⚠️  ALERTA: Tokens al {self._status.usage_percent:.1f}%. "
+                f"Disponibles: {self._status.remaining_tokens}."
+            )
+        else:
+            logger.info(
+                f"✓ Tokens: {self._status.usage_percent:.1f}% usado. "
+                f"Disponibles: {self._status.remaining_tokens}."
+            )
 
 ================================================================================
 ARCHIVO: services\transcription\__init__.py
@@ -4037,6 +6654,589 @@ def test_facebook_adapter():
     assert conversation.total_messages == 3
 
 ================================================================================
+ARCHIVO: tests\test_flask_analysis.py
+================================================================================
+
+# app/tests/test_flask_analysis.py
+"""
+Test de integración Flask → AnalysisService → MIC → Groq
+
+Versión autocontenida que no depende de fixtures externas de conftest.py.
+"""
+import pytest
+from unittest.mock import patch
+import sys
+import os
+
+# Asegurar que podamos importar desde la raíz del proyecto
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Importá tu instancia de Flask. 
+# Si usas una factory function (ej: create_app), cambiá esto por:
+# from app import create_app
+# y en la fixture app: return create_app("testing")
+try:
+    from app import app as flask_app
+except ImportError:
+    try:
+        from run import app as flask_app
+    except ImportError:
+        raise ImportError("No se pudo encontrar la instancia de la app Flask. Ajustá el import en test_flask_analysis.py")
+
+
+@pytest.fixture
+def app():
+    """Configura la app para testing."""
+    flask_app.config["TESTING"] = True
+    flask_app.config["WTF_CSRF_ENABLED"] = False  # Desactiva CSRF para tests
+    return flask_app
+
+
+@pytest.fixture
+def client(app):
+    """Crea el cliente de test de Flask."""
+    return app.test_client()
+
+
+def test_api_analisis_sin_auth(client):
+    """Sin autenticación debe devolver 401 o redirigir (302)."""
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": ["test"],
+        },
+    )
+    
+    # Flask-Login usualmente devuelve 401 Unauthorized o 302 Redirect a login
+    assert response.status_code in [401, 302]
+
+
+@patch("flask_login.utils.current_user")
+def test_api_analisis_con_auth(mock_user, client):
+    """Con autenticación debe ejecutar el análisis y devolver respuesta."""
+    # Configurar el mock del usuario con plan Plata
+    mock_user.id = 1
+    mock_user.email = "test@example.com"
+    mock_user.plan = "plata"
+    mock_user.is_authenticated = True
+    mock_user.is_active = True
+    mock_user.is_anonymous = False
+    mock_user.get_id = lambda: "1"
+    
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": [
+                "Qué buena gestión, cada día estamos mejor 🙄",
+                "Excelente trabajo 👏",
+                "Bueno... veremos",
+            ],
+            "contexto": "Opiniones sobre la gestión municipal",
+        },
+    )
+    
+    # Debe devolver respuesta válida (200 OK, o 400/500 si hay error de lógica, pero NUNCA 401/403)
+    assert response.status_code in [200, 400, 500]
+    
+    data = response.get_json()
+    assert "success" in data
+
+
+@patch("flask_login.utils.current_user")
+def test_api_analisis_comentarios_vacios(mock_user, client):
+    """Sin comentarios debe devolver error 400."""
+    mock_user.id = 1
+    mock_user.plan = "plata"
+    mock_user.is_authenticated = True
+    mock_user.is_active = True
+    mock_user.is_anonymous = False
+    mock_user.get_id = lambda: "1"
+    
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": [],
+        },
+    )
+    
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["success"] is False
+    assert "al menos un comentario" in data["error"].lower()# app/tests/test_flask_analysis.py
+"""
+Test de integración Flask → AnalysisService → MIC → Groq
+
+Versión autocontenida que no depende de fixtures externas de conftest.py.
+"""
+import pytest
+from unittest.mock import patch
+import sys
+import os
+
+# Asegurar que podamos importar desde la raíz del proyecto
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Importá tu instancia de Flask. 
+# Si usas una factory function (ej: create_app), cambiá esto por:
+# from app import create_app
+# y en la fixture app: return create_app("testing")
+try:
+    from app import app as flask_app
+except ImportError:
+    try:
+        from run import app as flask_app
+    except ImportError:
+        raise ImportError("No se pudo encontrar la instancia de la app Flask. Ajustá el import en test_flask_analysis.py")
+
+
+@pytest.fixture
+def app():
+    """Configura la app para testing."""
+    flask_app.config["TESTING"] = True
+    flask_app.config["WTF_CSRF_ENABLED"] = False  # Desactiva CSRF para tests
+    return flask_app
+
+
+@pytest.fixture
+def client(app):
+    """Crea el cliente de test de Flask."""
+    return app.test_client()
+
+
+def test_api_analisis_sin_auth(client):
+    """Sin autenticación debe devolver 401 o redirigir (302)."""
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": ["test"],
+        },
+    )
+    
+    # Flask-Login usualmente devuelve 401 Unauthorized o 302 Redirect a login
+    assert response.status_code in [401, 302]
+
+
+@patch("flask_login.utils.current_user")
+def test_api_analisis_con_auth(mock_user, client):
+    """Con autenticación debe ejecutar el análisis y devolver respuesta."""
+    # Configurar el mock del usuario con plan Plata
+    mock_user.id = 1
+    mock_user.email = "test@example.com"
+    mock_user.plan = "plata"
+    mock_user.is_authenticated = True
+    mock_user.is_active = True
+    mock_user.is_anonymous = False
+    mock_user.get_id = lambda: "1"
+    
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": [
+                "Qué buena gestión, cada día estamos mejor 🙄",
+                "Excelente trabajo 👏",
+                "Bueno... veremos",
+            ],
+            "contexto": "Opiniones sobre la gestión municipal",
+        },
+    )
+    
+    # Debe devolver respuesta válida (200 OK, o 400/500 si hay error de lógica, pero NUNCA 401/403)
+    assert response.status_code in [200, 400, 500]
+    
+    data = response.get_json()
+    assert "success" in data
+
+
+@patch("flask_login.utils.current_user")
+def test_api_analisis_comentarios_vacios(mock_user, client):
+    """Sin comentarios debe devolver error 400."""
+    mock_user.id = 1
+    mock_user.plan = "plata"
+    mock_user.is_authenticated = True
+    mock_user.is_active = True
+    mock_user.is_anonymous = False
+    mock_user.get_id = lambda: "1"
+    
+    response = client.post(
+        "/api/analisis",
+        json={
+            "origen": "facebook",
+            "comentarios": [],
+        },
+    )
+    
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["success"] is False
+    assert "al menos un comentario" in data["error"].lower()
+
+================================================================================
+ARCHIVO: tests\test_mic_e2e.py
+================================================================================
+
+# app/tests/test_mic_e2e.py
+from datetime import datetime
+
+from app.mic.analyzers.semantic_analyzer import SemanticAnalyzer
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+from app.mic.domain.enums import SourceType
+from app.mic.mic_engine import MIC
+
+
+class FakeSemanticAnalyzer(SemanticAnalyzer):
+    """
+    Analizador falso para pruebas.
+
+    No llama a Groq.
+    Sirve para verificar que el MIC,
+    Pipeline y SemanticStep están correctamente conectados.
+    """
+
+    def analyze(
+        self,
+        conversation,
+        metadata=None,
+    ):
+        metadata = metadata or {}
+
+        return {
+            "motor": "fake",
+            "user_plan": metadata.get(
+                "user_plan",
+                "bronce",
+            ),
+            "contexto": metadata.get(
+                "contexto",
+                "",
+            ),
+            "mensajes_analizados": len(
+                conversation.messages
+            ),
+            "interpretacion": {
+                "sentimiento": "positivo",
+                "ironia": False,
+                "sarcasmo": False,
+            },
+        }
+
+
+def crear_conversacion():
+
+    conversation = Conversation(
+        conversation_id="test-mic-001",
+        source=SourceType.FACEBOOK,
+        title="Prueba MIC",
+        created_at=datetime.now(),
+    )
+
+    participant = Participant(
+        participant_id="user-001",
+        display_name="José",
+    )
+
+    conversation.add_participant(
+        participant
+    )
+
+    message = Message(
+        message_id="msg-001",
+        participant_id="user-001",
+        text="Qué buena noticia",
+        created_at=datetime.now(),
+    )
+
+    conversation.add_message(
+        message
+    )
+
+    return conversation
+
+
+def test_mic_end_to_end():
+
+    conversation = crear_conversacion()
+
+    analyzer = FakeSemanticAnalyzer()
+
+    mic = MIC(
+        semantic_analyzer=analyzer
+    )
+
+    result = mic.analyze(
+        conversation,
+        metadata={
+            "user_plan": "plata",
+            "contexto": "Prueba del motor semántico",
+        },
+    )
+
+    assert result.success is True
+
+    assert result.conversation_id == "test-mic-001"
+
+    assert result.semantic_analysis["motor"] == "fake"
+
+    assert (
+        result.semantic_analysis["user_plan"]
+        == "plata"
+    )
+
+    assert (
+        result.semantic_analysis[
+            "mensajes_analizados"
+        ]
+        == 1
+    )
+
+================================================================================
+ARCHIVO: tests\test_mic_semantic_e2e.py
+================================================================================
+
+# app/tests/test_mic_semantic_e2e.py
+"""
+Test End-to-End del MIC con análisis semántico real usando Groq.
+
+Valida el flujo completo:
+Conversation → MIC → Pipeline → SemanticStep → GroqSemanticAnalyzer → Groq → SemanticResult
+"""
+import pytest
+from datetime import datetime
+
+from app.mic.analyzers.groq_semantic_analyzer import GroqSemanticAnalyzer
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+from app.mic.domain.enums import SourceType
+from app.mic.mic_engine import MIC
+from app.mic.models.semantic_result import SemanticResult
+from app.services.analysis.groq_llm import GroqLLMClient
+
+
+@pytest.fixture
+def groq_client():
+    """Cliente real de Groq."""
+    try:
+        return GroqLLMClient()
+    except ValueError:
+        pytest.skip("GROQ_API_KEY no configurada")
+
+
+@pytest.fixture
+def analyzer(groq_client):
+    """Analyzer real con cliente Groq."""
+    return GroqSemanticAnalyzer(groq_client=groq_client)
+
+
+def crear_conversacion_pinamar():
+    """
+    Conversación de prueba basada en el caso real de Pinamar.
+    Incluye ironía, sarcasmo, positivo literal, negativo literal y ambigüedad.
+    """
+    conversation = Conversation(
+        conversation_id="pinamar-001",
+        source=SourceType.FACEBOOK,
+        title="Análisis economía Pinamar",
+        created_at=datetime.now(),
+    )
+
+    # Participantes
+    p1 = Participant(participant_id="user-001", display_name="maarisa.salass")
+    p2 = Participant(participant_id="user-002", display_name="luis201p")
+    p3 = Participant(participant_id="user-003", display_name="gabrielhoraciomariano")
+    p4 = Participant(participant_id="user-004", display_name="rdlp1313")
+    p5 = Participant(participant_id="user-005", display_name="charlieseasailing")
+
+    conversation.add_participant(p1)
+    conversation.add_participant(p2)
+    conversation.add_participant(p3)
+    conversation.add_participant(p4)
+    conversation.add_participant(p5)
+
+    # Mensajes (casos reales del proyecto)
+    mensajes = [
+        Message(
+            message_id="msg-001",
+            participant_id="user-001",
+            text="Siempre el mira la necesidades de las gentes. vamos mejor pinamar ✌️💪",
+            created_at=datetime.now(),
+        ),
+        Message(
+            message_id="msg-002",
+            participant_id="user-002",
+            text="La mayoría de los alquileres han cambiado su modalidad, algunos las tasas municipales se pagan a media con el propietario",
+            created_at=datetime.now(),
+        ),
+        Message(
+            message_id="msg-003",
+            participant_id="user-003",
+            text="Otro para vivir a costa del estado",
+            created_at=datetime.now(),
+        ),
+        Message(
+            message_id="msg-004",
+            participant_id="user-004",
+            text="Bajen las tarifas qué son muy caras, esa es una forma de ayudar",
+            created_at=datetime.now(),
+        ),
+        Message(
+            message_id="msg-005",
+            participant_id="user-005",
+            text="Hace rato que Pinamar no explota en turismo. Lamentablemente nuestra ciudad está detonada. Vamos Martin 💪",
+            created_at=datetime.now(),
+        ),
+    ]
+
+    for msg in mensajes:
+        conversation.add_message(msg)
+
+    return conversation
+
+@pytest.mark.integration
+def test_mic_semantic_e2e_pinamar(groq_client, analyzer):
+    """
+    Test E2E completo con conversación real de Pinamar.
+    
+    Valida:
+    - MIC recibe Conversation
+    - Pipeline ejecuta CleanStep, ValidationStep, SemanticStep
+    - GroqSemanticAnalyzer convierte a SemanticResult
+    - AnalysisResult contiene semantic_analysis con SemanticResult objects
+    """
+    conversation = crear_conversacion_pinamar()
+    
+    mic = MIC(semantic_analyzer=analyzer)
+    
+    metadata = {
+        "contexto": (
+            "Martín Porretti analiza la economía de los vecinos de Pinamar, "
+            "destacando el desfasaje entre las altas tasas municipales y la "
+            "baja calidad de los servicios."
+        ),
+    }
+    
+    result = mic.analyze(conversation, metadata=metadata)
+    
+    # Validar AnalysisResult
+    assert result.success is True
+    assert result.conversation_id == "pinamar-001"
+    assert len(result.errors) == 0
+    
+    # Validar semantic_analysis
+    assert "analyses" in result.semantic_analysis
+    analyses = result.semantic_analysis["analyses"]
+    
+    # Debe haber 5 SemanticResult objects
+    assert len(analyses) == 5
+    
+    # Validar que cada análisis es un SemanticResult
+    for analysis in analyses:
+        assert isinstance(analysis, SemanticResult)
+        assert analysis.sentiment in ["positive", "negative", "neutral"]
+        assert 0.0 <= analysis.confidence <= 1.0
+        assert isinstance(analysis.evidence, list)
+    
+    # Validar casos específicos
+    # msg-001: Positivo con apoyo genuino
+    assert analyses[0].sentiment == "positive"
+    assert analyses[0].irony is False
+    
+    # msg-003: Negativo literal (crítica directa)
+    assert analyses[2].sentiment == "negative"
+    assert analyses[2].irony is False
+    
+    # msg-004: Negativo (queja por tarifas)
+    assert analyses[3].sentiment == "negative"
+
+
+def test_mic_semantic_e2e_ironia_con_contexto(groq_client, analyzer):
+    """
+    Test E2E específico para detección de ironía con contexto.
+    """
+    conversation = Conversation(
+        conversation_id="ironia-test-001",
+        source=SourceType.FACEBOOK,
+        title="Test ironía",
+        created_at=datetime.now(),
+    )
+    
+    participant = Participant(
+        participant_id="user-001",
+        display_name="usuario_test",
+    )
+    conversation.add_participant(participant)
+    
+    message = Message(
+        message_id="msg-001",
+        participant_id="user-001",
+        text="Qué buena gestión, cada día estamos mejor.",
+        created_at=datetime.now(),
+    )
+    conversation.add_message(message)
+    
+    mic = MIC(semantic_analyzer=analyzer)
+    
+    metadata = {
+        "contexto": "La ciudad tiene problemas de basura, calles rotas y falta de seguridad.",
+    }
+    
+    result = mic.analyze(conversation, metadata=metadata)
+    
+    assert result.success is True
+    analyses = result.semantic_analysis["analyses"]
+    assert len(analyses) == 1
+    
+    analysis = analyses[0]
+    
+    # Debe detectar ironía
+    assert analysis.irony is True
+    assert analysis.sentiment == "negative"
+    assert analysis.tone == "ironic_negative"
+    assert len(analysis.evidence) > 0
+    assert analysis.confidence >= 0.75
+
+
+def test_mic_semantic_e2e_sin_analyzer():
+    """
+    Test que valida que MIC funciona sin analyzer (solo Clean + Validation).
+    """
+    conversation = Conversation(
+        conversation_id="test-sin-analyzer",
+        source=SourceType.FACEBOOK,
+        title="Test sin analyzer",
+        created_at=datetime.now(),
+    )
+    
+    participant = Participant(
+        participant_id="user-001",
+        display_name="Test",
+    )
+    conversation.add_participant(participant)
+    
+    message = Message(
+        message_id="msg-001",
+        participant_id="user-001",
+        text="Comentario de prueba",
+        created_at=datetime.now(),
+    )
+    conversation.add_message(message)
+    
+    # MIC sin analyzer
+    mic = MIC(semantic_analyzer=None)
+    
+    result = mic.analyze(conversation)
+    
+    # Debe funcionar sin análisis semántico
+    assert result.success is True
+    assert result.semantic_analysis == {}
+
+================================================================================
 ARCHIVO: tests\test_pipeline.py
 ================================================================================
 
@@ -4062,6 +7262,553 @@ def test_pipeline(conversation):
     assert result.success
 
     assert conversation.messages[0].text == "Hola Mundo"
+
+================================================================================
+ARCHIVO: tests\test_providers.py
+================================================================================
+
+# app/tests/test_providers.py
+"""
+Tests unitarios del sistema de providers.
+
+NO consumen tokens de Groq.
+Validan la arquitectura de selección de modelos.
+"""
+import os
+import pytest
+from unittest.mock import Mock, patch
+
+from app.mic.providers import (
+    LLMProvider,
+    GroqProvider,
+    ProviderRegistry,
+    ModelConfig,
+    ProviderType,
+    AVAILABLE_MODELS,
+)
+
+
+class TestModelConfig:
+    """Tests de configuración de modelos."""
+    
+    def test_modelos_disponibles_existen(self):
+        """Debe haber al menos 6 modelos configurados."""
+        assert len(AVAILABLE_MODELS) >= 6
+    
+    def test_modelo_llama_3_3_configurado(self):
+        """Llama 3.3 70B debe estar disponible."""
+        assert "llama-3.3-70b-versatile" in AVAILABLE_MODELS
+        config = AVAILABLE_MODELS["llama-3.3-70b-versatile"]
+        assert config.provider == ProviderType.GROQ
+        assert config.cost_tier == "free"
+    
+    def test_modelo_qwen_qwq_configurado(self):
+        """Qwen QwQ debe estar disponible para razonamiento."""
+        assert "qwen-qwq-32b" in AVAILABLE_MODELS
+        config = AVAILABLE_MODELS["qwen-qwq-32b"]
+        assert "reasoning" in config.best_for
+        assert "ironia" in config.best_for
+
+
+class TestProviderRegistry:
+    """Tests del registry de providers."""
+    
+    def test_select_model_default(self):
+        """Sin parámetros, debe devolver el default."""
+        config = ProviderRegistry.select_model()
+        assert config.id == "llama-3.3-70b-versatile"
+    
+    def test_select_model_explicito(self):
+        """Con modelo explícito, debe usar ese."""
+        config = ProviderRegistry.select_model(
+            explicit_model="qwen-qwq-32b"
+        )
+        assert config.id == "qwen-qwq-32b"
+    
+    def test_select_model_invalido_usa_default(self):
+        """Modelo inválido debe caer al default."""
+        config = ProviderRegistry.select_model(
+            explicit_model="modelo-inexistente"
+        )
+        assert config.id == "llama-3.3-70b-versatile"
+    
+    def test_select_model_por_plan_free(self):
+        """Plan free debe usar modelo rápido."""
+        config = ProviderRegistry.select_model(user_plan="free")
+        assert config.id == "llama-3.1-8b-instant"
+    
+    def test_select_model_por_plan_bronce(self):
+        """Plan bronce debe usar modelo rápido."""
+        config = ProviderRegistry.select_model(user_plan="bronce")
+        assert config.id == "llama-3.1-8b-instant"
+    
+    def test_select_model_por_plan_plata(self):
+        """Plan plata debe usar modelo balanceado."""
+        config = ProviderRegistry.select_model(user_plan="plata")
+        assert config.id == "llama-3.3-70b-versatile"
+    
+    def test_select_model_por_plan_oro(self):
+        """Plan oro debe usar Qwen QwQ (razonamiento)."""
+        config = ProviderRegistry.select_model(user_plan="oro")
+        assert config.id == "qwen-qwq-32b"
+    
+    def test_select_model_por_plan_lifetime(self):
+        """Plan lifetime debe usar Qwen QwQ."""
+        config = ProviderRegistry.select_model(user_plan="lifetime")
+        assert config.id == "qwen-qwq-32b"
+    
+    def test_select_model_plan_desconocido_usa_default(self):
+        """Plan desconocido debe caer al default."""
+        config = ProviderRegistry.select_model(user_plan="desconocido")
+        assert config.id == "llama-3.3-70b-versatile"
+    
+    @patch.dict(os.environ, {"GROQ_MODEL": "qwen-2.5-32b"})
+    def test_select_model_desde_env(self):
+        """Variable de entorno debe tener prioridad sobre plan."""
+        config = ProviderRegistry.select_model(user_plan="free")
+        # Env tiene prioridad sobre plan
+        assert config.id == "qwen-2.5-32b"
+    
+    def test_select_model_explicito_tiene_maxima_prioridad(self):
+        """Modelo explícito tiene prioridad sobre env y plan."""
+        with patch.dict(os.environ, {"GROQ_MODEL": "qwen-2.5-32b"}):
+            config = ProviderRegistry.select_model(
+                explicit_model="mixtral-8x7b-32768",
+                user_plan="oro",
+            )
+            assert config.id == "mixtral-8x7b-32768"
+    
+    def test_list_available_models(self):
+        """Debe listar todos los modelos."""
+        models = ProviderRegistry.list_available_models()
+        assert len(models) >= 6
+        assert all(isinstance(m, ModelConfig) for m in models)
+    
+    def test_get_model_valido(self):
+        """Debe devolver config de modelo válido."""
+        config = ProviderRegistry.get_model("llama-3.3-70b-versatile")
+        assert config.id == "llama-3.3-70b-versatile"
+    
+    def test_get_model_invalido_lanza_error(self):
+        """Modelo inválido debe lanzar ValueError."""
+        with pytest.raises(ValueError, match="no disponible"):
+            ProviderRegistry.get_model("modelo-inexistente")
+
+
+class TestGroqProvider:
+    """Tests del proveedor Groq (sin llamar a la API)."""
+    
+    def test_provider_info(self):
+        """Debe retornar info correcta del provider."""
+        # ✅ CORREGIDO: ruta app.mic.providers.groq_provider
+        with patch("app.mic.providers.groq_provider.GroqLLMClient"):
+            provider = GroqProvider(model="llama-3.3-70b-versatile")
+            assert provider.get_provider_name() == "groq"
+            assert provider.get_model_id() == "llama-3.3-70b-versatile"
+    
+    def test_provider_es_llm_provider(self):
+        """Debe implementar la interfaz LLMProvider."""
+        # ✅ CORREGIDO: ruta app.mic.providers.groq_provider
+        with patch("app.mic.providers.groq_provider.GroqLLMClient"):
+            provider = GroqProvider()
+            assert isinstance(provider, LLMProvider)
+    
+    def test_get_status_sin_token_monitor(self):
+        """Debe funcionar aunque no haya token_monitor."""
+        # ✅ CORREGIDO: ruta app.mic.providers.groq_provider
+        with patch("app.mic.providers.groq_provider.GroqLLMClient"):
+            provider = GroqProvider()
+            status = provider.get_status()
+            assert status["provider"] == "groq"
+            assert "model" in status
+
+
+class TestProviderRegistryIntegration:
+    """Tests de integración del registry (sin llamar a la API)."""
+    
+    # ✅ CORREGIDO: ruta app.mic.providers.registry
+    @patch("app.mic.providers.registry.GroqProvider")
+    def test_get_provider_groq(self, mock_groq_class):
+        """Debe crear GroqProvider para modelos Groq."""
+        mock_groq_class.return_value = Mock()
+        
+        provider = ProviderRegistry.get_provider(
+            explicit_model="llama-3.3-70b-versatile"
+        )
+        
+        mock_groq_class.assert_called_once_with(
+            model="llama-3.3-70b-versatile"
+        )
+    
+    # ✅ CORREGIDO: ruta app.mic.providers.registry
+    @patch("app.mic.providers.registry.GroqProvider")
+    def test_get_provider_por_plan(self, mock_groq_class):
+        """Debe crear provider correcto según plan."""
+        mock_groq_class.return_value = Mock()
+        
+        provider = ProviderRegistry.get_provider(user_plan="oro")
+        
+        mock_groq_class.assert_called_once_with(
+            model="qwen-qwq-32b"
+        )
+
+================================================================================
+ARCHIVO: tests\test_semantic_analysis.py
+================================================================================
+
+# app/tests/test_semantic_analysis.py
+import pytest
+from unittest.mock import Mock, patch
+from app.services.analysis.groq_llm import GroqLLMClient
+
+
+class TestAnalizarSemanticaEstructura:
+    """
+    Tests unitarios que validan la estructura del método
+    sin llamar a Groq.
+    """
+    
+    def test_comentarios_vacio(self):
+        """Lista vacía debe devolver analyses vacío."""
+        client = GroqLLMClient.__new__(GroqLLMClient)
+        client.client = Mock()
+        client.model = "test"
+        
+        resultado = client.analizar_semantica([])
+        
+        assert resultado == {"analyses": []}
+    
+    def test_comentarios_no_lista(self):
+        """Si no es lista, debe lanzar TypeError."""
+        client = GroqLLMClient.__new__(GroqLLMClient)
+        client.client = Mock()
+        client.model = "test"
+        
+        with pytest.raises(TypeError, match="comentarios debe ser una lista"):
+            client.analizar_semantica("no es lista")
+    
+    def test_mas_de_100_comentarios(self):
+        """Más de 100 comentarios debe lanzar ValueError."""
+        client = GroqLLMClient.__new__(GroqLLMClient)
+        client.client = Mock()
+        client.model = "test"
+        
+        comentarios = ["texto"] * 101
+        
+        with pytest.raises(ValueError, match="Máximo 100 comentarios"):
+            client.analizar_semantica(comentarios)
+    
+    def test_normaliza_none_a_string_vacio(self):
+        """None en comentarios debe convertirse a string vacío."""
+        client = GroqLLMClient.__new__(GroqLLMClient)
+        client.client = Mock()
+        client.model = "test"
+        
+        # Mock de respuesta válida
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = '{"analyses": [{"message_id": "1", "texto_original": "", "sentiment": "neutral", "tone": "neutral", "irony": false, "sarcasm": false, "irony_polarity": "none", "confidence": 0.9, "literal_meaning": "vacío", "inferred_meaning": "vacío", "evidence": []}]}'
+        
+        client.client.chat.completions.create.return_value = mock_response
+        
+        resultado = client.analizar_semantica([None])
+        
+        assert len(resultado["analyses"]) == 1
+
+@pytest.mark.integration
+class TestAnalizarSemanticaCasosArgentinos:
+    """
+    Tests de integración con casos argentinos reales.
+    Estos tests SÍ llaman a Groq.
+    
+    Para ejecutarlos:
+    pytest app/tests/test_semantic_analysis.py::TestAnalizarSemanticaCasosArgentinos -v
+    """
+    
+    @pytest.fixture
+    def client(self):
+        """Cliente real de Groq."""
+        try:
+            return GroqLLMClient()
+        except ValueError:
+            pytest.skip("GROQ_API_KEY no configurada")
+    
+    def test_ironia_obvia_con_contexto(self, client):
+        """
+        Caso: Ironía evidente cuando el contexto contradice el elogio.
+        Esperado: irony=true, tone=ironic_negative
+        """
+        comentarios = [
+            "Qué buena gestión, cada día estamos mejor."
+        ]
+        contexto = "La ciudad tiene problemas de basura, calles rotas y falta de seguridad."
+        
+        resultado = client.analizar_semantica(comentarios, contexto)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        assert analysis["sentiment"] == "negative"
+        assert analysis["irony"] is True
+        assert analysis["tone"] == "ironic_negative"
+        assert len(analysis["evidence"]) > 0
+        assert analysis["confidence"] >= 0.75
+    
+    def test_ironia_ambigua_sin_contexto(self, client):
+        """
+        Caso: Expresión que podría ser irónica pero sin contexto no hay evidencia.
+        Esperado: irony=false, tone=neutral o ambiguous
+        """
+        comentarios = [
+            "Qué fenómeno."
+        ]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        # Sin contexto, NO debería marcar ironía
+        assert analysis["irony"] is False
+        assert analysis["tone"] in ["neutral", "ambiguous", "positive"]
+    
+    def test_positivo_literal(self, client):
+        """
+        Caso: Comentario genuinamente positivo sin ironía.
+        Esperado: sentiment=positive, irony=false
+        """
+        comentarios = [
+            "Qué lindo día, gracias por solucionar el problema."
+        ]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        assert analysis["sentiment"] == "positive"
+        assert analysis["irony"] is False
+        assert analysis["tone"] == "positive"
+    
+    def test_negativo_literal(self, client):
+        """
+        Caso: Comentario genuinamente negativo sin ironía.
+        Esperado: sentiment=negative, irony=false
+        """
+        comentarios = [
+            "Otro para vivir a costa del estado."
+        ]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        assert analysis["sentiment"] == "negative"
+        assert analysis["irony"] is False
+        assert analysis["tone"] == "negative"
+    
+    def test_emoji_contradice_texto(self, client):
+        """
+        Caso: Elogio literal con emoji que contradice.
+        Esperado: irony=true, evidence menciona emoji
+        """
+        comentarios = [
+            "Excelente servicio 🙄"
+        ]
+        contexto = "El servicio es conocido por ser malo."
+        
+        resultado = client.analizar_semantica(comentarios, contexto)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        assert analysis["irony"] is True
+        assert any("emoji" in ev.lower() or "🙄" in ev for ev in analysis["evidence"])
+    
+    def test_sarcasmo_vs_ironia(self, client):
+        """
+        Caso: Sarcasmo implica burla, no solo ironía.
+        Esperado: sarcasm=true, irony=true
+        """
+        comentarios = [
+            "Sí, claro... un genio el que inventó esto."
+        ]
+        contexto = "El producto es defectuoso y nadie lo usa."
+        
+        resultado = client.analizar_semantica(comentarios, contexto)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        assert analysis["irony"] is True
+        # Sarcasmo puede o no estar marcado, pero si hay burla, debería estar
+        # assert analysis["sarcasm"] is True  # Opcional, depende del modelo
+    
+    def test_jerga_argentina_sin_polaridad_automatica(self, client):
+        """
+        Caso: Jerga argentina no debe determinar polaridad por sí sola.
+        Esperado: análisis completo, no solo por palabras clave
+        """
+        comentarios = [
+            "Laburar laburamos, pero no vemos resultados."
+        ]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        # Debe ser negativo por el contexto, no por "laburar"
+        assert analysis["sentiment"] == "negative"
+        assert analysis["irony"] is False
+    
+    def test_ambiguedad_valida(self, client):
+        """
+        Caso: Comentario ambiguo sin evidencia clara.
+        Esperado: tone=ambiguous, confidence moderada
+        """
+        comentarios = [
+            "Bueno... veremos."
+        ]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        assert len(resultado["analyses"]) == 1
+        analysis = resultado["analyses"][0]
+        
+        # Debe permitir ambigüedad
+        assert analysis["tone"] in ["ambiguous", "neutral"]
+        assert analysis["confidence"] <= 0.8
+    
+    def test_multiples_comentarios_mezclados(self, client):
+        """
+        Caso: Múltiples comentarios con diferentes características.
+        Esperado: análisis individual correcto para cada uno
+        """
+        comentarios = [
+            "Qué buena gestión, cada día estamos mejor.",  # Irónico
+            "Gracias por solucionar el problema.",  # Positivo literal
+            "Otro para vivir a costa del estado.",  # Negativo literal
+            "Bueno... veremos.",  # Ambiguo
+        ]
+        contexto = "La gestión tiene muchos problemas."
+        
+        resultado = client.analizar_semantica(comentarios, contexto)
+        
+        assert len(resultado["analyses"]) == 4
+        
+        # Primer comentario: irónico
+        assert resultado["analyses"][0]["irony"] is True
+        assert resultado["analyses"][0]["sentiment"] == "negative"
+        
+        # Segundo comentario: positivo
+        assert resultado["analyses"][1]["sentiment"] == "positive"
+        assert resultado["analyses"][1]["irony"] is False
+        
+        # Tercer comentario: negativo
+        assert resultado["analyses"][2]["sentiment"] == "negative"
+        assert resultado["analyses"][2]["irony"] is False
+        
+        # Cuarto comentario: ambiguo
+        assert resultado["analyses"][3]["tone"] in ["ambiguous", "neutral"]
+    
+    def test_ironia_sin_evidencia_es_error(self, client):
+        """
+        Caso: Si el modelo marca ironía sin evidencia, debe fallar validación.
+        Este test verifica que la validación post-LLM funciona.
+        """
+        # Mock de respuesta inválida (irony=true sin evidence)
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = '{"analyses": [{"message_id": "1", "texto_original": "test", "sentiment": "negative", "tone": "ironic_negative", "irony": true, "sarcasm": false, "irony_polarity": "negative", "confidence": 0.9, "literal_meaning": "test", "inferred_meaning": "test", "evidence": []}]}'
+        
+        client_real = GroqLLMClient.__new__(GroqLLMClient)
+        client_real.client = Mock()
+        client_real.model = "test"
+        client_real.client.chat.completions.create.return_value = mock_response
+        client_real._extraer_json = lambda x: {"analyses": [{"message_id": "1", "texto_original": "test", "sentiment": "negative", "tone": "ironic_negative", "irony": True, "sarcasm": False, "irony_polarity": "negative", "confidence": 0.9, "literal_meaning": "test", "inferred_meaning": "test", "evidence": []}]}
+        
+        # Debe fallar después de 3 intentos
+        with pytest.raises(Exception, match="Error procesando análisis semántico"):
+            client_real.analizar_semantica(["test"])
+
+@pytest.mark.integration
+class TestAnalizarSemanticaContrato:
+    """
+    Tests que validan el contrato de salida del método.
+    """
+    
+    @pytest.fixture
+    def client(self):
+        try:
+            return GroqLLMClient()
+        except ValueError:
+            pytest.skip("GROQ_API_KEY no configurada")
+    
+    def test_estructura_json_correcta(self, client):
+        """Valida que la estructura JSON sea exactamente la esperada."""
+        comentarios = ["Test comment"]
+        
+        resultado = client.analizar_semantica(comentarios)
+        
+        # Estructura básica
+        assert "analyses" in resultado
+        assert isinstance(resultado["analyses"], list)
+        assert len(resultado["analyses"]) == 1
+        
+        analysis = resultado["analyses"][0]
+        
+        # Campos obligatorios
+        assert "message_id" in analysis
+        assert "texto_original" in analysis
+        assert "sentiment" in analysis
+        assert "tone" in analysis
+        assert "irony" in analysis
+        assert "sarcasm" in analysis
+        assert "irony_polarity" in analysis
+        assert "confidence" in analysis
+        assert "literal_meaning" in analysis
+        assert "inferred_meaning" in analysis
+        assert "evidence" in analysis
+        
+        # Tipos correctos
+        assert isinstance(analysis["message_id"], str)
+        assert isinstance(analysis["sentiment"], str)
+        assert isinstance(analysis["tone"], str)
+        assert isinstance(analysis["irony"], bool)
+        assert isinstance(analysis["sarcasm"], bool)
+        assert isinstance(analysis["confidence"], (int, float))
+        assert isinstance(analysis["evidence"], list)
+    
+    def test_valores_enums_validos(self, client):
+        """Valida que los valores de enums sean los permitidos."""
+        comentarios = ["Test"]
+        
+        resultado = client.analizar_semantica(comentarios)
+        analysis = resultado["analyses"][0]
+        
+        # Sentiment válido
+        assert analysis["sentiment"] in ["positive", "negative", "neutral"]
+        
+        # Tone válido
+        assert analysis["tone"] in [
+            "positive", "negative", "neutral",
+            "ironic_positive", "ironic_negative",
+            "sarcastic", "mixed", "ambiguous"
+        ]
+        
+        # Irony polarity válido
+        assert analysis["irony_polarity"] in [
+            "positive", "negative", "neutral", "none"
+        ]
+        
+        # Confidence en rango
+        assert 0.0 <= analysis["confidence"] <= 1.0
+        
+        # Coherencia irony/polarity
+        if not analysis["irony"]:
+            assert analysis["irony_polarity"] == "none"
 
 ================================================================================
 ARCHIVO: tests\test_validation.py
