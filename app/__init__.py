@@ -90,6 +90,7 @@ def create_app():
     from app.routes.planes import planes_bp
     from app.routes.historial import historial_bp
     from app.routes.agentes import agentes_bp
+    from app.routes.api import api_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -103,6 +104,7 @@ def create_app():
     app.register_blueprint(planes_bp)
     app.register_blueprint(historial_bp)
     app.register_blueprint(agentes_bp)
+    app.register_blueprint(api_bp)
     
     return app
 

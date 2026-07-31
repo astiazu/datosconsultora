@@ -12,8 +12,11 @@ from app.services.analysis import GroqLLMClient
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
 
+
 servicios_bp = Blueprint("servicios", __name__)
+
 ALLOWED_EXT = {"mp3", "wav", "m4a", "mp4", "mov", "avi", "mkv", "webm", "flac", "ogg"}
+
 
 @servicios_bp.route("/servicios/transcripcion", methods=["GET", "POST"])
 @login_required
@@ -66,7 +69,6 @@ def servicio_transcripcion():
                     transcription = Transcription(user_id=current_user.id, file_id=user_file.id, texto=transcript)
                     db.session.add(transcription)
                     db.session.commit()
-                    
                     registrar_uso_transcripcion(current_user)
                     
                     msg = f"✅ Transcripción completada ({backend.get_name()})"
@@ -74,6 +76,7 @@ def servicio_transcripcion():
                         nombres = {"en": "inglés", "pt": "portugués", "fr": "francés"}
                         msg += f" - Idioma detectado: {nombres.get(idioma_detectado, idioma_detectado)}"
                     flash(msg, "success")
+                    
                 except Exception as e:
                     flash(f"❌ Error en la transcripción: {str(e)}", "error")
                     current_app.logger.error(f"Error transcribiendo: {str(e)}")
@@ -82,7 +85,16 @@ def servicio_transcripcion():
         else:
             flash("❌ No seleccionaste ningún archivo", "error")
     
-    return render_template("servicio_transcripcion.html", transcript=transcript, transcript_traducido=transcript_traducido, filename=filename, idioma_detectado=idioma_detectado, duracion_total=duracion_total, num_chunks=num_chunks)
+    return render_template(
+        "servicio_transcripcion.html",
+        transcript=transcript,
+        transcript_traducido=transcript_traducido,
+        filename=filename,
+        idioma_detectado=idioma_detectado,
+        duracion_total=duracion_total,
+        num_chunks=num_chunks
+    )
+
 
 @servicios_bp.route("/servicios/analisis-sentimientos", methods=["GET", "POST"])
 @login_required
@@ -94,12 +106,86 @@ def analisis_sentimientos():
     error_msg = None
     paso = "input"
     
+    # Variables para mantener el estado del formulario
+    url_input = ""
+    contexto = ""
+    mostrar_pestaña_url = False
+    
+    # Verificar si el usuario tiene acceso a la feature de URL (Plata en adelante)
+    user_plan = current_user.user_plan
+    plan_obj = user_plan.obtener_plan_obj() if user_plan else None
+    tiene_acceso_url = plan_obj and plan_obj.tiene_feature('motor_semantico')
+    
     if request.method == "POST":
         action = request.form.get("action", "analizar")
+        url_input = request.form.get("url_publicacion", "").strip()
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
         
-        if action == "limpiar":
+        # Si viene de la pestaña URL, recordamos mostrarla
+        if url_input:
+            mostrar_pestaña_url = True
+        
+        # --- LÓGICA 1: Si viene una URL y el usuario tiene el plan ---
+        if url_input and tiene_acceso_url and action == "analizar":
+            try:
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("planes.mi_plan"))
+                
+                # 1. Intentar extraer con el Scraper
+                from app.services.scraper_service import ScraperService
+                scraper = ScraperService()
+                extraccion = scraper.extraer_de_url(url_input)
+                
+                if not extraccion["success"]:
+                    error_msg = extraccion['error_msg']
+                    paso = "input"
+                    mostrar_pestaña_url = True
+                else:
+                    # 2. Si tiene éxito, usar AnalysisService con ProviderRegistry
+                    from app.services.analysis_service import AnalysisService
+                    
+                    datos_crudos = extraccion["data"]
+                    
+                    service = AnalysisService()
+                    resultado_dict = service.analizar(
+                        datos_crudos=datos_crudos,
+                        origen="facebook",
+                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        contexto=contexto,
+                    )
+                    
+                    if resultado_dict["success"]:
+                        resultado = resultado_dict
+                        resultado["red_social"] = "facebook/instagram (vía URL)"
+                        resultado["total_comentarios_limpios"] = len(datos_crudos.get("comments", []))
+                        
+                        registrar_uso_analisis(current_user)
+                        
+                        analysis_session = AnalysisSession(
+                            user_id=current_user.id,
+                            red_social=resultado["red_social"],
+                            contexto=contexto if contexto else None,
+                            total_comentarios=len(datos_crudos.get("comments", [])),
+                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
+                        )
+                        db.session.add(analysis_session)
+                        db.session.commit()
+                        
+                        flash(f"✅ Análisis completado con {len(datos_crudos.get('comments', []))} comentarios extraídos.", "success")
+                        paso = "resultado"
+                    else:
+                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                        paso = "input"
+                        
+            except Exception as e:
+                error_msg = f"Error inesperado: {str(e)}"
+                paso = "input"
+        
+        # --- LÓGICA 2: Copiar y Pegar - Limpiar ---
+        elif action == "limpiar" and not url_input:
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 if not comentarios_limpios:
@@ -111,11 +197,13 @@ def analisis_sentimientos():
             except Exception as e:
                 flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
-        elif action == "analizar":
+        
+        # --- LÓGICA 3: Copiar y Pegar - Analizar directamente ---
+        elif action == "analizar" and not url_input:
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    flash(f" Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 if request.form.get("comentarios_limpios_json"):
@@ -127,31 +215,66 @@ def analisis_sentimientos():
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    comentarios_texto = [f"[{c['usuario']}]: {c['texto']}" for c in comentarios_limpios]
-                    client = GroqLLMClient()
-                    resultado = client.analizar_sentimientos(comentarios_texto, contexto)
-                    if contexto: resultado["contexto"] = contexto
-                    resultado["red_social"] = red_social
-                    resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                    # Usar AnalysisService con ProviderRegistry
+                    from app.services.analysis_service import AnalysisService
                     
-                    registrar_uso_analisis(current_user)
-
-                    # guardar análisis en la base de datos
-                    analysis_session = AnalysisSession(
-                        user_id=current_user.id,
-                        red_social=red_social,
-                        contexto=contexto if contexto else None,
-                        total_comentarios=len(comentarios_limpios),
-                        resultado_json=json.dumps(resultado, ensure_ascii=False)
+                    datos_crudos = {
+                        "comments": [
+                            {"text": f"[{c['usuario']}]: {c['texto']}"}
+                            for c in comentarios_limpios
+                        ]
+                    }
+                    
+                    service = AnalysisService()
+                    resultado_dict = service.analizar(
+                        datos_crudos=datos_crudos,
+                        origen=red_social,
+                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        contexto=contexto,
                     )
-                    db.session.add(analysis_session)
-                    db.session.commit()
-
-                    flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
-                    paso = "resultado"
+                    
+                    if resultado_dict["success"]:
+                        resultado = resultado_dict
+                        if contexto:
+                            resultado["contexto"] = contexto
+                        resultado["red_social"] = red_social
+                        resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+                        
+                        registrar_uso_analisis(current_user)
+                        
+                        # Guardar análisis en la base de datos
+                        analysis_session = AnalysisSession(
+                            user_id=current_user.id,
+                            red_social=red_social,
+                            contexto=contexto if contexto else None,
+                            total_comentarios=len(comentarios_limpios),
+                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
+                        )
+                        db.session.add(analysis_session)
+                        db.session.commit()
+                        
+                        flash(f"✅ Análisis completado con {len(comentarios_limpios)} comentarios", "success")
+                        paso = "resultado"
+                    else:
+                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                        flash(f"❌ Error en el análisis: {error_msg}", "error")
+                        paso = "input"
+                        
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis: {error_msg}", "error")
                 paso = "input"
     
-    return render_template("analisis_sentimientos.html", resultado=resultado, comentarios_raw=comentarios_raw, comentarios_limpios=comentarios_limpios, red_social=red_social, paso=paso, error_msg=error_msg)
+    return render_template(
+        "analisis_sentimientos.html",
+        resultado=resultado,
+        comentarios_raw=comentarios_raw,
+        comentarios_limpios=comentarios_limpios,
+        red_social=red_social,
+        paso=paso,
+        error_msg=error_msg,
+        tiene_acceso_url=tiene_acceso_url,
+        url_input=url_input,
+        contexto=contexto,
+        mostrar_pestaña_url=mostrar_pestaña_url
+    )

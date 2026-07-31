@@ -14,7 +14,7 @@ mercadopago==2.2.3
 openai>=1.0.0
 openai-whisper
 pydub
-playwright
-beautifulsoup4
+playwright==1.40.0
+beautifulsoup4==4.12.2
 pytest>=8.2.0
 pytest-cov>=6.0.0

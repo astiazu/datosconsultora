@@ -3,6 +3,7 @@ import os
 import json
 import re
 from groq import Groq
+from app.services.analysis.token_monitor import TokenMonitor
 
 
 class GroqLLMClient:
@@ -14,47 +15,42 @@ class GroqLLMClient:
             raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
         self.client = Groq(api_key=api_key)
         self.model = model
+        self.token_monitor = TokenMonitor.get_instance()
     
     def _extraer_json(self, texto: str) -> dict:
         """
         Extrae JSON de una respuesta del LLM de forma robusta.
-        Intenta múltiples estrategias si el JSON está malformado.
+        Maneja bloques de código markdown y JSON malformados.
         """
-        # Limpiar markdown code blocks
         texto = texto.strip()
-        if texto.startswith("```"):
-            # Extraer contenido entre ```
-            match = re.search(r'```(?:json)?\s*(.*?)\s*```', texto, re.DOTALL)
-            if match:
-                texto = match.group(1).strip()
         
-        # Intento 1: Parseo directo
+        # Intento 1: Buscar y extraer bloque de código markdown (```json ... ```)
+        match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', texto)
+        if match:
+            texto = match.group(1).strip()
+        
+        # Intento 2: Parseo directo del texto limpio
         try:
             return json.loads(texto)
         except json.JSONDecodeError:
             pass
         
-        # Intento 2: Buscar el primer { y el último }
-        match = re.search(r'\{.*\}', texto, re.DOTALL)
+        # Intento 3: Buscar el primer '{' y el último '}'
+        match = re.search(r'\{[\s\S]*\}', texto)
         if match:
             try:
                 return json.loads(match.group(0))
             except json.JSONDecodeError:
                 pass
         
-        # Intento 3: Reparar strings unterminados (problema común)
-        # Buscar strings con comillas sin cerrar
-        texto_reparado = texto
-        # Reemplazar comillas problemáticas dentro de strings
-        texto_reparado = re.sub(r'(?<=")[^"\n]*"(?=[,\s\]\}])', lambda m: m.group(0).replace('"', '\\"'), texto_reparado)
-        
+        # Intento 4: Reparar comillas problemáticas dentro de strings
+        texto_reparado = re.sub(r'(?<=")[^"\n]*"(?=[,\s\]\}])', lambda m: m.group(0).replace('"', '\\"'), texto)
         try:
             return json.loads(texto_reparado)
         except json.JSONDecodeError:
             pass
         
-        # Intento 4: Si todo falla, devolver estructura básica con el texto crudo
-        raise ValueError(f"No se pudo extraer JSON válido. Respuesta recibida (primeros 500 chars): {texto[:500]}")
+        raise ValueError(f"No se pudo extraer JSON válido. Respuesta recibida: {texto[:500]}")
     
     def analizar_sentimientos(self, comentarios: list, contexto: str = "") -> dict:
         """
@@ -103,7 +99,6 @@ REGLAS ESTRICTAS DE ANÁLISIS:
 COMENTARIOS A ANALIZAR:
 {comentarios_texto}"""
         
-        # Retry con backoff si falla el parsing
         max_intentos = 3
         ultimo_error = None
         
@@ -118,14 +113,16 @@ COMENTARIOS A ANALIZAR:
                         },
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.15 if intento == 0 else 0.05,  # Más bajo para máxima precisión y determinismo
-                    max_tokens=3500,  # Aumentado ligeramente para análisis más detallados
+                    temperature=0.15 if intento == 0 else 0.05,
+                    max_tokens=3500,
                 )
                 
+                if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                    self.token_monitor.update_from_response(response)
+
                 contenido = response.choices[0].message.content.strip()
                 resultado = self._extraer_json(contenido)
                 
-                # Validar estructura básica
                 if "estadisticas" not in resultado or "analisis_individual" not in resultado:
                     raise ValueError("Faltan campos requeridos en la respuesta")
                 
@@ -139,6 +136,786 @@ COMENTARIOS A ANALIZAR:
                 raise Exception(f"Error en análisis de sentimientos: {str(e)}")
         
         raise Exception(f"Error parseando respuesta del modelo después de {max_intentos} intentos: {str(ultimo_error)}")
+    
+    def analizar_semantica(
+        self,
+        comentarios: list,
+        contexto: str = "",
+    ) -> dict:
+        """
+        Análisis semántico individual de comentarios.
+
+        Responsabilidades:
+        - Separar literalidad de intención.
+        - Detectar ironía.
+        - Detectar sarcasmo.
+        - Determinar polaridad real.
+        - Identificar tono.
+        - Generar evidencias de la interpretación.
+        - Informar nivel de confianza.
+
+        Este método NO:
+        - Calcula estadísticas.
+        - Decide el plan del usuario.
+        - Genera recomendaciones estratégicas.
+        - Guarda memoria.
+        - Aprende automáticamente.
+
+        Esas responsabilidades pertenecen a capas superiores del MIC.
+        """
+
+        if not isinstance(comentarios, list):
+            raise TypeError(
+                "comentarios debe ser una lista de textos."
+            )
+
+        if not comentarios:
+            return {
+                "analyses": []
+            }
+
+        if len(comentarios) > 100:
+            raise ValueError(
+                f"Máximo 100 comentarios por análisis. "
+                f"Recibiste {len(comentarios)}."
+            )
+
+        comentarios_normalizados = []
+
+        for comentario in comentarios:
+
+            if comentario is None:
+                comentario = ""
+
+            comentario = str(comentario).strip()
+
+            comentarios_normalizados.append(comentario)
+
+        comentarios_texto = "\n".join(
+            f"[{i + 1}] {comentario}"
+            for i, comentario in enumerate(comentarios_normalizados)
+        )
+
+        contexto_texto = (
+            f"CONTEXTO ESPECÍFICO:\n{contexto.strip()}"
+            if contexto and contexto.strip()
+            else "CONTEXTO ESPECÍFICO:\nNo proporcionado."
+        )
+
+        prompt = f"""
+Sos un lingüista experto en análisis de discurso argentino,
+especializado en comunicación cotidiana, redes sociales,
+lenguaje rioplatense, ironía, sarcasmo y análisis de intención.
+
+Tu tarea NO es clasificar palabras.
+
+Tu tarea es interpretar el significado probable del mensaje
+considerando:
+
+- significado literal
+- intención comunicativa
+- contexto disponible
+- construcción lingüística
+- contradicciones internas
+- emojis
+- expresiones coloquiales
+- ironía
+- sarcasmo
+- polaridad real
+
+El objetivo principal es REDUCIR FALSOS POSITIVOS DE IRONÍA.
+
+{contexto_texto}
+
+COMENTARIOS:
+
+{comentarios_texto}
+
+
+============================================================
+REGLAS DE INTERPRETACIÓN
+============================================================
+
+1. LITERALIDAD VS INTENCIÓN
+
+Separá siempre:
+
+literal_meaning:
+    Lo que literalmente expresa el comentario.
+
+inferred_meaning:
+    Lo que probablemente intenta comunicar.
+
+No asumas que ambos significados son diferentes.
+
+Si el comentario es literal, ambos pueden ser prácticamente iguales.
+
+
+============================================================
+2. IRONÍA
+============================================================
+
+La ironía ocurre cuando existe una diferencia relevante
+entre el significado literal y la intención comunicativa.
+
+Ejemplo:
+
+"Qué buena gestión, cada día estamos mejor."
+
+Si el contexto indica problemas de gestión:
+
+irony = true
+tone = ironic_negative
+
+Pero:
+
+"Qué buena gestión hicieron."
+
+Sin contexto adicional NO demuestra ironía.
+
+En ausencia de evidencia suficiente:
+
+irony = false
+tone = neutral o ambiguous
+
+
+============================================================
+3. SARCASMO
+============================================================
+
+No confundas sarcasmo con cualquier comentario negativo.
+
+El sarcasmo suele implicar:
+
+- burla
+- ridiculización
+- desprecio
+- exageración intencional
+- contraste deliberado
+
+Un comentario puede ser:
+
+irony = true
+sarcasm = false
+
+Por lo tanto, NO marques sarcasmo automáticamente
+cuando detectes ironía.
+
+
+============================================================
+4. REGLA CONTRA FALSOS POSITIVOS
+============================================================
+
+Esta regla tiene prioridad.
+
+NO inventes ironía.
+
+NO interpretes automáticamente como irónicos:
+
+"Qué fenómeno."
+
+"Un genio."
+
+"Excelente."
+
+"Sí, claro."
+
+"Una maravilla."
+
+"Bueno... veremos."
+
+Estas expresiones pueden ser:
+
+- literales
+- irónicas
+- sarcásticas
+- ambiguas
+
+La decisión debe depender de la evidencia disponible.
+
+
+============================================================
+5. EVIDENCIA
+============================================================
+
+Si clasificás un comentario como irónico o sarcástico,
+debe existir evidencia concreta.
+
+Ejemplos de evidencia válida:
+
+- "contraste entre elogio literal y contexto negativo"
+- "expresión positiva seguida de una consecuencia negativa"
+- "exageración incompatible con el contexto"
+- "emoji que contradice el significado literal"
+- "construcción lingüística utilizada como burla"
+
+NO uses como única evidencia:
+
+"parece irónico"
+
+"suena irónico"
+
+"probablemente es sarcasmo"
+
+La evidencia debe explicar POR QUÉ.
+
+
+============================================================
+6. EMOJIS
+============================================================
+
+Los emojis son MODIFICADORES CONTEXTUALES.
+
+NO son pruebas automáticas de ironía.
+
+Ejemplos:
+
+👏 💪 ✌️ 😊
+
+Pueden reforzar una valoración positiva.
+
+😡 👎 🙄
+
+Pueden expresar rechazo, molestia o desaprobación.
+
+😂
+
+Puede representar:
+
+- diversión
+- humor
+- burla
+- complicidad
+- ironía
+
+Por lo tanto:
+
+Un emoji aislado NO demuestra ironía.
+
+Si el emoji contradice el texto literal,
+puede constituir evidencia relevante.
+
+
+============================================================
+7. LENGUAJE ARGENTINO
+============================================================
+
+Reconocé expresiones como:
+
+- laburar
+- bancar
+- boludo / boludeces
+- fenómeno
+- groso
+- mamita
+- capo
+- maestro
+- genio
+- crack
+- qué bárbaro
+- dale
+- sí, claro
+- mirá vos
+
+Pero NO determines la polaridad solamente por estas palabras.
+
+El significado depende del contexto y de la construcción
+completa del mensaje.
+
+
+============================================================
+8. POLARIDAD
+============================================================
+
+sentiment debe representar la valoración REAL del comentario:
+
+positive
+negative
+neutral
+
+No confundas:
+
+literalidad positiva
+
+con
+
+intención positiva.
+
+
+Ejemplo:
+
+"Excelente, otra vez aumentaron los impuestos."
+
+Literalmente:
+positivo.
+
+Intención:
+negativa.
+
+Por lo tanto:
+
+sentiment = negative
+irony = true
+tone = ironic_negative
+
+
+============================================================
+9. AMBIGÜEDAD
+============================================================
+
+Cuando la evidencia no permite determinar correctamente
+la intención:
+
+NO inventes una interpretación.
+
+Utilizá:
+
+tone = ambiguous
+
+y una confidence baja o moderada.
+
+La ambigüedad es un resultado válido.
+
+Es preferible:
+
+"no podemos determinarlo"
+
+antes que:
+
+"probablemente sea irónico"
+
+
+============================================================
+10. CONFIANZA
+============================================================
+
+confidence debe representar la confianza en la interpretación.
+
+Usá valores entre:
+
+0.0 y 1.0
+
+Orientativamente:
+
+0.90 - 1.00
+Evidencia muy clara.
+
+0.75 - 0.89
+Evidencia fuerte.
+
+0.50 - 0.74
+Interpretación razonable pero con incertidumbre.
+
+0.00 - 0.49
+Alta ambigüedad.
+
+
+============================================================
+FORMATO DE RESPUESTA
+============================================================
+
+Respondé ÚNICAMENTE JSON válido.
+
+NO uses markdown.
+
+NO agregues explicaciones fuera del JSON.
+
+La estructura obligatoria es:
+
+{{
+  "analyses": [
+    {{
+      "message_id": "1",
+      "texto_original": "texto completo del comentario",
+      "sentiment": "positive|negative|neutral",
+      "tone": "positive|negative|neutral|ironic_positive|ironic_negative|sarcastic|mixed|ambiguous",
+      "irony": false,
+      "sarcasm": false,
+      "irony_polarity": "positive|negative|neutral|none",
+      "confidence": 0.0,
+      "literal_meaning": "significado literal",
+      "inferred_meaning": "intención probable",
+      "evidence": []
+    }}
+  ]
+}}
+
+
+============================================================
+REGLAS DEL JSON
+============================================================
+
+1. "analyses" debe existir.
+
+2. Debe contener exactamente un elemento
+   por cada comentario recibido.
+
+3. message_id debe ser:
+
+"1"
+"2"
+"3"
+
+etc.
+
+4. texto_original debe conservar el comentario original.
+
+5. sentiment debe ser exclusivamente:
+
+positive
+negative
+neutral
+
+6. tone debe ser exclusivamente:
+
+positive
+negative
+neutral
+ironic_positive
+ironic_negative
+sarcastic
+mixed
+ambiguous
+
+7. irony debe ser booleano.
+
+8. sarcasm debe ser booleano.
+
+9. irony_polarity debe ser exclusivamente:
+
+positive
+negative
+neutral
+none
+
+10. confidence debe estar entre 0.0 y 1.0.
+
+11. evidence debe ser una lista.
+
+12. Si irony = false:
+
+irony_polarity = "none"
+
+13. Si no existe evidencia suficiente:
+
+NO marques irony = true.
+
+14. No agregues campos adicionales.
+"""
+
+        max_intentos = 3
+        ultimo_error = None
+
+        for intento in range(max_intentos):
+
+            try:
+
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Sos un lingüista experto en discurso argentino. "
+                                "Analizás intención, ironía y sarcasmo. "
+                                "Priorizás evidencia sobre suposiciones. "
+                                "La ambigüedad es un resultado válido. "
+                                "Nunca inventes ironía. "
+                                "Respondé exclusivamente JSON válido."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                    temperature=(
+                        0.15 if intento == 0
+                        else 0.05
+                    ),
+                    max_tokens=4000,
+                )
+
+                if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                    self.token_monitor.update_from_response(response)
+
+                contenido = response.choices[0].message.content.strip()
+
+                resultado = self._extraer_json(contenido)
+
+                if not isinstance(resultado, dict):
+                    raise ValueError(
+                        "La respuesta del modelo no es un objeto JSON."
+                    )
+
+                if "analyses" not in resultado:
+                    raise ValueError(
+                        "Falta el campo 'analyses'."
+                    )
+
+                analyses = resultado["analyses"]
+
+                if not isinstance(analyses, list):
+                    raise ValueError(
+                        "'analyses' debe ser una lista."
+                    )
+
+                if len(analyses) != len(comentarios_normalizados):
+
+                    raise ValueError(
+                        f"El modelo analizó "
+                        f"{len(analyses)} comentarios "
+                        f"pero se enviaron "
+                        f"{len(comentarios_normalizados)}."
+                    )
+
+                sentiments_validos = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                }
+
+                tones_validos = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "ironic_positive",
+                    "ironic_negative",
+                    "sarcastic",
+                    "mixed",
+                    "ambiguous",
+                }
+
+                irony_polarities_validas = {
+                    "positive",
+                    "negative",
+                    "neutral",
+                    "none",
+                }
+
+                for index, analysis in enumerate(analyses):
+
+                    if not isinstance(analysis, dict):
+                        raise ValueError(
+                            f"El análisis {index + 1} "
+                            "no es un objeto JSON."
+                        )
+
+                    expected_id = str(index + 1)
+
+                    if str(
+                        analysis.get("message_id")
+                    ) != expected_id:
+
+                        raise ValueError(
+                            f"message_id incorrecto en "
+                            f"posición {index + 1}."
+                        )
+
+                    sentiment = analysis.get("sentiment")
+
+                    if sentiment not in sentiments_validos:
+
+                        raise ValueError(
+                            f"sentiment inválido en "
+                            f"mensaje {expected_id}: "
+                            f"{sentiment}"
+                        )
+
+                    tone = analysis.get("tone")
+
+                    if tone not in tones_validos:
+
+                        raise ValueError(
+                            f"tone inválido en "
+                            f"mensaje {expected_id}: "
+                            f"{tone}"
+                        )
+
+                    irony = analysis.get("irony")
+
+                    if not isinstance(irony, bool):
+
+                        raise ValueError(
+                            f"'irony' debe ser booleano "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    sarcasm = analysis.get("sarcasm")
+
+                    if not isinstance(sarcasm, bool):
+
+                        raise ValueError(
+                            f"'sarcasm' debe ser booleano "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    irony_polarity = analysis.get(
+                        "irony_polarity"
+                    )
+
+                    if (
+                        irony_polarity
+                        not in irony_polarities_validas
+                    ):
+
+                        raise ValueError(
+                            f"irony_polarity inválida en "
+                            f"mensaje {expected_id}."
+                        )
+
+                    if not irony and irony_polarity != "none":
+
+                        raise ValueError(
+                            f"Mensaje {expected_id}: "
+                            "irony=false requiere "
+                            "irony_polarity='none'."
+                        )
+
+                    confidence = analysis.get(
+                        "confidence"
+                    )
+
+                    if not isinstance(
+                        confidence,
+                        (int, float),
+                    ):
+
+                        raise ValueError(
+                            f"confidence inválida en "
+                            f"mensaje {expected_id}."
+                        )
+
+                    if not 0.0 <= float(confidence) <= 1.0:
+
+                        raise ValueError(
+                            f"confidence fuera de rango "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    evidence = analysis.get(
+                        "evidence"
+                    )
+
+                    if not isinstance(
+                        evidence,
+                        list,
+                    ):
+
+                        raise ValueError(
+                            f"'evidence' debe ser una lista "
+                            f"en mensaje {expected_id}."
+                        )
+
+                    if irony and len(evidence) == 0:
+
+                        raise ValueError(
+                            f"El mensaje {expected_id} "
+                            "fue marcado como irónico "
+                            "pero no contiene evidencias."
+                        )
+
+                return resultado
+
+            # ---------------------------------------------------------
+            # DETECCIÓN DE RATE LIMIT (NUEVO)
+            # ---------------------------------------------------------
+            except Exception as e:
+                # Detectar rate limit de Groq (HTTP 429)
+                # NO reintentar: el límite es diario, reintentar es inútil
+                error_type = type(e).__name__
+                error_str = str(e)
+                
+                is_rate_limit = (
+                    "RateLimitError" in error_type or
+                    "rate_limit" in error_str.lower() or
+                    "429" in error_str
+                )
+                
+                if is_rate_limit:
+                    # Extraer tiempo de reseteo del mensaje si es posible
+                    reset_info = self._extract_reset_time(error_str)
+                    
+                    raise Exception(
+                        f"🚫 Rate limit de Groq alcanzado. "
+                        f"NO se reintentará automáticamente. "
+                        f"{reset_info}"
+                    ) from e
+                
+                # Para errores de parsing JSON, reintentar
+                if isinstance(e, (ValueError,)) and "JSON" in error_str:
+                    ultimo_error = e
+                    print(
+                        f"⚠️ Intento "
+                        f"{intento + 1}/{max_intentos} "
+                        f"falló (JSON inválido): "
+                        f"{str(e)[:200]}"
+                    )
+                    continue
+                
+                # Para otros errores, también reintentar
+                ultimo_error = e
+                print(
+                    f"⚠️ Intento "
+                    f"{intento + 1}/{max_intentos} "
+                    f"falló en analizar_semantica: "
+                    f"{str(e)[:200]}"
+                )
+                continue
+
+        raise Exception(
+            "Error procesando análisis semántico "
+            f"después de {max_intentos} intentos: "
+            f"{str(ultimo_error)}"
+        )
+    
+    def _extract_reset_time(self, error_message: str) -> str:
+        """
+        Extrae información de tiempo de reseteo del mensaje de error de Groq.
+        
+        Ejemplo de mensaje:
+        "Please try again in 1h5m7.872s"
+        
+        Retorna un string legible con el tiempo estimado.
+        """
+        import re
+        
+        # Buscar patrón "XhYmZs"
+        match = re.search(
+            r'(\d+)h(\d+)m([\d.]+)s',
+            error_message
+        )
+        
+        if match:
+            hours = int(match.group(1))
+            minutes = int(match.group(2))
+            seconds = float(match.group(3))
+            
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+            
+            if total_seconds > 3600:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{hours}h {minutes}m para reintentar."
+                )
+            elif total_seconds > 60:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{minutes}m {int(seconds)}s para reintentar."
+                )
+            else:
+                return (
+                    f"Esperá aproximadamente "
+                    f"{int(seconds)}s para reintentar."
+                )
+        
+        # Buscar patrón alternativo "in Xs"
+        match = re.search(r'in ([\d.]+)s', error_message)
+        if match:
+            seconds = float(match.group(1))
+            return f"Esperá aproximadamente {int(seconds)}s para reintentar."
+        
+        return "Esperá un tiempo antes de reintentar."
     
     def generar_resumen(self, texto: str, contexto: str = "") -> str:
         """Genera un resumen de un texto dado."""
