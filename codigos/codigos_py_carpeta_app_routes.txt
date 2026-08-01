@@ -1249,16 +1249,23 @@ def analisis_sentimientos():
                     paso = "input"
                     mostrar_pestaña_url = True
                 else:
-                    # 2. Si tiene éxito, usar AnalysisService con ProviderRegistry
+                    # 2. Usar AnalysisService para que use el método correcto según el plan
                     from app.services.analysis_service import AnalysisService
                     
                     datos_crudos = extraccion["data"]
+                    
+                    # Obtener el nombre del plan correctamente
+                    user_plan_name = (
+                        current_user.user_plan.plan 
+                        if current_user.user_plan 
+                        else "free"
+                    )
                     
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
                         origen="facebook",
-                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        user_plan=user_plan_name,
                         contexto=contexto,
                     )
                     
@@ -1308,7 +1315,7 @@ def analisis_sentimientos():
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f" Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 if request.form.get("comentarios_limpios_json"):
@@ -1320,9 +1327,10 @@ def analisis_sentimientos():
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    # Usar AnalysisService con ProviderRegistry
+                    # ✅ USAR AnalysisService en lugar de GroqLLMClient directo
                     from app.services.analysis_service import AnalysisService
                     
+                    # Construir datos_crudos en formato esperado
                     datos_crudos = {
                         "comments": [
                             {"text": f"[{c['usuario']}]: {c['texto']}"}
@@ -1330,11 +1338,19 @@ def analisis_sentimientos():
                         ]
                     }
                     
+                    # Obtener el plan del usuario correctamente
+                    user_plan_name = (
+                        current_user.user_plan.plan 
+                        if current_user.user_plan 
+                        else "free"
+                    )
+                    
+                    # Ejecutar análisis con el servicio correcto
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
                         origen=red_social,
-                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        user_plan=user_plan_name,
                         contexto=contexto,
                     )
                     
@@ -1362,7 +1378,7 @@ def analisis_sentimientos():
                         paso = "resultado"
                     else:
                         error_msg = resultado_dict.get("error", "Error en el análisis")
-                        flash(f"❌ Error en el análisis: {error_msg}", "error")
+                        flash(f" Error en el análisis: {error_msg}", "error")
                         paso = "input"
                         
             except Exception as e:

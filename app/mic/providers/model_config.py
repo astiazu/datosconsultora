@@ -107,6 +107,7 @@ DEFAULT_MODEL = "llama-3.3-70b-versatile"
 FALLBACK_CHAINS: dict[str, list[str]] = {
     "llama-3.3-70b-versatile": [
         "llama-3.1-8b-instant",  # 500k tokens, más rápido
+        "qwen-2.5-32b",          # Alternativa de calidad
         "mixtral-8x7b-32768",    # 500k tokens
         "gemma2-9b-it",          # 500k tokens
     ],
@@ -116,6 +117,7 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
         "llama-3.1-8b-instant",
     ],
     "llama-3.1-8b-instant": [
+        "qwen-2.5-32b",          # ✅ Agregado: alternativa de calidad
         "mixtral-8x7b-32768",
         "gemma2-9b-it",
     ],

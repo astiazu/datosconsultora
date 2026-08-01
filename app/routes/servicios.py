@@ -8,10 +8,9 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
-from app.services.analysis import GroqLLMClient
+from app.services.analysis_service import AnalysisService
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
-
 
 servicios_bp = Blueprint("servicios", __name__)
 
@@ -35,7 +34,7 @@ def servicio_transcripcion():
             if ext in ALLOWED_EXT:
                 puede_usar, uso_actual, limite = puede_transcribir(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    flash(f" Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 original_filename = secure_filename(f.filename)
@@ -106,12 +105,10 @@ def analisis_sentimientos():
     error_msg = None
     paso = "input"
     
-    # Variables para mantener el estado del formulario
     url_input = ""
     contexto = ""
     mostrar_pestaña_url = False
     
-    # Verificar si el usuario tiene acceso a la feature de URL (Plata en adelante)
     user_plan = current_user.user_plan
     plan_obj = user_plan.obtener_plan_obj() if user_plan else None
     tiene_acceso_url = plan_obj and plan_obj.tiene_feature('motor_semantico')
@@ -122,19 +119,17 @@ def analisis_sentimientos():
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
         
-        # Si viene de la pestaña URL, recordamos mostrarla
         if url_input:
             mostrar_pestaña_url = True
         
-        # --- LÓGICA 1: Si viene una URL y el usuario tiene el plan ---
+        # --- LÓGICA 1: URL ---
         if url_input and tiene_acceso_url and action == "analizar":
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
-                # 1. Intentar extraer con el Scraper
                 from app.services.scraper_service import ScraperService
                 scraper = ScraperService()
                 extraccion = scraper.extraer_de_url(url_input)
@@ -144,16 +139,16 @@ def analisis_sentimientos():
                     paso = "input"
                     mostrar_pestaña_url = True
                 else:
-                    # 2. Si tiene éxito, usar AnalysisService con ProviderRegistry
                     from app.services.analysis_service import AnalysisService
                     
                     datos_crudos = extraccion["data"]
+                    user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
                     
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
                         origen="facebook",
-                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        user_plan=user_plan_name,
                         contexto=contexto,
                     )
                     
@@ -178,13 +173,15 @@ def analisis_sentimientos():
                         paso = "resultado"
                     else:
                         error_msg = resultado_dict.get("error", "Error en el análisis")
+                        flash(f"❌ {error_msg}", "error")
                         paso = "input"
                         
             except Exception as e:
                 error_msg = f"Error inesperado: {str(e)}"
+                flash(f"❌ {error_msg}", "error")
                 paso = "input"
         
-        # --- LÓGICA 2: Copiar y Pegar - Limpiar ---
+        # --- LÓGICA 2: Limpiar ---
         elif action == "limpiar" and not url_input:
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
@@ -198,13 +195,13 @@ def analisis_sentimientos():
                 flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
         
-        # --- LÓGICA 3: Copiar y Pegar - Analizar directamente ---
+        # --- LÓGICA 3: Analizar directamente ---
         elif action == "analizar" and not url_input:
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f" Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
                 if request.form.get("comentarios_limpios_json"):
                     comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
@@ -215,7 +212,7 @@ def analisis_sentimientos():
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    # Usar AnalysisService con ProviderRegistry
+                    # ✅ USAR AnalysisService
                     from app.services.analysis_service import AnalysisService
                     
                     datos_crudos = {
@@ -225,11 +222,13 @@ def analisis_sentimientos():
                         ]
                     }
                     
+                    user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
+                    
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
                         origen=red_social,
-                        user_plan=current_user.user_plan.plan if current_user.user_plan else "free",
+                        user_plan=user_plan_name,
                         contexto=contexto,
                     )
                     
@@ -242,7 +241,6 @@ def analisis_sentimientos():
                         
                         registrar_uso_analisis(current_user)
                         
-                        # Guardar análisis en la base de datos
                         analysis_session = AnalysisSession(
                             user_id=current_user.id,
                             red_social=red_social,
@@ -257,7 +255,7 @@ def analisis_sentimientos():
                         paso = "resultado"
                     else:
                         error_msg = resultado_dict.get("error", "Error en el análisis")
-                        flash(f"❌ Error en el análisis: {error_msg}", "error")
+                        flash(f"❌ {error_msg}", "error")
                         paso = "input"
                         
             except Exception as e:

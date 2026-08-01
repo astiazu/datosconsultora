@@ -153,7 +153,7 @@ def test_mic_semantic_e2e_pinamar(groq_client, analyzer):
     # msg-004: Negativo (queja por tarifas)
     assert analyses[3].sentiment == "negative"
 
-
+@pytest.mark.integration
 def test_mic_semantic_e2e_ironia_con_contexto(groq_client, analyzer):
     """
     Test E2E específico para detección de ironía con contexto.

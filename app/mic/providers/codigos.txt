@@ -1,0 +1,416 @@
+# app/mic/providers/base.py
+"""
+Interfaz abstracta para proveedores LLM.
+
+Cualquier proveedor (Groq, OpenAI, modelo local) debe implementar
+esta interfaz para ser usado por el MIC.
+"""
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+
+class LLMProvider(ABC):
+    """
+    Contrato que debe cumplir cualquier proveedor LLM.
+    
+    El MIC no conoce los detalles de cada proveedor.
+    Solo interactúa con esta interfaz.
+    """
+    
+    @abstractmethod
+    def analyze_semantic(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """
+        Análisis semántico de comentarios.
+        
+        Retorna:
+            dict con estructura:
+            {
+                "analyses": [
+                    {
+                        "message_id": "1",
+                        "sentiment": "positive|negative|neutral",
+                        "tone": "...",
+                        "irony": bool,
+                        "sarcasm": bool,
+                        "irony_polarity": "...",
+                        "confidence": float,
+                        "literal_meaning": str,
+                        "inferred_meaning": str,
+                        "evidence": list
+                    }
+                ]
+            }
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def analyze_sentiment(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """
+        Análisis básico de sentimientos (para Free/Bronce).
+        """
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_model_id(self) -> str:
+        """Retorna el ID del modelo actualmente configurado."""
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_provider_name(self) -> str:
+        """Retorna el nombre del proveedor (ej: 'groq', 'openai')."""
+        raise NotImplementedError
+    
+    def get_status(self) -> dict[str, Any]:
+        """
+        Estado del proveedor (opcional, para monitoreo).
+        Por defecto retorna info básica.
+        """
+        return {
+            "provider": self.get_provider_name(),
+            "model": self.get_model_id(),
+        }
+
+# app/mic/providers/registry.py
+from __future__ import annotations
+
+import logging
+import os
+from typing import Optional
+
+from app.mic.providers.base import LLMProvider
+from app.mic.providers.groq_provider import GroqProvider
+from app.mic.providers.model_config import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+    FALLBACK_CHAINS,
+    ModelConfig,
+    PLAN_MODEL_MAP,
+    ProviderType,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class ProviderRegistry:
+    """
+    Registry que crea y gestiona proveedores LLM con fallback automático.
+    """
+    
+    @classmethod
+    def get_provider(
+        cls,
+        explicit_model: Optional[str] = None,
+        user_plan: Optional[str] = None,
+        used_models: Optional[list[str]] = None,
+    ) -> LLMProvider:
+        """
+        Obtiene el proveedor, con fallback automático si el modelo falla.
+        
+        Args:
+            explicit_model: Modelo explícito (si se pasa)
+            user_plan: Plan del usuario
+            used_models: Lista de modelos ya intentados (para evitar loops)
+        """
+        if used_models is None:
+            used_models = []
+        
+        model_config = cls.select_model(
+            explicit_model=explicit_model,
+            user_plan=user_plan,
+        )
+        
+        # Si este modelo ya fue intentado, buscar fallback
+        if model_config.id in used_models:
+            fallback_model = cls._get_next_fallback(model_config.id, used_models)
+            if fallback_model:
+                logger.warning(
+                    f"Modelo {model_config.id} ya fue intentado. "
+                    f"Usando fallback: {fallback_model.id}"
+                )
+                model_config = fallback_model
+            else:
+                raise ValueError(
+                    f"No hay modelos alternativos disponibles. "
+                    f"Intentados: {used_models}"
+                )
+        
+        return cls._create_provider(model_config)
+    
+    @classmethod
+    def _get_next_fallback(
+        cls, 
+        current_model: str, 
+        used_models: list[str]
+    ) -> Optional[ModelConfig]:
+        """Obtiene el siguiente modelo de fallback que no haya sido usado."""
+        fallbacks = FALLBACK_CHAINS.get(current_model, [])
+        
+        for fallback_id in fallbacks:
+            if fallback_id not in used_models and fallback_id in AVAILABLE_MODELS:
+                return AVAILABLE_MODELS[fallback_id]
+        
+        return None
+    
+    @classmethod
+    def select_model(
+        cls,
+        explicit_model: Optional[str] = None,
+        user_plan: Optional[str] = None,
+    ) -> ModelConfig:
+        """Selecciona el modelo según las reglas de prioridad."""
+        
+        # 1. Modelo explícito
+        if explicit_model and explicit_model in AVAILABLE_MODELS:
+            logger.info(f"Usando modelo explícito: {explicit_model}")
+            return AVAILABLE_MODELS[explicit_model]
+        
+        # 2. Variable de entorno
+        env_model = os.environ.get("GROQ_MODEL")
+        if env_model and env_model in AVAILABLE_MODELS:
+            logger.info(f"Usando modelo desde env: {env_model}")
+            return AVAILABLE_MODELS[env_model]
+        
+        # 3. Según plan del usuario
+        if user_plan:
+            plan_lower = user_plan.lower()
+            model_id = PLAN_MODEL_MAP.get(plan_lower)
+            if model_id and model_id in AVAILABLE_MODELS:
+                logger.info(
+                    f"Usando modelo para plan '{plan_lower}': {model_id}"
+                )
+                return AVAILABLE_MODELS[model_id]
+        
+        # 4. Default
+        logger.info(f"Usando modelo default: {DEFAULT_MODEL}")
+        return AVAILABLE_MODELS[DEFAULT_MODEL]
+    
+    @classmethod
+    def _create_provider(cls, model_config: ModelConfig) -> LLMProvider:
+        """Crea el proveedor según el tipo."""
+        
+        if model_config.provider == ProviderType.GROQ:
+            return GroqProvider(model=model_config.id)
+        
+        raise ValueError(
+            f"Proveedor '{model_config.provider}' no soportado."
+        )
+    
+    @classmethod
+    def list_available_models(cls) -> list[ModelConfig]:
+        """Lista todos los modelos disponibles."""
+        return list(AVAILABLE_MODELS.values())
+    
+    @classmethod
+    def get_model(cls, model_id: str) -> ModelConfig:
+        """Obtiene la configuración de un modelo específico."""
+        if model_id not in AVAILABLE_MODELS:
+            raise ValueError(
+                f"Modelo '{model_id}' no disponible. "
+                f"Disponibles: {list(AVAILABLE_MODELS.keys())}"
+            )
+        return AVAILABLE_MODELS[model_id]
+
+# app/mic/providers/model_config.py
+"""
+Configuración de modelos disponibles.
+
+Define qué modelos existen, sus características,
+y cuál usar según el plan del usuario.
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+
+class ProviderType(str, Enum):
+    GROQ = "groq"
+    # Futuros:
+    # OPENAI = "openai"
+    # LOCAL = "local"
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """Configuración inmutable de un modelo."""
+    id: str
+    provider: ProviderType
+    display_name: str
+    tokens_per_day: int
+    cost_tier: str  # "free", "basic", "premium"
+    best_for: list[str]  # ej: ["semantic", "fast", "ironia"]
+
+
+# Registry de modelos disponibles
+AVAILABLE_MODELS: dict[str, ModelConfig] = {
+    # === GROQ: LLAMA ===
+    "llama-3.3-70b-versatile": ModelConfig(
+        id="llama-3.3-70b-versatile",
+        provider=ProviderType.GROQ,
+        display_name="Llama 3.3 70B",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "balanced"],
+    ),
+    "llama-3.1-8b-instant": ModelConfig(
+        id="llama-3.1-8b-instant",
+        provider=ProviderType.GROQ,
+        display_name="Llama 3.1 8B (rápido)",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["fast", "cheap", "sentimientos"],
+    ),
+    
+    # === GROQ: QWEN ===
+    "qwen-2.5-32b": ModelConfig(
+        id="qwen-2.5-32b",
+        provider=ProviderType.GROQ,
+        display_name="Qwen 2.5 32B",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "multilingual"],
+    ),
+    "qwen-qwq-32b": ModelConfig(
+        id="qwen-qwq-32b",
+        provider=ProviderType.GROQ,
+        display_name="Qwen QwQ 32B (razonamiento)",
+        tokens_per_day=100_000,
+        cost_tier="free",
+        best_for=["semantic", "reasoning", "ironia"],
+    ),
+    
+    # === GROQ: OTROS ===
+    "mixtral-8x7b-32768": ModelConfig(
+        id="mixtral-8x7b-32768",
+        provider=ProviderType.GROQ,
+        display_name="Mixtral 8x7B",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["balanced", "cheap"],
+    ),
+    "gemma2-9b-it": ModelConfig(
+        id="gemma2-9b-it",
+        provider=ProviderType.GROQ,
+        display_name="Gemma 2 9B",
+        tokens_per_day=500_000,
+        cost_tier="free",
+        best_for=["fast", "cheap"],
+    ),
+}
+
+
+# Mapeo: plan del usuario → modelo recomendado
+PLAN_MODEL_MAP: dict[str, str] = {
+    "free": "llama-3.1-8b-instant",       # Rápido y barato
+    "bronce": "llama-3.1-8b-instant",     # Rápido y barato
+    "plata": "llama-3.3-70b-versatile",   # Balance calidad/velocidad
+    "oro": "qwen-qwq-32b",                # Mejor para ironía/razonamiento
+    "lifetime": "qwen-qwq-32b",           # Premium
+    "premium": "qwen-qwq-32b",
+}
+
+
+# Modelo por defecto
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+# Fallbacks: si un modelo falla, intentar con estos en orden
+FALLBACK_CHAINS: dict[str, list[str]] = {
+    "llama-3.3-70b-versatile": [
+        "llama-3.1-8b-instant",  # 500k tokens, más rápido
+        "mixtral-8x7b-32768",    # 500k tokens
+        "gemma2-9b-it",          # 500k tokens
+    ],
+    "qwen-qwq-32b": [
+        "qwen-2.5-32b",          # Mismo proveedor, diferente modelo
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+    ],
+    "llama-3.1-8b-instant": [
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it",
+    ],
+}
+
+# app/mic/providers/groq_provider.py
+"""
+Proveedor LLM usando Groq.
+
+Envuelve GroqLLMClient para cumplir con la interfaz LLMProvider.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from app.mic.providers.base import LLMProvider
+from app.services.analysis.groq_llm import GroqLLMClient
+
+
+logger = logging.getLogger(__name__)
+
+
+class GroqProvider(LLMProvider):
+    """
+    Proveedor que utiliza Groq como motor LLM.
+    
+    Soporta todos los modelos disponibles en Groq:
+    - Llama 3.3 70B
+    - Llama 3.1 8B
+    - Qwen 2.5 32B
+    - Qwen QwQ 32B
+    - Mixtral 8x7B
+    - Gemma 2 9B
+    """
+    
+    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+        self._client = GroqLLMClient(model=model)
+        self._model = model
+    
+    def analyze_semantic(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """Delega al GroqLLMClient.analizar_semantica()."""
+        return self._client.analizar_semantica(
+            comentarios=comentarios,
+            contexto=contexto,
+        )
+    
+    def analyze_sentiment(
+        self,
+        comentarios: list[str],
+        contexto: str = "",
+    ) -> dict[str, Any]:
+        """Delega al GroqLLMClient.analizar_sentimientos()."""
+        return self._client.analizar_sentimientos(
+            comentarios=comentarios,
+            contexto=contexto,
+        )
+    
+    def get_model_id(self) -> str:
+        return self._model
+    
+    def get_provider_name(self) -> str:
+        return "groq"
+    
+    def get_status(self) -> dict[str, Any]:
+        """Incluye info del monitor de tokens."""
+        status = super().get_status()
+        
+        if hasattr(self._client, "token_monitor"):
+            status["tokens"] = self._client.token_monitor.get_summary()
+        
+        return status

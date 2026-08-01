@@ -6,13 +6,25 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2><i class="fas fa-comments"></i> Análisis de Comentarios</h2>
+        <h2><i class="fas fa-comments"></i> Análisis de Sentimientos</h2>
         <p class="text-muted">Analizá comentarios de X, Facebook o Instagram con IA</p>
     </div>
     <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-secondary">
         ← Volver al Panel
     </a>
 </div>
+
+{# Mostrar mensajes flash #}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'success' if category == 'success' else 'danger' if category == 'error' else 'warning' }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
 
 {% if paso == 'input' or paso == 'preview' %}
     <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}">
@@ -69,6 +81,7 @@
 <div class="card mb-4">
     <div class="card-header"><h5 class="mb-0"><i class="fas fa-check-circle"></i> Comentarios limpios ({{ comentarios_limpios|length }})</h5></div>
     <div class="card-body">
+        <p class="text-muted">Red detectada: <strong>{{ red_social|upper }}</strong></p>
         <table class="table table-striped">
             <thead><tr><th>#</th><th>Usuario</th><th>Comentario</th></tr></thead>
             <tbody>
@@ -90,63 +103,8 @@
 {% endif %}
 
 {% if paso == 'resultado' and resultado %}
-    <!-- VISTA SEMÁNTICA AVANZADA (Plata+) -->
-    {% if resultado.tipo_analisis == 'semantico' %}
-    <div class="alert alert-info">
-        <i class="fas fa-star"></i> <strong>Análisis Semántico Avanzado</strong> | Modelo: {{ resultado.modelo_utilizado }}
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-list"></i> Análisis Detallado por Comentario</h5></div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Comentario</th>
-                            <th>Sentimiento</th>
-                            <th>Tono</th>
-                            <th>Ironía</th>
-                            <th>Confianza</th>
-                            <th>Evidencia</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in resultado.analisis.analyses %}
-                        <tr>
-                            <td>{{ loop.index }}</td>
-                            <td class="text-muted" style="max-width: 250px;">{{ item.texto_original }}</td>
-                            <td>
-                                {% if item.sentiment == 'positive' %}<span class="badge bg-success">Positivo</span>
-                                {% elif item.sentiment == 'negative' %}<span class="badge bg-danger">Negativo</span>
-                                {% else %}<span class="badge bg-secondary">Neutral</span>{% endif %}
-                            </td>
-                            <td><small>{{ item.tone }}</small></td>
-                            <td>
-                                {% if item.irony %}<span class="badge bg-warning text-dark">Sí</span>
-                                {% else %}<span class="text-muted">No</span>{% endif %}
-                            </td>
-                            <td>{{ (item.confidence * 100)|int }}%</td>
-                            <td>
-                                {% if item.evidence %}
-                                    <ul class="mb-0 ps-3">
-                                        {% for ev in item.evidence %}<li><small>{{ ev }}</small></li>{% endfor %}
-                                    </ul>
-                                {% else %}
-                                    <small class="text-muted">Ninguna</small>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <!-- VISTA BÁSICA DE SENTIMIENTOS (Free/Bronce) -->
-    {% else %}
+    {% if resultado.estadisticas is defined %}
+    
     <div class="card mb-4">
         <div class="card-header"><h5 class="mb-0"><i class="fas fa-chart-pie"></i> Estadísticas</h5></div>
         <div class="card-body">
@@ -170,52 +128,122 @@
                     </div>
                 </div>
             </div>
+            <p class="text-muted mt-2">Total analizado: {{ resultado.estadisticas.total }} comentarios | Red social: {{ resultado.red_social|upper }}</p>
         </div>
     </div>
 
     <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-list"></i> Análisis Detallado</h5></div>
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-file-alt"></i> Resumen General</h5></div>
         <div class="card-body">
-            <table class="table table-striped">
-                <thead><tr><th>#</th><th>Sentimiento</th><th>Resumen</th><th>Confianza</th></tr></thead>
-                <tbody>
-                    {% for item in resultado.analisis_individual %}
-                    <tr>
-                        <td>{{ item.numero }}</td>
-                        <td>
-                            {% if item.sentimiento == 'positivo' %}<span class="badge bg-success">Positivo</span>
-                            {% elif item.sentimiento == 'negativo' %}<span class="badge bg-danger">Negativo</span>
-                            {% else %}<span class="badge bg-secondary">Neutral</span>{% endif %}
-                        </td>
-                        <td>{{ item.resumen_corto }}</td>
-                        <td>{{ (item.confianza * 100)|int }}%</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <p>{{ resultado.resumen_general }}</p>
+            {% if resultado.tono_general %}
+            <p class="text-muted"><strong>Tono general:</strong> {{ resultado.tono_general }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-tags"></i> Temas Principales</h5></div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                {% for tema in resultado.temas_principales %}
+                <span class="badge bg-primary">{{ tema }}</span>
+                {% endfor %}
+            </div>
+            
+            {% if resultado.palabras_clave %}
+            <h6>Palabras Clave</h6>
+            <div class="d-flex flex-wrap gap-2">
+                {% for palabra in resultado.palabras_clave %}
+                <span class="badge bg-info text-dark">{{ palabra }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-lightbulb"></i> Insights</h5></div>
+        <div class="card-body">
+            <ul class="list-group list-group-flush">
+                {% for insight in resultado.insights %}
+                <li class="list-group-item"><i class="fas fa-check text-success me-2"></i> {{ insight }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    {% if resultado.recomendaciones %}
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-tasks"></i> Recomendaciones</h5></div>
+        <div class="card-body">
+            <ul class="list-group list-group-flush">
+                {% for rec in resultado.recomendaciones %}
+                <li class="list-group-item"><i class="fas fa-arrow-right text-primary me-2"></i> {{ rec }}</li>
+                {% endfor %}
+            </ul>
         </div>
     </div>
     {% endif %}
 
-    <div class="d-flex gap-2 mt-3">
-        <button onclick="exportarJSON()" class="btn btn-success"><i class="fas fa-download"></i> Exportar JSON</button>
-        <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary"><i class="fas fa-plus"></i> Nuevo Análisis</a>
+    <div class="card mb-4">
+        <div class="card-header"><h5 class="mb-0"><i class="fas fa-list"></i> Análisis Detallado</h5></div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Sentimiento</th>
+                            <th>Resumen</th>
+                            <th>Confianza</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in resultado.analisis_individual %}
+                        <tr>
+                            <td>{{ item.numero }}</td>
+                            <td>
+                                {% if item.sentimiento == 'positivo' %}
+                                    <span class="badge bg-success">Positivo</span>
+                                {% elif item.sentimiento == 'negativo' %}
+                                    <span class="badge bg-danger">Negativo</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Neutral</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.resumen_corto }}</td>
+                            <td>{{ (item.confianza * 100)|int }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="d-flex gap-2 mt-3">
+                <button onclick="exportarJSON()" class="btn btn-success">
+                    <i class="fas fa-download"></i> Exportar JSON
+                </button>
+                <button onclick="window.print()" class="btn btn-outline-secondary">
+                    <i class="fas fa-print"></i> Imprimir
+                </button>
+                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Nuevo Análisis
+                </a>
+            </div>
+        </div>
     </div>
-{% endif %}
-{% if paso == 'resultado' and resultado and not resultado.success %}
-<div class="alert alert-danger">
-    <h5><i class="fas fa-exclamation-triangle"></i> Error en el análisis</h5>
-    <p>{{ resultado.error }}</p>
-    <hr>
-    <p class="mb-0">
-        <strong>Sugerencias:</strong>
-        <ul class="mb-0 mt-2">
-            <li>Esperá unos minutos y volvé a intentar (los límites se resetean cada hora)</li>
-            <li>Probá con menos comentarios (máximo 25 por análisis)</li>
-            <li>Usá el método de copiar y pegar en lugar de la URL</li>
-        </ul>
-    </p>
-</div>
+
+    {% else %}
+    <div class="alert alert-danger">
+        <h4><i class="fas fa-exclamation-triangle"></i> Error en el análisis</h4>
+        <p>No se pudo completar el análisis. Por favor, intentá de nuevo con menos comentarios.</p>
+    </div>
+    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary mt-3">
+        <i class="fas fa-redo"></i> Intentar de nuevo
+    </a>
+    {% endif %}
+
 {% endif %}
 {% endblock %}
 
