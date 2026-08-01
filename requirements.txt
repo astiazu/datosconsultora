@@ -7,14 +7,22 @@ Flask-Mail==0.10.0
 Flask-WTF==1.2.2
 Werkzeug==3.0.1
 python-dotenv==1.0.0
+
 groq>=0.13.0
 gunicorn==21.2.0
+
 psycopg[binary]>=3.1.0
 mercadopago==2.2.3
+
 openai>=1.0.0
 openai-whisper
 pydub
-playwright==1.40.0
+
+playwright
 beautifulsoup4==4.12.2
+
 pytest>=8.2.0
 pytest-cov>=6.0.0
+
+# compatibilidad Python 3.12
+greenlet>=3.0.3
