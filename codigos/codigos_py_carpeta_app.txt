@@ -95,6 +95,7 @@ def create_app():
     from app.routes.historial import historial_bp
     from app.routes.agentes import agentes_bp
     from app.routes.api import api_bp
+    from app.routes.plata import plata_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -109,6 +110,7 @@ def create_app():
     app.register_blueprint(historial_bp)
     app.register_blueprint(agentes_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(plata_bp)
     
     return app
 
@@ -1360,6 +1362,7 @@ class Attachment:
 ARCHIVO: mic\domain\entities\conversation.py
 ================================================================================
 
+# app/mic/domain/entities/conversation.py
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any
@@ -1410,6 +1413,12 @@ class Conversation:
     @property
     def has_messages(self):
         return len(self.messages) > 0
+
+def get_participant(self, participant_id: str):
+    for participant in self.participants:
+        if participant.participant_id == participant_id:
+            return participant
+    return None
 
 ================================================================================
 ARCHIVO: mic\domain\entities\insight.py
@@ -2296,6 +2305,7 @@ DEFAULT_MODEL = "llama-3.3-70b-versatile"
 FALLBACK_CHAINS: dict[str, list[str]] = {
     "llama-3.3-70b-versatile": [
         "llama-3.1-8b-instant",  # 500k tokens, más rápido
+        "qwen-2.5-32b",          # Alternativa de calidad
         "mixtral-8x7b-32768",    # 500k tokens
         "gemma2-9b-it",          # 500k tokens
     ],
@@ -2305,6 +2315,7 @@ FALLBACK_CHAINS: dict[str, list[str]] = {
         "llama-3.1-8b-instant",
     ],
     "llama-3.1-8b-instant": [
+        "qwen-2.5-32b",          # ✅ Agregado: alternativa de calidad
         "mixtral-8x7b-32768",
         "gemma2-9b-it",
     ],
@@ -2794,6 +2805,35 @@ def admin_usuario_plan(user_id):
           "success")
     return redirect(url_for("admin.admin_usuarios"))
 
+@admin_bp.route("/usuarios/<int:user_id>/reset-consumo", methods=["POST"])
+def admin_usuario_reset_consumo(user_id):
+    """Resetea el consumo mensual de un usuario sin cambiar su plan."""
+    from app.models import UserPlan
+    
+    user = User.query.get_or_404(user_id)
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    
+    if not user_plan:
+        flash(f"El usuario {user.email} no tiene un plan asignado", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Resetear contadores
+    user_plan.consumo_transcripciones = 0
+    user_plan.consumo_analisis = 0
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="reset_consumo",
+        detalle=f"Consumo mensual reseteado para {user.email} (Plan: {user_plan.plan})",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Consumo de {user.email} reseteado a 0", "success")
+    return redirect(url_for("admin.admin_usuarios"))
 
 ================================================================================
 ARCHIVO: routes\agentes.py
@@ -3514,10 +3554,10 @@ def mi_plan():
         user_plan=user_plan,
         plan_obj=plan_obj,
         planes=planes,
-        consumo_transcripciones=user_plan.consumo_transcripciones_mes(),
-        consumo_analisis=user_plan.consumo_analisis_mes()
+        # ✅ USAR ATRIBUTOS DIRECTOS en lugar de contar registros
+        consumo_transcripciones=user_plan.consumo_transcripciones,
+        consumo_analisis=user_plan.consumo_analisis
     )
-
 
 @planes_bp.route("/planes/elegir/<nombre_plan>")
 @login_required
@@ -3525,6 +3565,75 @@ def elegir_plan(nombre_plan):
     """Por ahora solo muestra mensaje 'Próximamente'."""
     flash(f"🚧 La suscripción al plan {nombre_plan} estará disponible próximamente. ¡Gracias por tu interés!", "info")
     return redirect(url_for("planes.lista_planes"))
+
+================================================================================
+ARCHIVO: routes\plata.py
+================================================================================
+
+# app/routes/plata.py
+
+from flask import Blueprint, render_template
+from flask_login import login_required
+
+plata_bp = Blueprint(
+    "plata",
+    __name__,
+    url_prefix="/plata"
+)
+
+
+@plata_bp.route("/")
+@login_required
+def dashboard():
+
+    return render_template(
+        "plata/dashboard.html"
+    )
+
+
+@plata_bp.route("/motor-semantico")
+@login_required
+def motor_semantico():
+
+    return render_template(
+        "plata/motor_semantico.html"
+    )
+
+
+@plata_bp.route("/nueva-conversacion")
+@login_required
+def nueva_conversacion():
+
+    return render_template(
+        "plata/nueva_conversacion.html"
+    )
+
+
+@plata_bp.route("/mis-archivos")
+@login_required
+def mis_archivos():
+
+    return render_template(
+        "plata/mis_archivos.html"
+    )
+
+
+@plata_bp.route("/historial")
+@login_required
+def historial():
+
+    return render_template(
+        "plata/historial.html"
+    )
+
+
+@plata_bp.route("/estadisticas")
+@login_required
+def estadisticas():
+
+    return render_template(
+        "plata/estadisticas.html"
+    )
 
 ================================================================================
 ARCHIVO: routes\public.py
@@ -3569,10 +3678,9 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
-from app.services.analysis import GroqLLMClient
+from app.services.analysis_service import AnalysisService
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
-
 
 servicios_bp = Blueprint("servicios", __name__)
 
@@ -3596,7 +3704,7 @@ def servicio_transcripcion():
             if ext in ALLOWED_EXT:
                 puede_usar, uso_actual, limite = puede_transcribir(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    flash(f" Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 original_filename = secure_filename(f.filename)
@@ -3667,12 +3775,14 @@ def analisis_sentimientos():
     error_msg = None
     paso = "input"
     
-    # Variables para mantener el estado del formulario
     url_input = ""
     contexto = ""
     mostrar_pestaña_url = False
     
-    # Verificar si el usuario tiene acceso a la feature de URL (Plata en adelante)
+    # Variables para la vista premium del Plan Plata (Conversation)
+    conversation_plata = None
+    participants_plata = None
+    
     user_plan = current_user.user_plan
     plan_obj = user_plan.obtener_plan_obj() if user_plan else None
     tiene_acceso_url = plan_obj and plan_obj.tiene_feature('motor_semantico')
@@ -3683,76 +3793,88 @@ def analisis_sentimientos():
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
         
-        # Si viene de la pestaña URL, recordamos mostrarla
         if url_input:
             mostrar_pestaña_url = True
         
-        # --- LÓGICA 1: Si viene una URL y el usuario tiene el plan ---
+        # =========================================================================
+        # LÓGICA 1: URL (Exclusivo Plan Plata+)
+        # =========================================================================
+        # NOTA: La extracción automática por URL requiere la API aprobada de Meta.
+        # Por ahora, si el usuario pega una URL, le avisamos y le damos la opción
+        # de continuar pegando los comentarios manualmente. Si en el futuro se 
+        # aprueba la API, se descomenta el bloque inferior y se elimina el aviso.
         if url_input and tiene_acceso_url and action == "analizar":
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
-                # 1. Intentar extraer con el Scraper
-                from app.services.scraper_service import ScraperService
-                scraper = ScraperService()
-                extraccion = scraper.extraer_de_url(url_input)
+                # ⚠️ AVISO TEMPORAL: La API de Meta no está aprobada aún.
+                flash("⚠️ La extracción automática por URL requiere la API aprobada de Facebook/Meta. Por favor, copiá y pegá los comentarios manualmente en el campo de abajo.", "warning")
                 
-                if not extraccion["success"]:
-                    error_msg = extraccion['error_msg']
+                if not comentarios_raw:
+                    # Si no pegó comentarios, volvemos al input
+                    error_msg = "Extracción por URL no disponible sin API aprobada."
                     paso = "input"
-                    mostrar_pestaña_url = True
                 else:
-                    # 2. Usar AnalysisService para que use el método correcto según el plan
-                    from app.services.analysis_service import AnalysisService
+                    # Si pegó comentarios, procesamos el texto manualmente (flujo Plan Plata)
+                    from app.services.conversation_service import ConversationService
+                    service = ConversationService()
+                    respuesta = service.from_manual_text(comentarios_raw, contexto)
                     
-                    datos_crudos = extraccion["data"]
-                    
-                    # Obtener el nombre del plan correctamente
-                    user_plan_name = (
-                        current_user.user_plan.plan 
-                        if current_user.user_plan 
-                        else "free"
-                    )
-                    
-                    service = AnalysisService()
-                    resultado_dict = service.analizar(
-                        datos_crudos=datos_crudos,
-                        origen="facebook",
-                        user_plan=user_plan_name,
-                        contexto=contexto,
-                    )
-                    
-                    if resultado_dict["success"]:
-                        resultado = resultado_dict
-                        resultado["red_social"] = "facebook/instagram (vía URL)"
-                        resultado["total_comentarios_limpios"] = len(datos_crudos.get("comments", []))
-                        
-                        registrar_uso_analisis(current_user)
-                        
-                        analysis_session = AnalysisSession(
-                            user_id=current_user.id,
-                            red_social=resultado["red_social"],
-                            contexto=contexto if contexto else None,
-                            total_comentarios=len(datos_crudos.get("comments", [])),
-                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
-                        )
-                        db.session.add(analysis_session)
-                        db.session.commit()
-                        
-                        flash(f"✅ Análisis completado con {len(datos_crudos.get('comments', []))} comentarios extraídos.", "success")
-                        paso = "resultado"
-                    else:
-                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                    if not respuesta["success"]:
+                        flash(f"⚠️ {respuesta.get('error_msg', 'Error al procesar')}", "warning")
                         paso = "input"
+                    else:
+                        conversation_plata = respuesta["conversation"]
+                        red_social = respuesta.get("red_social", "desconocido")
+                        
+                        participants_plata = {
+                            p.participant_id: p.display_name 
+                            for p in conversation_plata.participants
+                        }
+                        
+                        flash(f"✅ Se detectaron {conversation_plata.total_messages} comentarios ({red_social})", "success")
+                        paso = "preview_plata"
+                        
+                # -------------------------------------------------------------------------
+                # CÓDIGO ANTIGUO (Comentado - Flujo original con Scraper + AnalysisService)
+                # Se reemplazó por el flujo de ConversationService para el Plan Plata.
+                # Se conserva por si se necesita revertir o adaptar cuando se apruebe la API.
+                # -------------------------------------------------------------------------
+                # from app.services.conversation_service import ConversationService
+                # service = ConversationService()
+                # respuesta = service.extraer_conversation(url_input)
+                
+                # if not respuesta["success"]:
+                #     error_msg = respuesta['error_msg']
+                #     paso = "input"
+                #     mostrar_pestaña_url = True
+                # else:
+                #     conversation = respuesta["conversation"]
+                #     user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
+                #     participants = {
+                #         p.participant_id: p.display_name
+                #         for p in conversation.participants
+                #     }
+                #     return render_template(
+                #         "plata/comentarios_extraidos.html",
+                #         participants=participants,
+                #         conversation=conversation,
+                #         contexto=contexto,
+                #         url_input=url_input
+                #     )
+                # -------------------------------------------------------------------------
                         
             except Exception as e:
                 error_msg = f"Error inesperado: {str(e)}"
+                flash(f"❌ {error_msg}", "error")
                 paso = "input"
         
-        # --- LÓGICA 2: Copiar y Pegar - Limpiar ---
+        # =========================================================================
+        # LÓGICA 2: Limpiar y previsualizar (Plan Bronce - INTACTO)
+        # =========================================================================
         elif action == "limpiar" and not url_input:
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
@@ -3766,27 +3888,29 @@ def analisis_sentimientos():
                 flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
         
-        # --- LÓGICA 3: Copiar y Pegar - Analizar directamente ---
+        # =========================================================================
+        # LÓGICA 3: Analizar directamente (Plan Bronce - INTACTO Y BLINDADO)
+        # =========================================================================
         elif action == "analizar" and not url_input:
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
-                if request.form.get("comentarios_limpios_json"):
-                    comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
-                else:
-                    comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                # ✅ LEER DIRECTAMENTE EL TEXTO RAW (viene del textarea oculto, 100% seguro)
+                comentarios_raw = request.form.get("comentarios", "").strip()
+                contexto = request.form.get("contexto", "").strip()
+                
+                # Regeneramos la limpieza. Es rápido, idempotente y evita cualquier error de JSON.
+                comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 
                 if not comentarios_limpios:
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    # ✅ USAR AnalysisService en lugar de GroqLLMClient directo
                     from app.services.analysis_service import AnalysisService
                     
-                    # Construir datos_crudos en formato esperado
                     datos_crudos = {
                         "comments": [
                             {"text": f"[{c['usuario']}]: {c['texto']}"}
@@ -3794,18 +3918,15 @@ def analisis_sentimientos():
                         ]
                     }
                     
-                    # Obtener el plan del usuario correctamente
-                    user_plan_name = (
-                        current_user.user_plan.plan 
-                        if current_user.user_plan 
-                        else "free"
-                    )
+                    user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
                     
-                    # Ejecutar análisis con el servicio correcto
+                    # Normalizar origen para el MIC (evita "desconocido")
+                    origen_para_mic = red_social if red_social in ["facebook", "instagram", "x"] else "facebook"
+                    
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
-                        origen=red_social,
+                        origen=origen_para_mic,
                         user_plan=user_plan_name,
                         contexto=contexto,
                     )
@@ -3819,7 +3940,6 @@ def analisis_sentimientos():
                         
                         registrar_uso_analisis(current_user)
                         
-                        # Guardar análisis en la base de datos
                         analysis_session = AnalysisSession(
                             user_id=current_user.id,
                             red_social=red_social,
@@ -3834,7 +3954,7 @@ def analisis_sentimientos():
                         paso = "resultado"
                     else:
                         error_msg = resultado_dict.get("error", "Error en el análisis")
-                        flash(f" Error en el análisis: {error_msg}", "error")
+                        flash(f"❌ {error_msg}", "error")
                         paso = "input"
                         
             except Exception as e:
@@ -3853,7 +3973,9 @@ def analisis_sentimientos():
         tiene_acceso_url=tiene_acceso_url,
         url_input=url_input,
         contexto=contexto,
-        mostrar_pestaña_url=mostrar_pestaña_url
+        mostrar_pestaña_url=mostrar_pestaña_url,
+        conversation=conversation_plata,
+        participants=participants_plata,
     )
 
 ================================================================================
@@ -4029,29 +4151,18 @@ ARCHIVO: services\analysis_service.py
 # app/services/analysis_service.py
 """
 AnalysisService: Puente entre Flask y el MIC.
-
-Responsabilidades:
-- Recibir requests de Flask.
-- Decidir qué modelo/proveedor usar según el plan del usuario.
-- Coordinar el MIC.
-- Devolver respuesta serializable a Flask.
 """
 from __future__ import annotations
-
 import logging
 from typing import Any
-
 from app.mic.mic_engine import MIC
 from app.mic.providers import ProviderRegistry
-
 
 logger = logging.getLogger(__name__)
 
 
 class AnalysisService:
-    """
-    Servicio de aplicación que orquesta el análisis de comentarios.
-    """
+    """Servicio de aplicación que orquesta el análisis de comentarios."""
 
     def analizar(
         self,
@@ -4060,19 +4171,13 @@ class AnalysisService:
         user_plan: str,
         contexto: str = "",
     ) -> dict[str, Any]:
-        """
-        Analiza comentarios según el plan del usuario.
-        """
+        """Analiza comentarios según el plan del usuario."""
         plan_lower = user_plan.lower()
         
-        # Free/Bronce: análisis básico de sentimientos (modelo rápido)
         if plan_lower in ["free", "bronce"]:
             return self._analizar_sentimientos(datos_crudos, origen, contexto, user_plan)
-        
-        # Plata+: análisis semántico avanzado (modelo balanceado o de razonamiento)
         elif plan_lower in ["plata", "oro", "lifetime", "premium"]:
             return self._analizar_semantica(datos_crudos, origen, contexto, user_plan)
-        
         else:
             return {
                 "success": False,
@@ -4086,33 +4191,34 @@ class AnalysisService:
         contexto: str,
         user_plan: str,
     ) -> dict[str, Any]:
-        """
-        Análisis básico de sentimientos para Free/Bronce.
-        """
+        """Análisis básico de sentimientos para Free/Bronce."""
         try:
             comentarios = self._extraer_comentarios(datos_crudos, origen)
-            
+
+            logger.info("Comentarios extraídos: %s", comentarios)
+
             if not comentarios:
                 return {
                     "success": False,
                     "error": "No se encontraron comentarios válidos.",
                 }
             
-            # Obtener el proveedor adecuado para el plan
             provider = ProviderRegistry.get_provider(user_plan=user_plan)
             
-            # Llamar al método de sentimientos del proveedor
-            resultado = provider.analyze_sentiment(
+            resultado_llm = provider.analyze_sentiment(
                 comentarios=comentarios,
                 contexto=contexto,
             )
+
+            logger.warning("RESULTADO SENTIMIENTOS RAW: %s", resultado_llm)
             
+            # ✅ APLANAR: Fusionar resultado_llm en el nivel superior
             return {
                 "success": True,
                 "tipo_analisis": "sentimientos",
                 "modelo_utilizado": provider.get_model_id(),
                 "total_comentarios": len(comentarios),
-                "analisis": resultado,
+                **resultado_llm,  # <--- ESTO ES LA CLAVE
             }
             
         except Exception as exc:
@@ -4129,29 +4235,20 @@ class AnalysisService:
         contexto: str,
         user_plan: str,
     ) -> dict[str, Any]:
-        """
-        Análisis semántico avanzado para Plata+.
-        """
+        """Análisis semántico avanzado para Plata+."""
         try:
-            # 1. Obtener el proveedor adecuado para el plan
             provider = ProviderRegistry.get_provider(user_plan=user_plan)
             
-            # 2. Crear el MIC inyectando este proveedor específico
             from app.mic.analyzers.groq_semantic_analyzer import GroqSemanticAnalyzer
-            
-            # El provider de Groq expone su cliente interno
             analyzer = GroqSemanticAnalyzer(groq_client=provider._client)
-            
             mic = MIC(semantic_analyzer=analyzer)
             
-            # 3. Ejecutar análisis
             result = mic.analizar(
                 datos_crudos=datos_crudos,
                 origen=origen,
                 metadata={"contexto": contexto},
             )
             
-            # 4. Convertir AnalysisResult a dict serializable
             return {
                 "success": result.success,
                 "tipo_analisis": "semantico",
@@ -4202,6 +4299,143 @@ class AnalysisService:
         return {
             "analyses": serialized_analyses,
             "metadata": semantic_analysis.get("metadata", {}),
+        }
+
+================================================================================
+ARCHIVO: services\conversation_manager.py
+================================================================================
+
+from datetime import datetime
+
+from app.mic.adapters.adapter_factory import AdapterFactory
+from app.services.scraper_service import ScraperService
+
+
+class ConversationManager:
+
+    def crear_desde_url(self, url: str):
+
+        scraper = ScraperService()
+
+        respuesta = scraper.extraer_de_url(url)
+
+        if not respuesta["success"]:
+            return respuesta
+
+        adapter = AdapterFactory.create("facebook")
+
+        conversation = adapter.convert(respuesta["data"])
+
+        conversation.metadata["url"] = url
+        conversation.metadata["created"] = datetime.utcnow().isoformat()
+
+        return {
+            "success": True,
+            "conversation": conversation
+        }
+
+================================================================================
+ARCHIVO: services\conversation_service.py
+================================================================================
+
+# app/services/conversation_service.py
+from datetime import datetime
+from uuid import uuid4
+from app.services.scraper_service import ScraperService
+from app.mic.adapters.adapter_factory import AdapterFactory
+from app.mic.domain.entities.conversation import Conversation
+from app.mic.domain.entities.message import Message
+from app.mic.domain.entities.participant import Participant
+from app.mic.domain.enums import SourceType
+from app.services.analysis.text_cleaner import limpiar_comentarios
+
+
+class ConversationService:
+    """
+    Orquestador del Plan Plata.
+    Encapsula el flujo: Scraper → Adapter → Conversation.
+    También permite construir Conversations desde texto pegado manualmente.
+    """
+
+    def __init__(self):
+        self.scraper = ScraperService()
+
+    # =========================================================================
+    # FLUJO 1: Extracción por URL (Requiere API de Meta aprobada)
+    # =========================================================================
+    def extraer_conversation(self, url: str) -> dict:
+        """
+        Extrae comentarios desde una URL usando el Scraper y los convierte
+        en una entidad Conversation mediante el Adapter correspondiente.
+        """
+        resultado = self.scraper.extraer_de_url(url)
+
+        if not resultado["success"]:
+            return resultado
+
+        adapter = AdapterFactory.create(resultado["source"])
+        conversation = adapter.convert(resultado["data"])
+
+        return {
+            "success": True,
+            "conversation": conversation
+        }
+
+    # =========================================================================
+    # FLUJO 2: Construcción desde texto pegado manualmente (Plan Plata)
+    # =========================================================================
+    def from_manual_text(self, texto_crudo: str, contexto: str = "") -> dict:
+        """
+        Construye una Conversation a partir de texto copiado y pegado manualmente.
+        Ideal para el Plan Plata cuando la extracción por URL no está disponible
+        (API de Meta no aprobada) o el usuario prefiere pegar los comentarios.
+        """
+        comentarios_limpios, red_detectada = limpiar_comentarios(texto_crudo)
+        
+        if not comentarios_limpios:
+            return {
+                "success": False, 
+                "error_msg": "No se encontraron comentarios válidos en el texto pegado."
+            }
+        
+        # Determinar SourceType de forma segura
+        red_lower = red_detectada.lower()
+        if "instagram" in red_lower:
+            source = SourceType.INSTAGRAM
+        elif "facebook" in red_lower:
+            source = SourceType.FACEBOOK
+        elif "x" in red_lower or "twitter" in red_lower:
+            source = SourceType.X
+        else:
+            source = SourceType.FACEBOOK  # Fallback por defecto
+        
+        # Crear la entidad Conversation
+        conversation = Conversation(
+            conversation_id=f"manual_{uuid4().hex}",
+            source=source,
+            title="Análisis Manual (Copiar y Pegar)",
+            created_at=datetime.now(),
+            metadata={"contexto": contexto} if contexto else {}
+        )
+        
+        # Construir participantes y mensajes
+        for i, c in enumerate(comentarios_limpios):
+            pid = f"user_{i}"
+            conversation.add_participant(Participant(
+                participant_id=pid, 
+                display_name=c["usuario"]
+            ))
+            conversation.add_message(Message(
+                message_id=str(i),
+                participant_id=pid,
+                text=c["texto"],
+                created_at=datetime.now(),
+            ))
+            
+        return {
+            "success": True,
+            "conversation": conversation,
+            "red_social": red_detectada
         }
 
 ================================================================================
@@ -4314,7 +4548,6 @@ def inicializar_planes_por_defecto():
         return
     
     planes = [
-        # ⭐ NUEVO: Plan Free (agregado al inicio)
         Plan(
             nombre='free', 
             display_name='Free', 
@@ -4324,20 +4557,92 @@ def inicializar_planes_por_defecto():
             precio_lifetime=0.0, 
             es_lifetime=False, 
             activo=True, 
-            orden=0,  # ⭐ Orden 0 para que aparezca primero
+            orden=0,
             incluye_historial=False, 
             incluye_motor_semantico=False, 
             incluye_agentes=False, 
             incluye_actividad_completa=False, 
-            limite_transcripciones_mes=3,  # ⭐ Límite bajo
-            limite_analisis_mes=2,  # ⭐ Límite bajo
+            limite_transcripciones_mes=3,
+            limite_analisis_mes=2,
             icono='bi-gift-fill', 
             color='info'
         ),
-        Plan(nombre='bronce', display_name='Bronce', descripcion='Plan gratuito para empezar.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=0.0, es_lifetime=False, activo=True, orden=1, incluye_historial=False, incluye_motor_semantico=False, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=5, limite_analisis_mes=3, icono='bi-award-fill', color='warning'),
-        Plan(nombre='plata', display_name='Plata', descripcion='Para profesionales.', precio_mensual=15000.0, precio_anual=144000.0, precio_lifetime=250000.0, es_lifetime=False, activo=True, orden=2, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=False, incluye_actividad_completa=False, limite_transcripciones_mes=100, limite_analisis_mes=50, icono='bi-award-fill', color='secondary'),
-        Plan(nombre='oro', display_name='Oro', descripcion='Para empresas.', precio_mensual=35000.0, precio_anual=336000.0, precio_lifetime=600000.0, es_lifetime=False, activo=True, orden=3, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=500, limite_analisis_mes=200, icono='bi-trophy-fill', color='warning'),
-        Plan(nombre='lifetime', display_name='Lifetime', descripcion='Acceso de por vida.', precio_mensual=0.0, precio_anual=0.0, precio_lifetime=900000.0, es_lifetime=True, activo=True, orden=4, incluye_historial=True, incluye_motor_semantico=True, incluye_agentes=True, incluye_actividad_completa=True, limite_transcripciones_mes=999999, limite_analisis_mes=999999, icono='bi-gem', color='danger'),
+        Plan(
+            nombre='bronce', 
+            display_name='Bronce', 
+            descripcion='Plan gratuito para empezar.', 
+            precio_mensual=0.0, 
+            precio_anual=0.0, 
+            precio_lifetime=0.0, 
+            es_lifetime=False, 
+            activo=True, 
+            orden=1, 
+            incluye_historial=False, 
+            incluye_motor_semantico=False, 
+            incluye_agentes=False, 
+            incluye_actividad_completa=False, 
+            limite_transcripciones_mes=5, 
+            limite_analisis_mes=3, 
+            icono='bi-award-fill', 
+            color='warning'
+        ),
+        Plan(
+            nombre='plata', 
+            display_name='Plata', 
+            descripcion='Para profesionales.', 
+            precio_mensual=15000.0, 
+            precio_anual=144000.0, 
+            precio_lifetime=250000.0, 
+            es_lifetime=False, 
+            activo=True, 
+            orden=2, 
+            incluye_historial=True, 
+            incluye_motor_semantico=True, 
+            incluye_agentes=False, 
+            incluye_actividad_completa=False, 
+            limite_transcripciones_mes=100, 
+            limite_analisis_mes=50, 
+            icono='bi-award-fill', 
+            color='secondary'
+        ),
+        Plan(
+            nombre='oro', 
+            display_name='Oro', 
+            descripcion='Para empresas.', 
+            precio_mensual=35000.0, 
+            precio_anual=336000.0, 
+            precio_lifetime=600000.0, 
+            es_lifetime=False, 
+            activo=True, 
+            orden=3, 
+            incluye_historial=True, 
+            incluye_motor_semantico=True, 
+            incluye_agentes=True, 
+            incluye_actividad_completa=True, 
+            limite_transcripciones_mes=500, 
+            limite_analisis_mes=200, 
+            icono='bi-trophy-fill', 
+            color='warning'
+        ),
+        Plan(
+            nombre='lifetime', 
+            display_name='Lifetime', 
+            descripcion='Acceso de por vida.', 
+            precio_mensual=0.0, 
+            precio_anual=0.0, 
+            precio_lifetime=900000.0, 
+            es_lifetime=True, 
+            activo=True, 
+            orden=4, 
+            incluye_historial=True, 
+            incluye_motor_semantico=True, 
+            incluye_agentes=True, 
+            incluye_actividad_completa=True, 
+            limite_transcripciones_mes=999999, 
+            limite_analisis_mes=999999, 
+            icono='bi-gem', 
+            color='danger'
+        ),
     ]
     
     for plan in planes:
@@ -4347,49 +4652,67 @@ def inicializar_planes_por_defecto():
 def obtener_plan_usuario(user):
     user_plan = UserPlan.query.filter_by(user_id=user.id).first()
     if not user_plan:
-        # ⭐ CAMBIO: Asignar plan Free a nuevos usuarios
         plan_free = Plan.query.filter_by(nombre='free').first()
         user_plan = UserPlan(
             user_id=user.id, 
             plan_id=plan_free.id if plan_free else None, 
-            plan='free',  # ⭐ Cambiado de 'bronce' a 'free'
-            limite_transcripciones=3,  # ⭐ Límites del plan Free
+            plan='free',
+            limite_transcripciones=3,
             limite_analisis=2
         )
         db.session.add(user_plan)
         db.session.commit()
     return user_plan
+
 def obtener_todos_los_planes():
     return Plan.query.filter_by(activo=True).order_by(Plan.orden).all()
 
 def puede_transcribir(user):
+    """Verifica si el usuario puede hacer una transcripción."""
     user_plan = obtener_plan_usuario(user)
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_transcripciones_mes if plan else 5
+    
+    # Planes Lifetime o sin límite
     if limite >= 999999:
-        return True, user_plan.consumo_transcripciones_mes(), limite
-    uso = user_plan.consumo_transcripciones_mes()
+        return True, user_plan.consumo_transcripciones, limite
+    
+    # ✅ USAR EL ATRIBUTO DIRECTO en lugar de contar registros
+    uso = user_plan.consumo_transcripciones
     return uso < limite, uso, limite
 
 def registrar_uso_transcripcion(user):
+    """Registra el uso de una transcripción incrementando el contador."""
     user_plan = obtener_plan_usuario(user)
     user_plan.consumo_transcripciones += 1
     db.session.commit()
 
 def puede_analizar(user):
+    """Verifica si el usuario puede hacer un análisis."""
     user_plan = obtener_plan_usuario(user)
     plan = user_plan.obtener_plan_obj()
     limite = plan.limite_analisis_mes if plan else 3
+    
+    # Planes Lifetime o sin límite
     if limite >= 999999:
-        return True, user_plan.consumo_analisis_mes(), limite
-    uso = user_plan.consumo_analisis_mes()
+        return True, user_plan.consumo_analisis, limite
+    
+    # ✅ USAR EL ATRIBUTO DIRECTO en lugar de contar registros
+    uso = user_plan.consumo_analisis
     return uso < limite, uso, limite
 
 def registrar_uso_analisis(user):
+    """Registra el uso de un análisis incrementando el contador."""
     user_plan = obtener_plan_usuario(user)
     user_plan.consumo_analisis += 1
     db.session.commit()
 
+def resetear_consumo(user):
+    """Resetea el consumo mensual de un usuario a 0."""
+    user_plan = obtener_plan_usuario(user)
+    user_plan.consumo_transcripciones = 0
+    user_plan.consumo_analisis = 0
+    db.session.commit()
 
 ================================================================================
 ARCHIVO: services\scraper_service.py
@@ -4466,7 +4789,11 @@ class ScraperService:
                     ]
                 }
                 
-                return {"success": True, "data": data_para_mic}
+                return {
+                    "success": True,
+                    "source": "facebook",   # luego será automático
+                    "data": data_para_mic
+                }
                 
         except Exception as e:
             return {
@@ -4812,62 +5139,32 @@ ARCHIVO: services\analysis\groq_llm.py
 ================================================================================
 
 # app/services/analysis/groq_llm.py
+"""
+Cliente LLM para Groq.
+Provee métodos para análisis de sentimientos y semántico.
+"""
 import os
 import json
 import re
 from groq import Groq
 from app.services.analysis.token_monitor import TokenMonitor
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 
 def cargar_prompt(nombre: str) -> str:
-    """Carga el contenido de un archivo de prompt desde la carpeta mic/prompts/"""
-    ruta = os.path.join(BASE_DIR, "mic", "prompts", nombre)
+    """Carga el contenido de un archivo de prompt desde app/mic/prompts/"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    ruta = os.path.join(base_dir, "mic", "prompts", nombre)
     try:
         with open(ruta, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        return "Sos un experto en análisis de texto. Devolvé JSON estricto."
-
-
-def reparar_json(texto: str) -> str:
-    """Intenta reparar JSON truncado por el modelo."""
-    if texto.count("{") > texto.count("}"):
-        texto += "}" * (texto.count("{") - texto.count("}"))
-    if texto.count("[") > texto.count("]"):
-        texto += "]" * (texto.count("[") - texto.count("]"))
-    
-    texto = re.sub(r'"tone"\s*$', '"tone": "ambiguous"', texto)
-    texto = re.sub(r'"sentiment"\s*$', '"sentiment": "neutral"', texto)
-    texto = re.sub(r'"irony"\s*$', '"irony": false', texto)
-    
-    return texto
-
-
-def procesar_respuesta_groq(respuesta: str) -> dict:
-    """Procesa y valida la respuesta de Groq."""
-    texto = respuesta.strip()
-    
-    match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', texto)
-    if match:
-        texto = match.group(1).strip()
-    
-    try:
-        return json.loads(texto)
-    except json.JSONDecodeError:
-        pass
-    
-    try:
-        return json.loads(reparar_json(texto))
-    except json.JSONDecodeError as e:
-        raise Exception(f"JSON inválido incluso después de reparar: {e}\nRespuesta recibida:\n{texto[:500]}")
+        raise ValueError(f"Prompt '{nombre}' no encontrado en {ruta}")
 
 
 class GroqLLMClient:
     """Cliente para análisis de texto con modelos LLM de Groq."""
     
-    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+    def __init__(self, model: str = "llama-3.1-8b-instant"):
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY no configurada en variables de entorno")
@@ -4875,91 +5172,258 @@ class GroqLLMClient:
         self.model = model
         self.token_monitor = TokenMonitor.get_instance()
 
+    def _extraer_json(self, texto: str) -> dict:
+        """Extrae JSON de una respuesta del LLM de forma robusta."""
+
+        texto = texto.strip()
+
+        # Limpiar bloques markdown
+        if texto.startswith("```"):
+            match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', texto)
+            if match:
+                texto = match.group(1).strip()
+
+        # Reparar errores comunes del modelo:
+        # Ej: "resumen_corto " -> "resumen_corto"
+        texto = re.sub(
+            r'"([a-zA-Z_][a-zA-Z0-9_]*)\s+"',
+            r'"\1"',
+            texto
+        )
+
+        # Intento directo
+        try:
+            return json.loads(texto)
+
+        except json.JSONDecodeError:
+            pass
+
+        # Buscar objeto JSON dentro del texto
+        primer_llave = texto.find("{")
+        ultima_llave = texto.rfind("}")
+
+        if primer_llave != -1 and ultima_llave != -1:
+            texto_extraido = texto[primer_llave:ultima_llave + 1]
+
+            try:
+                return json.loads(texto_extraido)
+
+            except json.JSONDecodeError:
+                pass
+
+
+        # Reparar JSON truncado
+        try:
+
+            abiertas = texto.count("{")
+            cerradas = texto.count("}")
+
+            if abiertas > cerradas:
+                texto += "}" * (abiertas - cerradas)
+
+            abiertos = texto.count("[")
+            cerrados = texto.count("]")
+
+            if abiertos > cerrados:
+                texto += "]" * (abiertos - cerrados)
+
+            return json.loads(texto)
+
+        except json.JSONDecodeError:
+            pass
+
+
+        raise ValueError(
+            f"No se pudo extraer JSON válido. Respuesta recibida: {texto[:300]}"
+        )
+
     def analizar_sentimientos(self, comentarios: list, contexto: str = "") -> dict:
-        """Analiza sentimientos de una lista de comentarios (Planes Free/Bronce)."""
+        """
+        Analiza sentimientos de una lista de comentarios.
+        Usado por planes Free/Bronce.
+        Divide en lotes para evitar límites de TPM.
+        """
         if len(comentarios) > 100:
             raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
         
-        comentarios_texto = "\n".join([f"{i+1}. {c}" for i, c in enumerate(comentarios)])
-        contexto_texto = contexto if contexto else "Análisis general de redes sociales sin contexto adicional."
+        # Dividir en lotes de 15 para evitar error 413
+        lote_tamano = 15
+        lotes = [comentarios[i:i + lote_tamano] for i in range(0, len(comentarios), lote_tamano)]
+        resultados_lotes = []
         
-        # Cargar prompt desde archivo
-        prompt_base = cargar_prompt("sentimientos_prompt.txt")
-        prompt = prompt_base.format(
-            total_comentarios=len(comentarios),
-            contexto_texto=contexto_texto,
-            comentarios_texto=comentarios_texto
-        )
-        
-        max_intentos = 3
-        ultimo_error = None
-        
-        for intento in range(max_intentos):
-            try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": "Respondé SIEMPRE con JSON válido. NUNCA incluyas texto fuera del JSON."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.15 if intento == 0 else 0.05,
-                    max_tokens=3500,
-                    response_format={"type": "json_object"}  # 🔑 FORZAR JSON VÁLIDO
+        for idx_lote, lote in enumerate(lotes, 1):
+            comentarios_texto = "\n".join([f"{i+1}. {c}" for i, c in enumerate(lote)])
+            contexto_texto = f"\nCONTEXTO ESPECÍFICO: {contexto}" if contexto else "\nCONTEXTO ESPECÍFICO: Análisis general de redes sociales sin contexto adicional."
+            
+            # Cargar prompt desde archivo
+            prompt_base = cargar_prompt("sentimientos_prompt.txt")
+            prompt = prompt_base.format(
+                total_comentarios=len(lote),
+                contexto_texto=contexto_texto,
+                comentarios_texto=comentarios_texto
+            )
+            
+            max_intentos = 3
+            ultimo_error = None
+            
+            for intento in range(max_intentos):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {
+                                "role": "system", 
+                                "content": "Respondé SIEMPRE con JSON válido. NUNCA incluyas texto fuera del JSON. NUNCA uses bloques de código markdown."
+                            },
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.15 if intento == 0 else 0.05,
+                        max_tokens=3500,
+                    )
+                    
+                    # ✅ CORRECCIÓN DEFENSIVA
+                    if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                        self.token_monitor.update_from_response(response)
+                    
+                    contenido = response.choices[0].message.content.strip()
+
+                    print("\n======================")
+                    print(contenido)
+                    print("======================\n")
+
+                    resultado = self._extraer_json(contenido)
+
+
+                    if "estadisticas" not in resultado or "analisis_individual" not in resultado:
+                        raise ValueError(
+                            "Faltan campos requeridos en la respuesta"
+                        )
+
+
+                    # Validar cantidad de análisis recibidos
+                    cantidad_recibida = len(
+                        resultado.get("analisis_individual", [])
+                    )
+
+                    cantidad_esperada = len(lote)
+
+
+                    if cantidad_recibida != cantidad_esperada:
+                        raise ValueError(
+                            f"El modelo devolvió {cantidad_recibida} análisis "
+                            f"pero se enviaron {cantidad_esperada} comentarios"
+                        )
+
+
+                    resultados_lotes.append(resultado)
+
+                    break
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    ultimo_error = e
+                    print(f"⚠️ Lote {idx_lote}, Intento {intento + 1}/{max_intentos} falló: {str(e)[:100]}")
+                    continue
+                except Exception as e:
+                    error_str = str(e)
+                    if "413" in error_str or "rate_limit" in error_str.lower():
+                        # Si es error 413, no reintentar con el mismo modelo
+                        print(f" Lote {idx_lote} falló por límite de tokens. Se usará fallback.")
+                        raise  # Re-lanzar para que el provider maneje el fallback
+                    ultimo_error = e
+                    print(f"⚠️ Lote {idx_lote}, Intento {intento + 1}/{max_intentos} falló: {str(e)[:100]}")
+                    continue
+            
+            # Si un lote falla completamente, detener el análisis.
+            # No devolver resultados parciales.
+
+            if len(resultados_lotes) < idx_lote:
+                raise ValueError(
+                    f"No se pudo procesar el lote {idx_lote} "
+                    f"después de {max_intentos} intentos."
                 )
-                
-                if hasattr(self, "token_monitor") and self.token_monitor is not None:
-                    self.token_monitor.update_from_response(response)
-                
-                contenido = response.choices[0].message.content.strip()
-                
-                # Debug: mostrar primeros 200 chars
-                print(f"📝 Respuesta de Groq (intento {intento + 1}): {contenido[:200]}...")
-                
-                resultado = procesar_respuesta_groq(contenido)
-                
-                if "estadisticas" not in resultado or "analisis_individual" not in resultado:
-                    raise ValueError("Faltan campos requeridos en la respuesta")
-                
-                return resultado
-                
-            except Exception as e:
-                error_str = str(e)
-                if "RateLimitError" in type(e).__name__ or "429" in error_str:
-                    raise Exception(f"🚫 Rate limit: {self._extract_reset_time(error_str)}") from e
-                
-                ultimo_error = e
-                print(f"⚠️ Intento {intento + 1}/3 falló: {str(e)[:200]}")
-                continue
         
-        raise Exception(f"Error después de 3 intentos: {str(ultimo_error)}")
+        # Consolidar resultados de todos los lotes
+        if len(resultados_lotes) == 1:
+            return resultados_lotes[0]
+        
+        # Consolidación múltiple
+        analisis_individual_consolidado = []
+        temas_set, palabras_set, insights_set = set(), set(), set()
+        total_positivos = total_neutrales = total_negativos = total_comentarios = 0
+        
+        for resultado in resultados_lotes:
+            for item in resultado.get("analisis_individual", []):
+                item["numero"] = (
+                    len(analisis_individual_consolidado) + 1
+                )
+                analisis_individual_consolidado.append(item)
+
+            temas_set.update(resultado.get("temas_principales", []))
+            palabras_set.update(resultado.get("palabras_clave", []))
+            insights_set.update(resultado.get("insights", []))
+            
+            stats = resultado.get("estadisticas", {})
+            total_positivos += stats.get("positivos", 0)
+            total_neutrales += stats.get("neutrales", 0)
+            total_negativos += stats.get("negativos", 0)
+            total_comentarios += stats.get("total", 0)
+        
+        pct_positivo = round((total_positivos / total_comentarios * 100)) if total_comentarios > 0 else 0
+        pct_neutral = round((total_neutrales / total_comentarios * 100)) if total_comentarios > 0 else 0
+        pct_negativo = round((total_negativos / total_comentarios * 100)) if total_comentarios > 0 else 0
+        
+        return {
+            "analisis_individual": analisis_individual_consolidado,
+            "resumen_general": "Análisis consolidado de múltiples lotes. " + resultados_lotes[0].get("resumen_general", ""),
+            "estadisticas": {
+                "total": total_comentarios,
+                "positivos": total_positivos,
+                "neutrales": total_neutrales,
+                "negativos": total_negativos,
+                "porcentaje_positivo": pct_positivo,
+                "porcentaje_neutral": pct_neutral,
+                "porcentaje_negativo": pct_negativo
+            },
+            "temas_principales": list(temas_set)[:5],
+            "palabras_clave": list(palabras_set)[:5],
+            "tono_general": resultados_lotes[0].get("tono_general", ""),
+            "insights": list(insights_set)[:3],
+            "recomendaciones": resultados_lotes[0].get("recomendaciones", [])
+        }
 
     def analizar_semantica(self, comentarios: list, contexto: str = "") -> dict:
-        """Análisis semántico individual de comentarios (Planes Plata+)."""
+        """
+        Análisis semántico individual de comentarios.
+        Usado por planes Plata+.
+        """
         if not isinstance(comentarios, list):
             raise TypeError("comentarios debe ser una lista de textos.")
         
-        # ✅ VALIDACIÓN PRIMERO
         if len(comentarios) > 100:
             raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
         
         if not comentarios:
             return {"analyses": []}
         
-        # ✅ LÍMITE DE 25 DESPUÉS
         comentarios = comentarios[:25]
         
-        prompt_base = cargar_prompt("semantic_prompt.txt")
-        contexto_str = f"CONTEXTO: {contexto}" if contexto else "CONTEXTO: No proporcionado."
-        comentarios_str = json.dumps({"comentarios": comentarios}, ensure_ascii=False)
+        comentarios_normalizados = []
+        for comentario in comentarios:
+            if comentario is None:
+                comentario = ""
+            comentario = str(comentario).strip()
+            comentarios_normalizados.append(comentario)
         
-        prompt_final = f"{prompt_base}\n\n{contexto_str}\n\nCOMENTARIOS A ANALIZAR:\n{comentarios_str}"
-
+        comentarios_texto = "\n".join(f"[{i + 1}] {comentario}" for i, comentario in enumerate(comentarios_normalizados))
+        contexto_texto = f"CONTEXTO ESPECÍFICO:\n{contexto.strip()}" if contexto and contexto.strip() else "CONTEXTO ESPECÍFICO:\nNo proporcionado."
+        
+        # Cargar prompt desde archivo
+        prompt_base = cargar_prompt("semantic_prompt.txt")
+        prompt = f"{prompt_base}\n\n{contexto_texto}\n\nCOMENTARIOS:\n\n{comentarios_texto}"
+        
         max_intentos = 3
         ultimo_error = None
-
+        
         for intento in range(max_intentos):
             try:
                 response = self.client.chat.completions.create(
@@ -4967,60 +5431,132 @@ class GroqLLMClient:
                     messages=[
                         {
                             "role": "system",
-                            "content": "Respondé EXCLUSIVAMENTE con un objeto JSON válido. No uses markdown."
+                            "content": "Sos un lingüista experto en discurso argentino. Analizás intención, ironía y sarcasmo. Priorizás evidencia sobre suposiciones. La ambigüedad es un resultado válido. Nunca inventes ironía. Respondé exclusivamente JSON válido."
                         },
-                        {"role": "user", "content": prompt_final}
+                        {"role": "user", "content": prompt}
                     ],
                     temperature=0.15 if intento == 0 else 0.05,
                     max_tokens=4000,
-                    response_format={"type": "json_object"}  # 🔑 FORZAR JSON VÁLIDO
                 )
                 
-                # ✅ VERIFICACIÓN DEFENSIVA
+                # ✅ CORRECCIÓN DEFENSIVA
                 if hasattr(self, "token_monitor") and self.token_monitor is not None:
                     self.token_monitor.update_from_response(response)
                 
-                contenido = response.choices[0].message.content
-                resultado = procesar_respuesta_groq(contenido)
+                contenido = response.choices[0].message.content.strip()
+                resultado = self._extraer_json(contenido)
                 
-                if "analyses" not in resultado or not isinstance(resultado["analyses"], list):
-                    raise ValueError("Falta el campo 'analyses' o no es una lista.")
+                if not isinstance(resultado, dict):
+                    raise ValueError("La respuesta del modelo no es un objeto JSON.")
                 
-                if len(resultado["analyses"]) != len(comentarios):
-                    raise ValueError(f"Se esperaban {len(comentarios)} análisis, se recibieron {len(resultado['analyses'])}.")
+                if "analyses" not in resultado:
+                    raise ValueError("Falta el campo 'analyses'.")
+                
+                analyses = resultado["analyses"]
+                
+                if not isinstance(analyses, list):
+                    raise ValueError("'analyses' debe ser una lista.")
+                
+                if len(analyses) != len(comentarios_normalizados):
+                    raise ValueError(f"El modelo analizó {len(analyses)} comentarios pero se enviaron {len(comentarios_normalizados)}.")
+                
+                # Validaciones de contrato
+                sentiments_validos = {"positive", "negative", "neutral"}
+                tones_validos = {"positive", "negative", "neutral", "ironic_positive", "ironic_negative", "sarcastic", "mixed", "ambiguous"}
+                irony_polarities_validas = {"positive", "negative", "neutral", "none"}
+                
+                for index, analysis in enumerate(analyses):
+                    if not isinstance(analysis, dict):
+                        raise ValueError(f"El análisis {index + 1} no es un objeto JSON.")
+                    
+                    expected_id = str(index + 1)
+                    if str(analysis.get("message_id")) != expected_id:
+                        raise ValueError(f"message_id incorrecto en posición {index + 1}.")
+                    
+                    sentiment = analysis.get("sentiment")
+                    if sentiment not in sentiments_validos:
+                        raise ValueError(f"sentiment inválido en mensaje {expected_id}: {sentiment}")
+                    
+                    tone = analysis.get("tone")
+                    if tone not in tones_validos:
+                        raise ValueError(f"tone inválido en mensaje {expected_id}: {tone}")
+                    
+                    irony = analysis.get("irony")
+                    if not isinstance(irony, bool):
+                        raise ValueError(f"'irony' debe ser booleano en mensaje {expected_id}.")
+                    
+                    sarcasm = analysis.get("sarcasm")
+                    if not isinstance(sarcasm, bool):
+                        raise ValueError(f"'sarcasm' debe ser booleano en mensaje {expected_id}.")
+                    
+                    irony_polarity = analysis.get("irony_polarity")
+                    if irony_polarity not in irony_polarities_validas:
+                        raise ValueError(f"irony_polarity inválida en mensaje {expected_id}.")
+                    
+                    if not irony and irony_polarity != "none":
+                        raise ValueError(f"Mensaje {expected_id}: irony=false requiere irony_polarity='none'.")
+                    
+                    confidence = analysis.get("confidence")
+                    if not isinstance(confidence, (int, float)):
+                        raise ValueError(f"confidence inválida en mensaje {expected_id}.")
+                    
+                    if not 0.0 <= float(confidence) <= 1.0:
+                        raise ValueError(f"confidence fuera de rango en mensaje {expected_id}.")
+                    
+                    evidence = analysis.get("evidence")
+                    if not isinstance(evidence, list):
+                        raise ValueError(f"'evidence' debe ser una lista en mensaje {expected_id}.")
+                    
+                    if irony and len(evidence) == 0:
+                        raise ValueError(f"El mensaje {expected_id} fue marcado como irónico pero no contiene evidencias.")
                 
                 return resultado
-
+                
             except Exception as e:
+                error_type = type(e).__name__
                 error_str = str(e)
-                if "RateLimitError" in type(e).__name__ or "429" in error_str:
-                    raise Exception(f"🚫 Rate limit de Groq alcanzado. NO se reintentará. {self._extract_reset_time(error_str)}") from e
+                
+                is_rate_limit = "RateLimitError" in error_type or "rate_limit" in error_str.lower() or "429" in error_str or "413" in error_str
+                
+                if is_rate_limit:
+                    reset_info = self._extract_reset_time(error_str)
+                    raise Exception(f" Rate limit de Groq alcanzado. NO se reintentará automáticamente. {reset_info}") from e
+                
+                if isinstance(e, (ValueError,)) and "JSON" in error_str:
+                    ultimo_error = e
+                    print(f"⚠️ Intento {intento + 1}/{max_intentos} falló (JSON inválido): {str(e)[:200]}")
+                    continue
                 
                 ultimo_error = e
                 print(f"⚠️ Intento {intento + 1}/{max_intentos} falló en analizar_semantica: {str(e)[:200]}")
                 continue
-
+        
         raise Exception(f"Error procesando análisis semántico después de {max_intentos} intentos: {str(ultimo_error)}")
 
     def _extract_reset_time(self, error_message: str) -> str:
         """Extrae información de tiempo de reseteo del mensaje de error de Groq."""
         match = re.search(r'(\d+)h(\d+)m([\d.]+)s', error_message)
         if match:
-            hours, minutes, seconds = int(match.group(1)), int(match.group(2)), float(match.group(3))
+            hours = int(match.group(1))
+            minutes = int(match.group(2))
+            seconds = float(match.group(3))
             total_seconds = hours * 3600 + minutes * 60 + seconds
             if total_seconds > 3600:
-                return f"Esperá aprox. {hours}h {minutes}m para reintentar."
+                return f"Esperá aproximadamente {hours}h {minutes}m para reintentar."
             elif total_seconds > 60:
-                return f"Esperá aprox. {minutes}m {int(seconds)}s para reintentar."
-            return f"Esperá aprox. {int(seconds)}s para reintentar."
+                return f"Esperá aproximadamente {minutes}m {int(seconds)}s para reintentar."
+            else:
+                return f"Esperá aproximadamente {int(seconds)}s para reintentar."
         
         match = re.search(r'in ([\d.]+)s', error_message)
         if match:
-            return f"Esperá aprox. {int(float(match.group(1)))}s para reintentar."
+            seconds = float(match.group(1))
+            return f"Esperá aproximadamente {int(seconds)}s para reintentar."
         
         return "Esperá un tiempo antes de reintentar."
 
     def generar_resumen(self, texto: str, contexto: str = "") -> str:
+        """Genera un resumen de un texto dado."""
         prompt = f"""Resumí el siguiente texto de forma clara y concisa en 3-5 oraciones.
 {f'Contexto: {contexto}' if contexto else ''}
 
@@ -5028,6 +5564,7 @@ TEXTO:
 {texto}
 
 Respondé solo con el resumen, sin texto adicional."""
+        
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -5411,6 +5948,38 @@ class TokenMonitor:
                 f"✓ Tokens: {self._status.usage_percent:.1f}% usado. "
                 f"Disponibles: {self._status.remaining_tokens}."
             )
+
+================================================================================
+ARCHIVO: services\plata\__init__.py
+================================================================================
+
+# app/services/plata/__init__.py
+
+
+================================================================================
+ARCHIVO: services\plata\conversation_repository.py
+================================================================================
+
+# app/services/plata/conversation_repository.py
+
+
+================================================================================
+ARCHIVO: services\plata\conversation_service.py
+================================================================================
+
+# app/services/plata/conversation_service.py
+
+
+
+
+================================================================================
+ARCHIVO: services\plata\semantic_service.py
+================================================================================
+
+# app/services/plata/semantic_service.py
+
+
+
 
 ================================================================================
 ARCHIVO: services\transcription\__init__.py

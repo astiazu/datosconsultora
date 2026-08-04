@@ -1,0 +1,24 @@
+# app\templates\plata\comentarios_extraidos.html
+{% extends "dashboard_layout.html" %}
+{% block content %}
+<h2>Comentarios Extraídos (Plan Plata)</h2>
+
+<p><strong>Red social:</strong> {{ conversation.source.value | upper }}</p>
+<p><strong>Participantes:</strong> {{ conversation.total_participants }}</p>
+<p><strong>Comentarios:</strong> {{ conversation.total_messages }}</p>
+
+<hr>
+
+{% for message in conversation.messages %}
+<div class="card mb-3">
+    <div class="card-header">
+        <strong>{{ participants[message.participant_id] }}</strong>
+    </div>
+    <div class="card-body">
+        {{ message.text }}
+    </div>
+</div>
+{% endfor %}
+
+<a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">Volver</a>
+{% endblock %}

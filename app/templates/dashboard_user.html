@@ -1,4 +1,4 @@
-<!-- templates/dashboard_user.html -->
+<!-- app/templates/dashboard_user.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'home' %}
 
@@ -41,7 +41,7 @@
             <div class="col-md-6">
                 <small class="text-white-50">Transcripciones este mes</small>
                 <div class="progress mt-1" style="height: 8px;">
-                    {% set consumo_t = user_plan.consumo_transcripciones_mes() if user_plan else 0 %}
+                    {% set consumo_t = user_plan.consumo_transcripciones if user_plan else 0 %}
                     {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
                     {% set pct_t = (consumo_t / limite_t * 100) if limite_t > 0 else 0 %}
                     <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else 'success' }}" style="width: {{ pct_t }}%"></div>
@@ -51,7 +51,7 @@
             <div class="col-md-6">
                 <small class="text-white-50">Análisis este mes</small>
                 <div class="progress mt-1" style="height: 8px;">
-                    {% set consumo_a = user_plan.consumo_analisis_mes() if user_plan else 0 %}
+                    {% set consumo_a = user_plan.consumo_analisis if user_plan else 0 %}
                     {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
                     {% set pct_a = (consumo_a / limite_a * 100) if limite_a > 0 else 0 %}
                     <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else 'success' }}" style="width: {{ pct_a }}%"></div>
@@ -131,8 +131,9 @@
                     <i class="bi bi-folder2-open me-2 text-success"></i> Mis archivos
                 </h6>
                 <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
-                <a href="{{ url_for('historial.mi_historial') }}" class="btn        btn-outline-primary btn-sm">
-                    <i class="bi bi-folder2-open me-1"></i>Ver historial
+                <a href="{{ url_for('plata.mis_archivos') }}"
+                    class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-folder2-open me-1"></i>Abrir
                 </a>
             </div>
         </div>
@@ -160,7 +161,10 @@
                     <i class="bi bi-diagram-3-fill me-2 text-success"></i> Motor Semántico
                 </h6>
                 <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
-                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+                <a href="{{ url_for('plata.dashboard') }}"
+                class="btn btn-success btn-sm">
+                    <i class="bi bi-diagram-3-fill me-1"></i>Abrir Motor
+                </a>
             </div>
         </div>
         {% else %}

@@ -1,3 +1,4 @@
+<!--# app/templates/admin_usuarios.html -->
 {% extends "base.html" %}
 {% block title %}Administrar Usuarios - DatosConsultora{% endblock %}
 {% block content %}
@@ -122,6 +123,15 @@
                                         title="Resetear contraseña">
                                     <i class="bi bi-key"></i>
                                 </button>
+                                <!-- Resetear consumo -->
+                                <form method="post" action="{{ url_for('admin.admin_usuario_reset_consumo', user_id=u.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-info" 
+                                            title="Resetear consumo mensual"
+                                            onclick="return confirm('¿Resetear el consumo mensual de {{ u.email }}?')">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                    </button>
+                                </form>                                
                                 <!-- Eliminar -->
                                 <button class="btn btn-outline-danger"
                                         data-bs-toggle="modal"

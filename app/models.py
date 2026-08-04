@@ -325,3 +325,32 @@ class SesionJurisdiccion(db.Model):
     __table_args__ = (
         db.UniqueConstraint("user_id", "jurisdiccion", name="uq_sesion_user_jurisdiccion"),
     )
+
+class ConversationRecord(db.Model):
+    """Persistencia de una Conversation del Plan Plata (serializada a JSON).
+    No acopla el dataclass del MIC a la DB: solo guarda su representación.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    conversation_id = db.Column(db.String(100), nullable=False)  # id del dataclass
+    source = db.Column(db.String(50))
+    title = db.Column(db.String(200))
+    total_messages = db.Column(db.Integer)
+    total_participants = db.Column(db.Integer)
+    conversation_json = db.Column(db.Text, nullable=False)  # Conversation serializada
+    resultado_json = db.Column(db.Text)  # AnalysisResult (null hasta que se analice)
+    contexto = db.Column(db.String(500))
+    estado = db.Column(db.String(50), default='pendiente')  # pendiente | analizada
+    fecha = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship('User', backref=db.backref('conversation_records', lazy='dynamic'))
+
+    def obtener_resultado(self):
+        """Convierte el JSON del resultado a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}

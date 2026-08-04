@@ -338,6 +338,35 @@ def admin_usuario_plan(user_id):
           "success")
     return redirect(url_for("admin.admin_usuarios"))
 
+@admin_bp.route("/usuarios/<int:user_id>/reset-consumo", methods=["POST"])
+def admin_usuario_reset_consumo(user_id):
+    """Resetea el consumo mensual de un usuario sin cambiar su plan."""
+    from app.models import UserPlan
+    
+    user = User.query.get_or_404(user_id)
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    
+    if not user_plan:
+        flash(f"El usuario {user.email} no tiene un plan asignado", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Resetear contadores
+    user_plan.consumo_transcripciones = 0
+    user_plan.consumo_analisis = 0
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="reset_consumo",
+        detalle=f"Consumo mensual reseteado para {user.email} (Plan: {user_plan.plan})",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Consumo de {user.email} reseteado a 0", "success")
+    return redirect(url_for("admin.admin_usuarios"))
 
 ================================================================================
 ARCHIVO: agentes.py
@@ -1058,10 +1087,10 @@ def mi_plan():
         user_plan=user_plan,
         plan_obj=plan_obj,
         planes=planes,
-        consumo_transcripciones=user_plan.consumo_transcripciones_mes(),
-        consumo_analisis=user_plan.consumo_analisis_mes()
+        # ✅ USAR ATRIBUTOS DIRECTOS en lugar de contar registros
+        consumo_transcripciones=user_plan.consumo_transcripciones,
+        consumo_analisis=user_plan.consumo_analisis
     )
-
 
 @planes_bp.route("/planes/elegir/<nombre_plan>")
 @login_required
@@ -1069,6 +1098,75 @@ def elegir_plan(nombre_plan):
     """Por ahora solo muestra mensaje 'Próximamente'."""
     flash(f"🚧 La suscripción al plan {nombre_plan} estará disponible próximamente. ¡Gracias por tu interés!", "info")
     return redirect(url_for("planes.lista_planes"))
+
+================================================================================
+ARCHIVO: plata.py
+================================================================================
+
+# app/routes/plata.py
+
+from flask import Blueprint, render_template
+from flask_login import login_required
+
+plata_bp = Blueprint(
+    "plata",
+    __name__,
+    url_prefix="/plata"
+)
+
+
+@plata_bp.route("/")
+@login_required
+def dashboard():
+
+    return render_template(
+        "plata/dashboard.html"
+    )
+
+
+@plata_bp.route("/motor-semantico")
+@login_required
+def motor_semantico():
+
+    return render_template(
+        "plata/motor_semantico.html"
+    )
+
+
+@plata_bp.route("/nueva-conversacion")
+@login_required
+def nueva_conversacion():
+
+    return render_template(
+        "plata/nueva_conversacion.html"
+    )
+
+
+@plata_bp.route("/mis-archivos")
+@login_required
+def mis_archivos():
+
+    return render_template(
+        "plata/mis_archivos.html"
+    )
+
+
+@plata_bp.route("/historial")
+@login_required
+def historial():
+
+    return render_template(
+        "plata/historial.html"
+    )
+
+
+@plata_bp.route("/estadisticas")
+@login_required
+def estadisticas():
+
+    return render_template(
+        "plata/estadisticas.html"
+    )
 
 ================================================================================
 ARCHIVO: public.py
@@ -1113,10 +1211,9 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
-from app.services.analysis import GroqLLMClient
+from app.services.analysis_service import AnalysisService
 from app.services.analysis.text_cleaner import limpiar_comentarios
 from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
-
 
 servicios_bp = Blueprint("servicios", __name__)
 
@@ -1140,7 +1237,7 @@ def servicio_transcripcion():
             if ext in ALLOWED_EXT:
                 puede_usar, uso_actual, limite = puede_transcribir(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
+                    flash(f" Has alcanzado el límite de {limite} transcripciones este mes. Mejorá tu plan para continuar.", "error")
                     return redirect(url_for("planes.mi_plan"))
                 
                 original_filename = secure_filename(f.filename)
@@ -1211,12 +1308,14 @@ def analisis_sentimientos():
     error_msg = None
     paso = "input"
     
-    # Variables para mantener el estado del formulario
     url_input = ""
     contexto = ""
     mostrar_pestaña_url = False
     
-    # Verificar si el usuario tiene acceso a la feature de URL (Plata en adelante)
+    # Variables para la vista premium del Plan Plata (Conversation)
+    conversation_plata = None
+    participants_plata = None
+    
     user_plan = current_user.user_plan
     plan_obj = user_plan.obtener_plan_obj() if user_plan else None
     tiene_acceso_url = plan_obj and plan_obj.tiene_feature('motor_semantico')
@@ -1227,76 +1326,88 @@ def analisis_sentimientos():
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
         
-        # Si viene de la pestaña URL, recordamos mostrarla
         if url_input:
             mostrar_pestaña_url = True
         
-        # --- LÓGICA 1: Si viene una URL y el usuario tiene el plan ---
+        # =========================================================================
+        # LÓGICA 1: URL (Exclusivo Plan Plata+)
+        # =========================================================================
+        # NOTA: La extracción automática por URL requiere la API aprobada de Meta.
+        # Por ahora, si el usuario pega una URL, le avisamos y le damos la opción
+        # de continuar pegando los comentarios manualmente. Si en el futuro se 
+        # aprueba la API, se descomenta el bloque inferior y se elimina el aviso.
         if url_input and tiene_acceso_url and action == "analizar":
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
-                # 1. Intentar extraer con el Scraper
-                from app.services.scraper_service import ScraperService
-                scraper = ScraperService()
-                extraccion = scraper.extraer_de_url(url_input)
+                # ⚠️ AVISO TEMPORAL: La API de Meta no está aprobada aún.
+                flash("⚠️ La extracción automática por URL requiere la API aprobada de Facebook/Meta. Por favor, copiá y pegá los comentarios manualmente en el campo de abajo.", "warning")
                 
-                if not extraccion["success"]:
-                    error_msg = extraccion['error_msg']
+                if not comentarios_raw:
+                    # Si no pegó comentarios, volvemos al input
+                    error_msg = "Extracción por URL no disponible sin API aprobada."
                     paso = "input"
-                    mostrar_pestaña_url = True
                 else:
-                    # 2. Usar AnalysisService para que use el método correcto según el plan
-                    from app.services.analysis_service import AnalysisService
+                    # Si pegó comentarios, procesamos el texto manualmente (flujo Plan Plata)
+                    from app.services.conversation_service import ConversationService
+                    service = ConversationService()
+                    respuesta = service.from_manual_text(comentarios_raw, contexto)
                     
-                    datos_crudos = extraccion["data"]
-                    
-                    # Obtener el nombre del plan correctamente
-                    user_plan_name = (
-                        current_user.user_plan.plan 
-                        if current_user.user_plan 
-                        else "free"
-                    )
-                    
-                    service = AnalysisService()
-                    resultado_dict = service.analizar(
-                        datos_crudos=datos_crudos,
-                        origen="facebook",
-                        user_plan=user_plan_name,
-                        contexto=contexto,
-                    )
-                    
-                    if resultado_dict["success"]:
-                        resultado = resultado_dict
-                        resultado["red_social"] = "facebook/instagram (vía URL)"
-                        resultado["total_comentarios_limpios"] = len(datos_crudos.get("comments", []))
-                        
-                        registrar_uso_analisis(current_user)
-                        
-                        analysis_session = AnalysisSession(
-                            user_id=current_user.id,
-                            red_social=resultado["red_social"],
-                            contexto=contexto if contexto else None,
-                            total_comentarios=len(datos_crudos.get("comments", [])),
-                            resultado_json=json.dumps(resultado_dict, ensure_ascii=False)
-                        )
-                        db.session.add(analysis_session)
-                        db.session.commit()
-                        
-                        flash(f"✅ Análisis completado con {len(datos_crudos.get('comments', []))} comentarios extraídos.", "success")
-                        paso = "resultado"
-                    else:
-                        error_msg = resultado_dict.get("error", "Error en el análisis")
+                    if not respuesta["success"]:
+                        flash(f"⚠️ {respuesta.get('error_msg', 'Error al procesar')}", "warning")
                         paso = "input"
+                    else:
+                        conversation_plata = respuesta["conversation"]
+                        red_social = respuesta.get("red_social", "desconocido")
+                        
+                        participants_plata = {
+                            p.participant_id: p.display_name 
+                            for p in conversation_plata.participants
+                        }
+                        
+                        flash(f"✅ Se detectaron {conversation_plata.total_messages} comentarios ({red_social})", "success")
+                        paso = "preview_plata"
+                        
+                # -------------------------------------------------------------------------
+                # CÓDIGO ANTIGUO (Comentado - Flujo original con Scraper + AnalysisService)
+                # Se reemplazó por el flujo de ConversationService para el Plan Plata.
+                # Se conserva por si se necesita revertir o adaptar cuando se apruebe la API.
+                # -------------------------------------------------------------------------
+                # from app.services.conversation_service import ConversationService
+                # service = ConversationService()
+                # respuesta = service.extraer_conversation(url_input)
+                
+                # if not respuesta["success"]:
+                #     error_msg = respuesta['error_msg']
+                #     paso = "input"
+                #     mostrar_pestaña_url = True
+                # else:
+                #     conversation = respuesta["conversation"]
+                #     user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
+                #     participants = {
+                #         p.participant_id: p.display_name
+                #         for p in conversation.participants
+                #     }
+                #     return render_template(
+                #         "plata/comentarios_extraidos.html",
+                #         participants=participants,
+                #         conversation=conversation,
+                #         contexto=contexto,
+                #         url_input=url_input
+                #     )
+                # -------------------------------------------------------------------------
                         
             except Exception as e:
                 error_msg = f"Error inesperado: {str(e)}"
+                flash(f"❌ {error_msg}", "error")
                 paso = "input"
         
-        # --- LÓGICA 2: Copiar y Pegar - Limpiar ---
+        # =========================================================================
+        # LÓGICA 2: Limpiar y previsualizar (Plan Bronce - INTACTO)
+        # =========================================================================
         elif action == "limpiar" and not url_input:
             try:
                 comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
@@ -1310,27 +1421,29 @@ def analisis_sentimientos():
                 flash(f"❌ Error limpiando: {str(e)}", "error")
                 paso = "input"
         
-        # --- LÓGICA 3: Copiar y Pegar - Analizar directamente ---
+        # =========================================================================
+        # LÓGICA 3: Analizar directamente (Plan Bronce - INTACTO Y BLINDADO)
+        # =========================================================================
         elif action == "analizar" and not url_input:
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
-                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes. Mejorá tu plan.", "error")
-                    return redirect(url_for("planes.mi_plan"))
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("servicios.analisis_sentimientos"))
                 
-                if request.form.get("comentarios_limpios_json"):
-                    comentarios_limpios = json.loads(request.form.get("comentarios_limpios_json"))
-                else:
-                    comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
+                # ✅ LEER DIRECTAMENTE EL TEXTO RAW (viene del textarea oculto, 100% seguro)
+                comentarios_raw = request.form.get("comentarios", "").strip()
+                contexto = request.form.get("contexto", "").strip()
+                
+                # Regeneramos la limpieza. Es rápido, idempotente y evita cualquier error de JSON.
+                comentarios_limpios, red_social = limpiar_comentarios(comentarios_raw)
                 
                 if not comentarios_limpios:
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    # ✅ USAR AnalysisService en lugar de GroqLLMClient directo
                     from app.services.analysis_service import AnalysisService
                     
-                    # Construir datos_crudos en formato esperado
                     datos_crudos = {
                         "comments": [
                             {"text": f"[{c['usuario']}]: {c['texto']}"}
@@ -1338,18 +1451,15 @@ def analisis_sentimientos():
                         ]
                     }
                     
-                    # Obtener el plan del usuario correctamente
-                    user_plan_name = (
-                        current_user.user_plan.plan 
-                        if current_user.user_plan 
-                        else "free"
-                    )
+                    user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
                     
-                    # Ejecutar análisis con el servicio correcto
+                    # Normalizar origen para el MIC (evita "desconocido")
+                    origen_para_mic = red_social if red_social in ["facebook", "instagram", "x"] else "facebook"
+                    
                     service = AnalysisService()
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
-                        origen=red_social,
+                        origen=origen_para_mic,
                         user_plan=user_plan_name,
                         contexto=contexto,
                     )
@@ -1363,7 +1473,6 @@ def analisis_sentimientos():
                         
                         registrar_uso_analisis(current_user)
                         
-                        # Guardar análisis en la base de datos
                         analysis_session = AnalysisSession(
                             user_id=current_user.id,
                             red_social=red_social,
@@ -1378,7 +1487,7 @@ def analisis_sentimientos():
                         paso = "resultado"
                     else:
                         error_msg = resultado_dict.get("error", "Error en el análisis")
-                        flash(f" Error en el análisis: {error_msg}", "error")
+                        flash(f"❌ {error_msg}", "error")
                         paso = "input"
                         
             except Exception as e:
@@ -1397,7 +1506,9 @@ def analisis_sentimientos():
         tiene_acceso_url=tiene_acceso_url,
         url_input=url_input,
         contexto=contexto,
-        mostrar_pestaña_url=mostrar_pestaña_url
+        mostrar_pestaña_url=mostrar_pestaña_url,
+        conversation=conversation_plata,
+        participants=participants_plata,
     )
 
 ================================================================================

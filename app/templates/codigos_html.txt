@@ -1,0 +1,695 @@
+# app\templates\dashboard_layout.html
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+
+<head>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta charset="UTF-8">
+    <title>{% block title %}Dashboard - DatosConsultora{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Bootstrap + Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Tu styles.css -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        :root {
+            --dc-petroleo: #004d5c;
+            --dc-petroleo-dark: #012f36;
+            --dc-bg-light: #f4f5f7;
+            --dc-bg-dark: #0b1120;
+            --dc-sidebar-dark: #020617;
+            --dc-accent: #38bdf8;
+        }
+
+        [data-theme="light"] body {
+            background-color: var(--dc-bg-light);
+            color: #111827;
+        }
+
+        [data-theme="dark"] body {
+            background-color: var(--dc-bg-dark);
+            color: #e5e7eb;
+        }
+
+        .dc-sidebar {
+            width: 260px;
+            min-height: 100vh;
+            background: linear-gradient(180deg, var(--dc-sidebar-dark), var(--dc-petroleo-dark));
+            color: #e5e7eb;
+        }
+
+        .dc-sidebar .nav-link {
+            color: #9ca3af;
+            border-radius: .5rem;
+        }
+
+        .dc-sidebar .nav-link.active,
+        .dc-sidebar .nav-link:hover {
+            color: #e5e7eb;
+            background-color: rgba(56, 189, 248, 0.15);
+        }
+
+        .dc-logo {
+            font-weight: 700;
+            letter-spacing: .04em;
+        }
+
+        .dc-main {
+            flex: 1;
+            min-height: 100vh;
+            background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent),
+                radial-gradient(circle at bottom right, rgba(0, 77, 92, 0.15), transparent);
+        }
+
+        .dc-topbar {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .dc-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            object-fit: cover;
+            border: 2px solid var(--dc-accent);
+        }
+
+        .dc-mode-toggle {
+            cursor: pointer;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+
+<body>
+    <div class="d-flex">
+        <!-- Sidebar -->
+        <aside class="dc-sidebar d-flex flex-column p-3">
+            <div class="d-flex align-items-center mb-4">
+                <i class="bi bi-soundwave fs-3 me-2 text-info"></i>
+                <span class="dc-logo">DatosConsultora</span>
+            </div>
+            <nav class="nav flex-column gap-1 mb-4">
+                <a class="nav-link {% if active_section == 'home' %}active{% endif %}"
+                    href="{{ url_for('dashboard.dashboard_user') }}">
+                    <i class="bi bi-grid-1x2-fill me-2"></i> Dashboard
+                </a>
+                <a class="nav-link {% if active_section == 'datos' %}active{% endif %}" href="#">
+                    <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+                </a>
+                <a class="nav-link {% if active_section == 'archivos' %}active{% endif %}" href="{{ url_for('historial.mi_historial') }}">
+                    <i class="bi bi-folder2-open me-2"></i> Mis archivos
+                </a>
+                <a class="nav-link {% if active_section == 'transcripciones' %}active{% endif %}" href="#">
+                    <i class="bi bi-mic-fill me-2"></i> Transcripciones
+                </a>
+                <a class="nav-link {% if active_section == 'analisis' %}active{% endif %}"
+                    href="{{ url_for('servicios.analisis_sentimientos') }}">
+                    <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+                </a>
+                <a class="nav-link {% if active_section == 'agentes' %}active{% endif %}"
+                href="{{ url_for('agentes.panel_agentes') }}">
+                    <i class="bi bi-robot me-2"></i> Agentes Judiciales
+                </a>
+                <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
+                    <i class="bi bi-activity me-2"></i> Actividad
+                </a>
+                <a class="nav-link {% if active_section == 'plan' %}active{% endif %}"
+                    href="{{ url_for('planes.mi_plan') }}">
+                    <i class="bi bi-credit-card-2-front me-2"></i> Mi plan
+                </a>
+                <a class="nav-link {% if active_section == 'cafecito' %}active{% endif %}"
+                    href="{{ url_for('cafecito.cafecito') }}">
+                    <i class="bi bi-heart-fill me-2 text-danger"></i> Cafecito
+                </a>
+            </nav>
+            <div class="mt-auto">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <span class="small text-gray-400">Modo</span>
+                    <span class="dc-mode-toggle text-info" id="modeToggle">
+                        <i class="bi bi-moon-stars-fill"></i>
+                    </span>
+                </div>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light w-100 btn-sm">
+                    <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="dc-main">
+            <header class="dc-topbar px-4 py-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0 text-petroleo">Hola, {{ current_user.nombre }}</h5>
+                    <small class="text-muted">Bienvenido a tu espacio de trabajo en DatosConsultora.</small>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-end">
+                        <div class="small">{{ current_user.email }}</div>
+                        {% set user_plan = current_user.user_plan %}
+                        {% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+                        <div class="small">
+                            {% if plan_obj %}
+                                <span class="badge bg-{{ plan_obj.color }}">
+                                    <i class="bi {{ plan_obj.icono }} me-1"></i>{{ plan_obj.display_name }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">Cuenta corporativa</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#avatarModal">
+                        <i class="bi bi-camera-fill"></i>
+                    </button>
+                    {% if current_user.profile and current_user.profile.avatar %}
+                    <img src="{{ current_user.profile.avatar }}" alt="Avatar de {{ current_user.nombre }}"
+                        class="rounded-circle border" width="40" height="40" style="object-fit: cover;">
+                    {% else %}
+                    <!-- Ícono de Bootstrap como fallback (nunca da 404) -->
+                    <div class="rounded-circle bg-light d-flex align-items-center justify-content-center border"
+                        style="width: 40px; height: 40px;">
+                        <i class="bi bi-person-fill text-secondary" style="font-size: 1.5rem;"></i>
+                    </div>
+                    {% endif %}
+                </div>
+            </header>
+
+            <section class="p-4">
+                {% block content %}{% endblock %}
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal Avatar (recorte placeholder) -->
+    <div class="modal fade" id="avatarModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="POST" action="{{ url_for('dashboard.actualizar_avatar') }}" enctype="multipart/form-data">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Actualizar avatar</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="text-muted">
+                            Subí una imagen cuadrada. Más adelante vamos a integrar recorte real (tipo SaaS).
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-label">Imagen</label>
+                            <input type="file" name="avatar" accept="image/*" class="form-control">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar avatar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>document.querySelectorAll('form[method="post" i]').forEach(f => { if (!f.querySelector('[name="csrf_token"]')) { const i=document.createElement('input'); i.type='hidden'; i.name='csrf_token'; i.value=document.querySelector('meta[name="csrf-token"]').content; f.append(i); } });</script>
+    <script>
+        const modeToggle = document.getElementById('modeToggle');
+        const htmlEl = document.documentElement;
+        modeToggle.addEventListener('click', () => {
+            const current = htmlEl.getAttribute('data-theme') || 'light';
+            const next = current === 'light' ? 'dark' : 'light';
+            htmlEl.setAttribute('data-theme', next);
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+
+</html>
+
+<!-- app/templates/dashboard_user.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'home' %}
+
+{% block title %}Mi Dashboard - DatosConsultora{% endblock %}
+
+{% block content %}
+{% set user_plan = current_user.user_plan %}
+{% set plan_obj = user_plan.obtener_plan_obj() if user_plan else None %}
+
+<!-- Banner del plan actual -->
+<div class="card border-0 shadow-sm mb-4" style="background: linear-gradient(135deg, #004d5c 0%, #006d82 100%); color: white;">
+    <div class="card-body p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi {{ plan_obj.icono if plan_obj else 'bi-award' }} fs-2 me-3"></i>
+                    <div>
+                        <h4 class="mb-0 text-white">Plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</h4>
+                        <small class="text-white-50">
+                            {% if plan_obj and plan_obj.precio_mensual == 0 %}
+                                Plan gratuito
+                            {% elif plan_obj and plan_obj.es_lifetime %}
+                                Acceso de por vida
+                            {% else %}
+                                Renovación mensual
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-light">
+                    <i class="bi bi-arrow-up-circle me-2"></i>Mejorar plan
+                </a>
+            </div>
+        </div>
+        
+        <!-- Uso del mes -->
+        <div class="row mt-4 g-3">
+            <div class="col-md-6">
+                <small class="text-white-50">Transcripciones este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_t = user_plan.consumo_transcripciones_mes() if user_plan else 0 %}
+                    {% set limite_t = plan_obj.limite_transcripciones_mes if plan_obj else 5 %}
+                    {% set pct_t = (consumo_t / limite_t * 100) if limite_t > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_t > 80 else 'success' }}" style="width: {{ pct_t }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_t }} / {{ limite_t if limite_t < 999999 else '∞' }}</small>
+            </div>
+            <div class="col-md-6">
+                <small class="text-white-50">Análisis este mes</small>
+                <div class="progress mt-1" style="height: 8px;">
+                    {% set consumo_a = user_plan.consumo_analisis_mes() if user_plan else 0 %}
+                    {% set limite_a = plan_obj.limite_analisis_mes if plan_obj else 3 %}
+                    {% set pct_a = (consumo_a / limite_a * 100) if limite_a > 0 else 0 %}
+                    <div class="progress-bar bg-{{ 'danger' if pct_a > 80 else 'success' }}" style="width: {{ pct_a }}%"></div>
+                </div>
+                <small class="text-white">{{ consumo_a }} / {{ limite_a if limite_a < 999999 else '∞' }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 1: Mis datos + Herramientas disponibles -->
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-person-badge-fill me-2"></i> Mis datos
+                </h5>
+                <ul class="list-unstyled mb-0">
+                    <li><strong>Nombre:</strong> {{ current_user.nombre }}</li>
+                    <li>
+                        <strong>Email:</strong> {{ current_user.email }}
+                        {% if current_user.email_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('auth.reenviar_verificacion') }}" class="btn btn-sm btn-outline-primary ms-2">Reenviar</a>
+                        {% endif %}
+                    </li>
+                    <li>
+                        <strong>Teléfono:</strong> {{ current_user.telefono }}
+                        {% if current_user.telefono_verificado %}
+                            <span class="badge bg-success ms-2"><i class="bi bi-check-circle"></i></span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark ms-2"><i class="bi bi-exclamation-circle"></i></span>
+                            <a href="{{ url_for('verificacion.verificar_whatsapp') }}" class="btn btn-sm btn-outline-success ms-2">Verificar</a>
+                        {% endif %}
+                    </li>
+                </ul>
+                <button class="btn btn-sm btn-outline-primary mt-3" data-bs-toggle="modal" data-bs-target="#perfilModal">
+                    <i class="bi bi-pencil"></i> Editar perfil
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Herramientas disponibles (plan actual) -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h5 class="text-petroleo fw-bold mb-2">
+                    <i class="bi bi-tools me-2"></i> Herramientas disponibles
+                </h5>
+                <p class="text-muted small">Incluidas en tu plan {{ plan_obj.display_name if plan_obj else 'Bronce' }}</p>
+                
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('servicios.servicio_transcripcion') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-mic-fill me-2"></i> Transcripción IA
+                    </a>
+                    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary text-start">
+                        <i class="bi bi-chat-heart-fill me-2"></i> Análisis de Sentimientos
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Fila 2: Features premium (bloqueadas o desbloqueadas) -->
+<div class="row g-4 mt-2">
+    <!-- Historial -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_historial %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-folder2-open me-2 text-success"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <a href="{{ url_for('historial.mi_historial') }}" class="btn        btn-outline-primary btn-sm">
+                    <i class="bi bi-folder2-open me-1"></i>Ver historial
+                </a>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Mis archivos
+                </h6>
+                <p class="text-muted small mb-3">Historial completo de transcripciones y análisis.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Motor semántico -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_motor_semantico %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-diagram-3-fill me-2 text-success"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Motor Semántico
+                </h6>
+                <p class="text-muted small mb-3">Interpretación avanzada de sentimientos y temas.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Plata
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Actividad completa -->
+    <div class="col-lg-4">
+        {% if plan_obj and plan_obj.incluye_actividad_completa %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-activity me-2 text-success"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Actividad completa
+                </h6>
+                <p class="text-muted small mb-3">Historial detallado de toda tu actividad.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Fila 3: Agentes IA (Oro) -->
+<div class="row g-4 mt-2">
+    <div class="col-lg-6">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-shield-fill-check me-2 text-success"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente Judicial
+                </h6>
+                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-lg-6">
+        {% if plan_obj and plan_obj.incluye_agentes %}
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-eye-fill me-2 text-success"></i> Agente de Monitoreo
+                </h6>
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm h-100 opacity-75">
+            <div class="card-body">
+                <h6 class="fw-bold text-petroleo mb-2">
+                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente de Monitoreo
+                </h6>
+                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal Editar Perfil (sin cambios) -->
+<div class="modal fade" id="perfilModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('dashboard.actualizar_perfil') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Editar perfil</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Empresa</label>
+                        <input type="text" name="empresa" class="form-control" value="{{ current_user.profile.empresa if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Cargo</label>
+                        <input type="text" name="cargo" class="form-control" value="{{ current_user.profile.cargo if current_user.profile else '' }}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">País</label>
+                        <input type="text" name="pais" class="form-control" value="{{ current_user.profile.pais if current_user.profile else '' }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+# app\templates\plata\comentarios_extraidos.html
+{% extends "dashboard_layout.html" %}
+{% block content %}
+<h2>Comentarios Extraídos (Plan Plata)</h2>
+
+<p><strong>Red social:</strong> {{ conversation.source.value | upper }}</p>
+<p><strong>Participantes:</strong> {{ conversation.total_participants }}</p>
+<p><strong>Comentarios:</strong> {{ conversation.total_messages }}</p>
+
+<hr>
+
+{% for message in conversation.messages %}
+<div class="card mb-3">
+    <div class="card-header">
+        <strong>{{ participants[message.participant_id] }}</strong>
+    </div>
+    <div class="card-body">
+        {{ message.text }}
+    </div>
+</div>
+{% endfor %}
+
+<a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">Volver</a>
+{% endblock %}
+
+# app/__init__.py
+import os
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
+from flask_mail import Mail
+from flask_wtf.csrf import CSRFProtect
+from dotenv import load_dotenv
+
+load_dotenv()
+
+db = SQLAlchemy()
+login_manager = LoginManager()
+mail = Mail()
+csrf = CSRFProtect()
+
+login_manager.login_view = "auth.login"
+login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+    
+    # Soporte dual: PostgreSQL (Render) o SQLite (local)
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        # Render usa postgres://, SQLAlchemy necesita postgresql://
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        
+        # Forzar el uso del driver psycopg (versión 3) que sí funciona en Python 3.14
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+            
+        SQLALCHEMY_DATABASE_URI = database_url
+    else:
+        SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
+    
+    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
+    MAX_CONTENT_LENGTH = 200 * 1024 * 1024
+    
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = True
+    MAIL_USE_SSL = False
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get(
+        "MAIL_DEFAULT_SENDER", 
+        "DatosConsultora <noreply@datosconsultora.ar>"
+    )
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY es obligatoria; configurala en el entorno.")
+    if not os.path.isabs(app.config["UPLOAD_FOLDER"]):
+        app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, app.config["UPLOAD_FOLDER"])
+    
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    
+    db.init_app(app)
+    login_manager.init_app(app)
+    mail.init_app(app)
+    csrf.init_app(app)
+    
+    from app.models import User, ContactSettings
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+    
+    @app.context_processor
+    def inject_contact():
+        cs = ContactSettings.query.first()
+        return dict(contact=cs)
+    
+    from app.routes.public import public_bp
+    from app.routes.auth import auth_bp
+    from app.routes.dashboard import dashboard_bp
+    from app.routes.admin import admin_bp
+    from app.routes.servicios import servicios_bp
+    from app.routes.verificacion import verificacion_bp
+    from app.routes.cafecito import cafecito_bp      
+    from app.routes.webhook import webhook_bp        
+    from app.routes.planes import planes_bp
+    from app.routes.historial import historial_bp
+    from app.routes.agentes import agentes_bp
+    from app.routes.api import api_bp
+
+    app.register_blueprint(public_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(servicios_bp)
+    app.register_blueprint(verificacion_bp)
+    app.register_blueprint(cafecito_bp)             
+    app.register_blueprint(webhook_bp)              
+    csrf.exempt(webhook_bp)
+    app.register_blueprint(planes_bp)
+    app.register_blueprint(historial_bp)
+    app.register_blueprint(agentes_bp)
+    app.register_blueprint(api_bp)
+    
+    return app
+
+
+def init_db(app):
+    from app.models import User, ContactSettings, Role
+    
+    with app.app_context():
+        db.create_all()
+        
+        if not ContactSettings.query.first():
+            db.session.add(ContactSettings())
+        
+        if not Role.query.filter_by(nombre="admin").first():
+            db.session.add(Role(nombre="admin", descripcion="Administrador del sistema"))
+            db.session.add(Role(nombre="usuario", descripcion="Usuario estándar"))
+        
+        if not User.query.filter_by(email="admin@datosconsultora.ar").first():
+            admin_pw = os.environ.get("ADMIN_PASSWORD")
+            if not admin_pw:
+                raise RuntimeError("ADMIN_PASSWORD es obligatoria al crear el administrador inicial.")
+            u = User(
+                nombre="Admin",
+                email="admin@datosconsultora.ar",
+                telefono="5491100000000",
+                is_admin=True,
+                is_active_account=True,
+                email_verificado=True,
+                telefono_verificado=True,
+            )
+            u.set_password(admin_pw)
+            db.session.add(u)
+        
+        db.session.commit()
+
+
+# ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
+app = create_app()
+
+# ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
+with app.app_context():
+    init_db(app)

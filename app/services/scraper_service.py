@@ -69,7 +69,11 @@ class ScraperService:
                     ]
                 }
                 
-                return {"success": True, "data": data_para_mic}
+                return {
+                    "success": True,
+                    "source": "facebook",   # luego será automático
+                    "data": data_para_mic
+                }
                 
         except Exception as e:
             return {

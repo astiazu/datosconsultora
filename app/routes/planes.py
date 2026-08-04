@@ -41,10 +41,10 @@ def mi_plan():
         user_plan=user_plan,
         plan_obj=plan_obj,
         planes=planes,
-        consumo_transcripciones=user_plan.consumo_transcripciones_mes(),
-        consumo_analisis=user_plan.consumo_analisis_mes()
+        # ✅ USAR ATRIBUTOS DIRECTOS en lugar de contar registros
+        consumo_transcripciones=user_plan.consumo_transcripciones,
+        consumo_analisis=user_plan.consumo_analisis
     )
-
 
 @planes_bp.route("/planes/elegir/<nombre_plan>")
 @login_required

@@ -7,3 +7,1180 @@ init_db(app)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+# app/__init__.py
+import os
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager
+from flask_mail import Mail
+from flask_wtf.csrf import CSRFProtect
+from dotenv import load_dotenv
+
+load_dotenv()
+
+db = SQLAlchemy()
+login_manager = LoginManager()
+mail = Mail()
+csrf = CSRFProtect()
+
+login_manager.login_view = "auth.login"
+login_manager.login_message = "Iniciá sesión para acceder a las herramientas."
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+    
+    # Soporte dual: PostgreSQL (Render) o SQLite (local)
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        # Render usa postgres://, SQLAlchemy necesita postgresql://
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        
+        # Forzar el uso del driver psycopg (versión 3) que sí funciona en Python 3.14
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+            
+        SQLALCHEMY_DATABASE_URI = database_url
+    else:
+        SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
+    
+    UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
+    MAX_CONTENT_LENGTH = 200 * 1024 * 1024
+    
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = True
+    MAIL_USE_SSL = False
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get(
+        "MAIL_DEFAULT_SENDER", 
+        "DatosConsultora <noreply@datosconsultora.ar>"
+    )
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY es obligatoria; configurala en el entorno.")
+    if not os.path.isabs(app.config["UPLOAD_FOLDER"]):
+        app.config["UPLOAD_FOLDER"] = os.path.join(app.instance_path, app.config["UPLOAD_FOLDER"])
+    
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    
+    db.init_app(app)
+    login_manager.init_app(app)
+    mail.init_app(app)
+    csrf.init_app(app)
+    
+    from app.models import User, ContactSettings
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
+    
+    @app.context_processor
+    def inject_contact():
+        cs = ContactSettings.query.first()
+        return dict(contact=cs)
+    
+    from app.routes.public import public_bp
+    from app.routes.auth import auth_bp
+    from app.routes.dashboard import dashboard_bp
+    from app.routes.admin import admin_bp
+    from app.routes.servicios import servicios_bp
+    from app.routes.verificacion import verificacion_bp
+    from app.routes.cafecito import cafecito_bp      
+    from app.routes.webhook import webhook_bp        
+    from app.routes.planes import planes_bp
+    from app.routes.historial import historial_bp
+    from app.routes.agentes import agentes_bp
+    from app.routes.api import api_bp
+    from app.routes.plata import plata_bp
+
+    app.register_blueprint(public_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(servicios_bp)
+    app.register_blueprint(verificacion_bp)
+    app.register_blueprint(cafecito_bp)             
+    app.register_blueprint(webhook_bp)              
+    csrf.exempt(webhook_bp)
+    app.register_blueprint(planes_bp)
+    app.register_blueprint(historial_bp)
+    app.register_blueprint(agentes_bp)
+    app.register_blueprint(api_bp)
+    app.register_blueprint(plata_bp)
+    
+    return app
+
+
+def init_db(app):
+    from app.models import User, ContactSettings, Role
+    
+    with app.app_context():
+        db.create_all()
+        
+        if not ContactSettings.query.first():
+            db.session.add(ContactSettings())
+        
+        if not Role.query.filter_by(nombre="admin").first():
+            db.session.add(Role(nombre="admin", descripcion="Administrador del sistema"))
+            db.session.add(Role(nombre="usuario", descripcion="Usuario estándar"))
+        
+        if not User.query.filter_by(email="admin@datosconsultora.ar").first():
+            admin_pw = os.environ.get("ADMIN_PASSWORD")
+            if not admin_pw:
+                raise RuntimeError("ADMIN_PASSWORD es obligatoria al crear el administrador inicial.")
+            u = User(
+                nombre="Admin",
+                email="admin@datosconsultora.ar",
+                telefono="5491100000000",
+                is_admin=True,
+                is_active_account=True,
+                email_verificado=True,
+                telefono_verificado=True,
+            )
+            u.set_password(admin_pw)
+            db.session.add(u)
+        
+        db.session.commit()
+
+
+# ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
+app = create_app()
+
+# ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
+with app.app_context():
+    init_db(app)
+
+# app/models.py
+from app import db
+from flask_login import UserMixin
+from datetime import datetime
+from app.utils.datetime_utils import utc_now
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    telefono = db.Column(db.String(30), nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    is_active_account = db.Column(db.Boolean, default=True)
+    email_verificado = db.Column(db.Boolean, default=False)
+    telefono_verificado = db.Column(db.Boolean, default=False)
+    creado = db.Column(db.DateTime, default=utc_now)
+
+    def set_password(self, pw):
+        self.password_hash = generate_password_hash(pw)
+
+    def check_password(self, pw):
+        return check_password_hash(self.password_hash, pw)
+
+
+class ContactSettings(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email1 = db.Column(db.String(120), default="hola@datosconsultora.ar")
+    email2 = db.Column(db.String(120), default="")
+    email3 = db.Column(db.String(120), default="")
+    whatsapp = db.Column(db.String(30), default="5491100000000")
+    telefono_fijo = db.Column(db.String(30), default="")
+    marca = db.Column(db.String(120), default="DatosConsultora")
+    slogan = db.Column(db.String(250), default="Transformamos datos, procesos y negocios con IA")
+    texto_home = db.Column(db.Text, default="")
+
+
+class Role(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), unique=True, nullable=False)
+    descripcion = db.Column(db.String(200))
+
+
+class UserRole(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    role_id = db.Column(db.Integer, db.ForeignKey("role.id"))
+    user = db.relationship("User", backref=db.backref("roles", lazy="dynamic"))
+    role = db.relationship("Role")
+
+
+class ActivityLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    accion = db.Column(db.String(200), nullable=False)
+    detalle = db.Column(db.String(500))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    ip = db.Column(db.String(50))
+    user = db.relationship("User", backref=db.backref("activity_logs", lazy="dynamic"))
+
+
+class UserProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    empresa = db.Column(db.String(120))
+    cargo = db.Column(db.String(120))
+    pais = db.Column(db.String(120))
+    avatar = db.Column(db.String(200))
+    user = db.relationship("User", backref=db.backref("profile", uselist=False))
+
+
+class EmailVerificationToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    token = db.Column(db.String(200), unique=True, nullable=False)
+    creado = db.Column(db.DateTime, default=utc_now)
+    usado = db.Column(db.Boolean, default=False)
+    user = db.relationship("User")
+
+
+class PasswordResetToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    token = db.Column(db.String(200), unique=True, nullable=False)
+    creado = db.Column(db.DateTime, default=utc_now)
+    usado = db.Column(db.Boolean, default=False)
+    user = db.relationship("User")
+
+
+class WhatsAppVerification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    codigo = db.Column(db.String(6), nullable=False)
+    creado = db.Column(db.DateTime, default=utc_now)
+    usado = db.Column(db.Boolean, default=False)
+    user = db.relationship("User", backref=db.backref("whatsapp_verifications", lazy="dynamic"))
+
+
+class UserFile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    filename = db.Column(db.String(200))
+    filepath = db.Column(db.String(300))
+    tipo = db.Column(db.String(50))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship("User", backref=db.backref("files", lazy="dynamic"))
+
+
+class Transcription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    file_id = db.Column(db.Integer, db.ForeignKey("user_file.id"))
+    texto = db.Column(db.Text)
+    fecha = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship("User", backref=db.backref("transcriptions", lazy="dynamic"))
+    file = db.relationship("UserFile")
+
+
+class Assistant(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    nombre = db.Column(db.String(120))
+    descripcion = db.Column(db.String(300))
+    creado = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship("User", backref=db.backref("assistants", lazy="dynamic"))
+
+class AnalysisSession(db.Model):
+    """Registro de cada análisis de sentimientos realizado."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    fecha = db.Column(db.DateTime, default=utc_now)
+    red_social = db.Column(db.String(50))
+    contexto = db.Column(db.String(500))
+    total_comentarios = db.Column(db.Integer)
+    resultado_json = db.Column(db.Text)  # JSON completo del análisis
+    
+    user = db.relationship('User', backref=db.backref('analysis_sessions', lazy='dynamic'))
+    
+    def obtener_resultado(self):
+        """Convierte el JSON string a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}
+
+class UserPlan(db.Model):
+    """Plan actual de un usuario."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey('plan.id'), nullable=True)
+    plan = db.Column(db.String(120), default="bronce")  # Legacy, mantener por compatibilidad
+    consumo_transcripciones = db.Column(db.Integer, default=0)
+    consumo_analisis = db.Column(db.Integer, default=0)
+    limite_transcripciones = db.Column(db.Integer, default=5)
+    limite_analisis = db.Column(db.Integer, default=3)
+    fecha_inicio = db.Column(db.DateTime, default=utc_now)
+    fecha_fin = db.Column(db.DateTime, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
+    fecha_expiracion_cafecito = db.Column(db.DateTime, nullable=True)
+    user = db.relationship('User', backref=db.backref('user_plan', uselist=False))
+    plan_obj = db.relationship('Plan')
+    
+    def obtener_plan_obj(self):
+        """Obtiene el objeto Plan del usuario (default: bronce)."""
+        if self.plan_obj:
+            return self.plan_obj
+        return Plan.query.filter_by(nombre='bronce').first()
+    
+    def puede_usar_feature(self, feature):
+        """Verifica si el usuario puede usar una feature."""
+        plan = self.obtener_plan_obj()
+        return plan.tiene_feature(feature) if plan else False
+    
+    def tiene_badge_cafecito(self):
+        """Verifica si el usuario tiene el badge de cafecito activo."""
+        if not self.fecha_expiracion_cafecito:
+            return False
+        return utc_now() < self.fecha_expiracion_cafecito
+    
+    def consumo_transcripciones_mes(self):
+        """Cuenta transcripciones del mes actual."""
+        from app.models import Transcription
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return Transcription.query.filter(
+            Transcription.user_id == self.user_id,
+            Transcription.fecha >= inicio_mes
+        ).count()
+    
+    def consumo_analisis_mes(self):
+        """Cuenta análisis del mes actual."""
+        inicio_mes = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return AnalysisSession.query.filter(
+            AnalysisSession.user_id == self.user_id,
+            AnalysisSession.fecha >= inicio_mes
+        ).count()
+    
+class Donation(db.Model):
+    """Registro de donaciones 'Invitame un cafecito'."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    monto = db.Column(db.Float, nullable=False)
+    moneda = db.Column(db.String(10), default='ARS')
+    mp_payment_id = db.Column(db.String(100), unique=True, nullable=True)
+    mp_preference_id = db.Column(db.String(100), nullable=True)
+    external_reference = db.Column(db.String(100), unique=True, nullable=False)
+    estado = db.Column(db.String(50), default='pending')  # pending, approved, rejected
+    mensaje = db.Column(db.String(500), default='')
+    fecha = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship('User', backref=db.backref('donations', lazy='dynamic'))
+
+class Plan(db.Model):
+    """Planes disponibles (editables desde el admin)."""
+    __tablename__ = 'plan'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(50), unique=True, nullable=False)  # bronce, plata, oro, lifetime
+    display_name = db.Column(db.String(100), nullable=False)  # "Bronce", "Plata", etc.
+    descripcion = db.Column(db.Text, default='')
+    precio_mensual = db.Column(db.Float, default=0.0)
+    precio_anual = db.Column(db.Float, default=0.0)
+    precio_lifetime = db.Column(db.Float, nullable=True)
+    es_lifetime = db.Column(db.Boolean, default=False)
+    activo = db.Column(db.Boolean, default=True)
+    orden = db.Column(db.Integer, default=0)
+    
+    # Features incluidas
+    incluye_historial = db.Column(db.Boolean, default=False)
+    incluye_motor_semantico = db.Column(db.Boolean, default=False)
+    incluye_agentes = db.Column(db.Boolean, default=False)
+    incluye_actividad_completa = db.Column(db.Boolean, default=False)
+    
+    # Límites de uso
+    limite_transcripciones_mes = db.Column(db.Integer, default=5)
+    limite_analisis_mes = db.Column(db.Integer, default=3)
+    
+    # Icono y color para la UI
+    icono = db.Column(db.String(50), default='bi-award')
+    color = db.Column(db.String(20), default='secondary')
+    
+    def tiene_feature(self, feature):
+        """Verifica si el plan incluye una feature."""
+        features_map = {
+            'historial': self.incluye_historial,
+            'motor_semantico': self.incluye_motor_semantico,
+            'agentes': self.incluye_agentes,
+            'actividad_completa': self.incluye_actividad_completa,
+        }
+        return features_map.get(feature, False)
+
+class ExpedienteMonitoreado(db.Model):
+    """Un expediente que un usuario pidio seguir, en alguna jurisdiccion."""
+    __tablename__ = "expediente_monitoreado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    jurisdiccion = db.Column(db.String(50), nullable=False)  # 'mev_scba', 'cordoba_sac', ...
+    nombre = db.Column(db.String(200), nullable=False)       # nombre que le puso el usuario
+    parametros_json = db.Column(db.Text, default="{}")       # filtros especificos (url, apellido, etc)
+
+    activo = db.Column(db.Boolean, default=True)
+    creado = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship(
+        "User", backref=db.backref("expedientes_monitoreados", lazy="dynamic")
+    )
+
+    def parametros(self) -> dict:
+        import json
+        try:
+            return json.loads(self.parametros_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+    def set_parametros(self, datos: dict) -> None:
+        import json
+        self.parametros_json = json.dumps(datos, ensure_ascii=False)
+
+
+class ExpedienteEstado(db.Model):
+    """Ultimo estado conocido de un expediente monitoreado (reemplaza a
+    estado/estado_<id>.json del agente standalone)."""
+    __tablename__ = "expediente_estado"
+
+    id = db.Column(db.Integer, primary_key=True)
+    expediente_monitoreado_id = db.Column(
+        db.Integer, db.ForeignKey("expediente_monitoreado.id"), nullable=False
+    )
+
+    expediente_id_externo = db.Column(db.String(100))  # id/numero dentro de esa jurisdiccion
+    caratula = db.Column(db.String(300))
+    estado = db.Column(db.String(200))
+    fecha_inicio = db.Column(db.String(100))
+    ultima_novedad = db.Column(db.String(300))
+
+    actualizado = db.Column(db.DateTime, default=utc_now)
+
+    expediente_monitoreado = db.relationship(
+        "ExpedienteMonitoreado", backref=db.backref("estados", lazy="dynamic")
+    )
+
+
+class SesionJurisdiccion(db.Model):
+    """Sesion (cookies/localStorage) que un usuario subio para una
+    jurisdiccion que la necesita (ej: MEV-SCBA). Reemplaza a session.json."""
+    __tablename__ = "sesion_jurisdiccion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    jurisdiccion = db.Column(db.String(50), nullable=False)
+
+    storage_state_json = db.Column(db.Text)  # contenido tal cual de session.json
+    actualizado = db.Column(db.DateTime, default=utc_now)
+    expirada = db.Column(db.Boolean, default=False)
+
+    user = db.relationship(
+        "User", backref=db.backref("sesiones_jurisdiccion", lazy="dynamic")
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "jurisdiccion", name="uq_sesion_user_jurisdiccion"),
+    )
+
+class ConversationRecord(db.Model):
+    """Persistencia de una Conversation del Plan Plata (serializada a JSON).
+    No acopla el dataclass del MIC a la DB: solo guarda su representación.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    conversation_id = db.Column(db.String(100), nullable=False)  # id del dataclass
+    source = db.Column(db.String(50))
+    title = db.Column(db.String(200))
+    total_messages = db.Column(db.Integer)
+    total_participants = db.Column(db.Integer)
+    conversation_json = db.Column(db.Text, nullable=False)  # Conversation serializada
+    resultado_json = db.Column(db.Text)  # AnalysisResult (null hasta que se analice)
+    contexto = db.Column(db.String(500))
+    estado = db.Column(db.String(50), default='pendiente')  # pendiente | analizada
+    fecha = db.Column(db.DateTime, default=utc_now)
+
+    user = db.relationship('User', backref=db.backref('conversation_records', lazy='dynamic'))
+
+    def obtener_resultado(self):
+        """Convierte el JSON del resultado a dict."""
+        import json
+        if self.resultado_json:
+            try:
+                return json.loads(self.resultado_json)
+            except:
+                return {}
+        return {}
+
+# app/routes/admin.py
+from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask_login import login_required, current_user
+from app import db
+from app.models import User, ContactSettings, ActivityLog, Role, UserRole, Plan
+from app.services.plan_service import inicializar_planes_por_defecto
+
+admin_bp = Blueprint("admin", __name__)
+
+@admin_bp.before_request
+@login_required
+def check_admin():
+    if not current_user.is_admin:
+        flash("No tenés permisos de administrador", "error")
+        return redirect(url_for("dashboard.dashboard_user"))
+
+@admin_bp.route("/")
+def admin_panel():
+    usuarios = User.query.all()
+    usuarios_count = len(usuarios)
+    activos_count = len([u for u in usuarios if u.is_active_account])
+    logs_recientes = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(10).all()
+    
+    return render_template(
+        "admin_panel.html",
+        usuarios_count=usuarios_count,
+        activos_count=activos_count,
+        logs_recientes=logs_recientes,
+    )
+
+@admin_bp.route("/usuarios")
+def admin_usuarios():
+    filtro = request.args.get("filtro", "todos")
+    
+    if filtro == "activos":
+        usuarios = User.query.filter_by(is_active_account=True).all()
+    elif filtro == "inactivos":
+        usuarios = User.query.filter_by(is_active_account=False).all()
+    else:
+        usuarios = User.query.all()
+    
+    roles = Role.query.all()
+    planes_disponibles = Plan.query.order_by(Plan.orden).all()
+    
+    return render_template(
+        "admin_usuarios.html", 
+        usuarios=usuarios, 
+        roles=roles, 
+        filtro=filtro,
+        planes_disponibles=planes_disponibles
+    )
+
+@admin_bp.route("/usuarios/<int:user_id>/toggle", methods=["POST"])
+def admin_usuario_toggle(user_id):
+    user = User.query.get_or_404(user_id)
+    user.is_active_account = not user.is_active_account
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="cambio_estado_usuario",
+        detalle=f"Usuario {user.email} {'activado' if user.is_active_account else 'desactivado'}",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"Usuario {'activado' if user.is_active_account else 'desactivado'}", "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/usuarios/<int:user_id>/roles", methods=["POST"])
+def admin_usuario_roles(user_id):
+    user = User.query.get_or_404(user_id)
+    roles_ids = request.form.getlist("roles")
+    
+    UserRole.query.filter_by(user_id=user.id).delete()
+    
+    for role_id in roles_ids:
+        ur = UserRole(user_id=user.id, role_id=int(role_id))
+        db.session.add(ur)
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="cambio_roles",
+        detalle=f"Roles actualizados para {user.email}",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash("Roles actualizados", "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/usuarios/<int:user_id>/reset", methods=["POST"])
+def admin_usuario_reset_password(user_id):
+    user = User.query.get_or_404(user_id)
+    nueva_pw = request.form.get("nueva_password")
+    
+    if nueva_pw:
+        user.set_password(nueva_pw)
+        db.session.commit()
+        
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="reset_password",
+            detalle=f"Password reseteado para {user.email}",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash("Contraseña actualizada", "success")
+    else:
+        flash("La contraseña no puede estar vacía", "error")
+    
+    return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/usuarios/<int:user_id>/delete", methods=["POST"])
+def admin_usuario_delete(user_id):
+    user = User.query.get_or_404(user_id)
+    
+    if user.id == current_user.id:
+        flash("No podés eliminarte a vos mismo", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    email = user.email
+    
+    try:
+        # Importar todas las tablas relacionadas
+        from app.models import (
+            UserProfile, UserFile, Transcription, Assistant,
+            ActivityLog, UserRole, EmailVerificationToken,
+            PasswordResetToken, WhatsAppVerification, UserPlan,
+            Donation, AnalysisSession, ExpedienteMonitoreado, 
+            ExpedienteEstado, SesionJurisdiccion
+        )
+        
+        # 1. Eliminar archivos subidos (y sus transcripciones)
+        for user_file in UserFile.query.filter_by(user_id=user.id).all():
+            Transcription.query.filter_by(file_id=user_file.id).delete()
+        UserFile.query.filter_by(user_id=user.id).delete()
+        
+        # 2. Eliminar análisis de sentimientos (NUEVO)
+        AnalysisSession.query.filter_by(user_id=user.id).delete()
+        
+        # 3. Eliminar expedientes monitoreados y sus estados (NUEVO)
+        # Primero eliminar los estados (tienen FK a expediente_monitoreado)
+        for exp in ExpedienteMonitoreado.query.filter_by(user_id=user.id).all():
+            ExpedienteEstado.query.filter_by(expediente_monitoreado_id=exp.id).delete()
+        ExpedienteMonitoreado.query.filter_by(user_id=user.id).delete()
+        
+        # 4. Eliminar sesiones de jurisdicción (NUEVO)
+        SesionJurisdiccion.query.filter_by(user_id=user.id).delete()
+        
+        # 5. Eliminar otros registros relacionados
+        UserProfile.query.filter_by(user_id=user.id).delete()
+        Assistant.query.filter_by(user_id=user.id).delete()
+        ActivityLog.query.filter_by(user_id=user.id).delete()
+        UserRole.query.filter_by(user_id=user.id).delete()
+        EmailVerificationToken.query.filter_by(user_id=user.id).delete()
+        PasswordResetToken.query.filter_by(user_id=user.id).delete()
+        WhatsAppVerification.query.filter_by(user_id=user.id).delete()
+        
+        # UserPlan (puede no existir para todos los usuarios)
+        user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+        if user_plan:
+            db.session.delete(user_plan)
+        
+        # Donation (del sistema de cafecito)
+        Donation.query.filter_by(user_id=user.id).delete()
+        
+        # 6. Ahora sí eliminar el usuario
+        db.session.delete(user)
+        db.session.commit()
+        
+        # 7. Registrar el log (con user_id=None porque el usuario ya no existe)
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="borrar_usuario",
+            detalle=f"Usuario {email} eliminado con todos sus datos asociados",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash(f"Usuario {email} eliminado correctamente", "success")
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al eliminar usuario: {str(e)}", "error")
+        current_app.logger.error(f"Error eliminando usuario {email}: {str(e)}")
+    
+    return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/config", methods=["GET", "POST"])
+def admin_config():
+    cs = ContactSettings.query.first()
+    
+    if request.method == "POST":
+        cs.email1 = request.form.get("email1", "")
+        cs.email2 = request.form.get("email2", "")
+        cs.email3 = request.form.get("email3", "")
+        cs.whatsapp = request.form.get("whatsapp", "")
+        cs.telefono_fijo = request.form.get("telefono_fijo", "")
+        cs.marca = request.form.get("marca", "")
+        cs.slogan = request.form.get("slogan", "")
+        cs.texto_home = request.form.get("texto_home", "")
+        
+        db.session.commit()
+        
+        log = ActivityLog(
+            user_id=current_user.id,
+            accion="config_update",
+            detalle="Configuración del sitio actualizada",
+            ip=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        flash("Configuración guardada", "success")
+        return redirect(url_for("admin.admin_config"))
+    
+    return render_template("admin_config.html", cs=cs)
+
+@admin_bp.route("/logs")
+def admin_logs():
+    tipo = request.args.get("tipo", "todos")
+    
+    if tipo == "todos":
+        logs = ActivityLog.query.order_by(ActivityLog.fecha.desc()).limit(200).all()
+    else:
+        logs = (
+            ActivityLog.query.filter_by(accion=tipo)
+            .order_by(ActivityLog.fecha.desc())
+            .limit(200)
+            .all()
+        )
+    
+    return render_template("admin_logs.html", logs=logs, tipo=tipo)
+
+# ============================================
+# GESTIÓN DE PLANES
+# ============================================
+
+@admin_bp.route("/planes")
+def admin_planes():
+    inicializar_planes_por_defecto()
+    planes = Plan.query.order_by(Plan.orden).all()
+    return render_template("admin_planes.html", planes=planes)
+
+@admin_bp.route("/planes/<int:plan_id>/editar", methods=["POST"])
+def admin_plan_editar(plan_id):
+    plan = Plan.query.get_or_404(plan_id)
+    
+    plan.display_name = request.form.get("display_name", plan.display_name)
+    plan.descripcion = request.form.get("descripcion", plan.descripcion)
+    plan.precio_mensual = float(request.form.get("precio_mensual", plan.precio_mensual) or 0)
+    plan.precio_anual = float(request.form.get("precio_anual", plan.precio_anual) or 0)
+    plan.precio_lifetime = float(request.form.get("precio_lifetime", plan.precio_lifetime) or 0) if request.form.get("precio_lifetime") else plan.precio_lifetime
+    plan.limite_transcripciones_mes = int(request.form.get("limite_transcripciones_mes", plan.limite_transcripciones_mes) or 0)
+    plan.limite_analisis_mes = int(request.form.get("limite_analisis_mes", plan.limite_analisis_mes) or 0)
+    plan.incluye_historial = request.form.get("incluye_historial") == "on"
+    plan.incluye_motor_semantico = request.form.get("incluye_motor_semantico") == "on"
+    plan.incluye_agentes = request.form.get("incluye_agentes") == "on"
+    plan.incluye_actividad_completa = request.form.get("incluye_actividad_completa") == "on"
+    plan.activo = request.form.get("activo") == "on"
+    
+    db.session.commit()
+    
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="plan_update",
+        detalle=f"Plan '{plan.display_name}' actualizado",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"Plan '{plan.display_name}' actualizado correctamente", "success")
+    return redirect(url_for("admin.admin_planes"))
+
+# ============================================
+# CAMBIO DE PLAN DE USUARIO
+# ============================================
+
+@admin_bp.route("/usuarios/<int:user_id>/plan", methods=["POST"])
+def admin_usuario_plan(user_id):
+    """Permite al admin cambiar el plan de un usuario y resetear su consumo."""
+    from app.models import UserPlan, Plan
+    
+    user = User.query.get_or_404(user_id)
+    nuevo_plan_nombre = request.form.get("plan_nombre")
+    resetear_consumo = request.form.get("resetear_consumo") == "on"
+    
+    plan = Plan.query.filter_by(nombre=nuevo_plan_nombre).first()
+    if not plan:
+        flash("Plan inválido", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Buscar o crear UserPlan
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    if not user_plan:
+        user_plan = UserPlan(user_id=user.id)
+        db.session.add(user_plan)
+    
+    # Actualizar plan
+    user_plan.plan_id = plan.id
+    user_plan.plan = plan.nombre  # campo legacy
+    user_plan.limite_transcripciones = plan.limite_transcripciones_mes
+    user_plan.limite_analisis = plan.limite_analisis_mes
+    user_plan.es_lifetime = plan.es_lifetime
+    
+    # Resetear consumo si el admin lo pidió
+    if resetear_consumo:
+        user_plan.consumo_transcripciones = 0
+        user_plan.consumo_analisis = 0
+    
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="cambio_plan_usuario",
+        detalle=f"Plan de {user.email} cambiado a '{plan.display_name}'" + 
+                (" (consumo reseteado)" if resetear_consumo else ""),
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Plan de {user.email} cambiado a '{plan.display_name}'" + 
+          (" y consumo mensual reseteado." if resetear_consumo else "."), 
+          "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/usuarios/<int:user_id>/reset-consumo", methods=["POST"])
+def admin_usuario_reset_consumo(user_id):
+    """Resetea el consumo mensual de un usuario sin cambiar su plan."""
+    from app.models import UserPlan
+    
+    user = User.query.get_or_404(user_id)
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    
+    if not user_plan:
+        flash(f"El usuario {user.email} no tiene un plan asignado", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Resetear contadores
+    user_plan.consumo_transcripciones = 0
+    user_plan.consumo_analisis = 0
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="reset_consumo",
+        detalle=f"Consumo mensual reseteado para {user.email} (Plan: {user_plan.plan})",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Consumo de {user.email} reseteado a 0", "success")
+    return redirect(url_for("admin.admin_usuarios"))
+
+<!--# app/templates/admin_usuarios.html -->
+{% extends "base.html" %}
+{% block title %}Administrar Usuarios - DatosConsultora{% endblock %}
+{% block content %}
+<section class="py-5 bg-gris">
+<div class="container">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="text-petroleo fw-bold mb-1">
+            <i class="bi bi-people-fill"></i> Usuarios
+        </h1>
+        <p class="text-muted mb-0">Gestioná estados, roles, planes y contraseñas de los usuarios.</p>
+    </div>
+    <span class="badge bg-primary fs-6">Admin: {{ current_user.email }}</span>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="btn-group">
+        <a href="{{ url_for('admin.admin_usuarios', filtro='todos') }}"
+           class="btn btn-sm btn-outline-secondary {% if filtro == 'todos' %}active{% endif %}">
+            Todos
+        </a>
+        <a href="{{ url_for('admin.admin_usuarios', filtro='activos') }}"
+           class="btn btn-sm btn-outline-secondary {% if filtro == 'activos' %}active{% endif %}">
+            Activos
+        </a>
+        <a href="{{ url_for('admin.admin_usuarios', filtro='inactivos') }}"
+           class="btn btn-sm btn-outline-secondary {% if filtro == 'inactivos' %}active{% endif %}">
+            Inactivos
+        </a>
+    </div>
+    <a href="{{ url_for('admin.admin_panel') }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-arrow-left"></i> Volver al Panel
+    </a>
+</div>
+
+<div class="card shadow-sm border-0">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table align-middle table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Email</th>
+                        <th>Plan</th>
+                        <th>Estado</th>
+                        <th>Roles</th>
+                        <th>Verificación</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in usuarios %}
+                    {% set up = u.user_plan %}
+                    {% set plan_obj = up.obtener_plan_obj() if up else None %}
+                    <tr>
+                        <td>{{ u.nombre }}</td>
+                        <td>{{ u.email }}</td>
+                        <td>
+                            {% if plan_obj %}
+                            <span class="badge bg-{{ plan_obj.color }}">
+                                <i class="bi {{ plan_obj.icono }} me-1"></i>
+                                {{ plan_obj.display_name }}
+                            </span>
+                            {% else %}
+                            <span class="badge bg-secondary">Sin plan</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.is_active_account %}
+                            <span class="badge bg-success">Activo</span>
+                            {% else %}
+                            <span class="badge bg-danger">Inactivo</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.roles.count() == 0 %}
+                            <span class="badge bg-secondary">Sin roles</span>
+                            {% else %}
+                            {% for ur in u.roles %}
+                            <span class="badge bg-info text-dark">{{ ur.role.nombre }}</span>
+                            {% endfor %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.email_verificado %}
+                            <span class="badge bg-success">Email ✓</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Email pendiente</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group btn-group-sm">
+                                <!-- Cambiar plan -->
+                                <button class="btn btn-outline-success"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#planModal{{ u.id }}"
+                                        title="Cambiar plan">
+                                    <i class="bi bi-trophy-fill"></i>
+                                </button>
+                                <!-- Activar/Desactivar -->
+                                <form method="post" action="{{ url_for('admin.admin_usuario_toggle', user_id=u.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-secondary" title="Activar/Desactivar">
+                                    {% if u.is_active_account %}
+                                    <i class="bi bi-toggle-on"></i>
+                                    {% else %}
+                                    <i class="bi bi-toggle-off"></i>
+                                    {% endif %}
+                                    </button>
+                                </form>
+                                <!-- Roles -->
+                                <button class="btn btn-outline-primary"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#rolesModal{{ u.id }}"
+                                        title="Editar roles">
+                                    <i class="bi bi-person-gear"></i>
+                                </button>
+                                <!-- Reset password -->
+                                <button class="btn btn-outline-warning"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#resetModal{{ u.id }}"
+                                        title="Resetear contraseña">
+                                    <i class="bi bi-key"></i>
+                                </button>
+                                <!-- Resetear consumo -->
+                                <form method="post" action="{{ url_for('admin.admin_usuario_reset_consumo', user_id=u.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-info" 
+                                            title="Resetear consumo mensual"
+                                            onclick="return confirm('¿Resetear el consumo mensual de {{ u.email }}?')">
+                                        <i class="bi bi-arrow-counterclockwise"></i>
+                                    </button>
+                                </form>                                
+                                <!-- Eliminar -->
+                                <button class="btn btn-outline-danger"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#deleteModal{{ u.id }}"
+                                        title="Eliminar usuario">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- ============================================ -->
+                    <!-- MODAL: CAMBIAR PLAN (NUEVO) -->
+                    <!-- ============================================ -->
+                    <div class="modal fade" id="planModal{{ u.id }}" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <form method="post" action="{{ url_for('admin.admin_usuario_plan', user_id=u.id) }}">
+                                    <div class="modal-header bg-success text-white">
+                                        <h5 class="modal-title">
+                                            <i class="bi bi-trophy-fill me-2"></i>
+                                            Cambiar plan de {{ u.nombre }}
+                                        </h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted mb-3">
+                                            Plan actual: 
+                                            {% if plan_obj %}
+                                            <strong class="text-{{ plan_obj.color }}">{{ plan_obj.display_name }}</strong>
+                                            {% else %}
+                                            <strong>Sin plan asignado</strong>
+                                            {% endif %}
+                                        </p>
+                                        
+                                        <div class="mb-3">
+                                            <label class="form-label fw-bold">Nuevo plan:</label>
+                                            <select name="plan_nombre" class="form-select" required>
+                                                {% for p in planes_disponibles %}
+                                                <option value="{{ p.nombre }}" 
+                                                        {% if plan_obj and plan_obj.nombre == p.nombre %}selected{% endif %}>
+                                                    {{ p.display_name }} 
+                                                    {% if p.precio_mensual == 0 and not p.es_lifetime %}(Gratis)
+                                                    {% elif p.es_lifetime %}(Lifetime - ${{ "{:,.0f}".format(p.precio_lifetime).replace(",", ".") }})
+                                                    {% else %}(${{ "{:,.0f}".format(p.precio_mensual).replace(",", ".") }}/mes){% endif %}
+                                                    - {{ p.limite_transcripciones_mes }} transc, {{ p.limite_analisis_mes }} análisis
+                                                </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+
+                                        <div class="alert alert-info mb-0">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" 
+                                                       name="resetear_consumo" value="on" 
+                                                       id="reset{{ u.id }}" checked>
+                                                <label class="form-check-label" for="reset{{ u.id }}">
+                                                    <strong>Resetear consumo mensual</strong><br>
+                                                    <small class="text-muted">
+                                                        Pone a 0 las transcripciones y análisis usados este mes. 
+                                                        Recomendado para que el usuario pueda probar el nuevo plan desde cero.
+                                                    </small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-success">
+                                            <i class="bi bi-check-lg me-1"></i> Aplicar cambios
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Roles (existente) -->
+                    <div class="modal fade" id="rolesModal{{ u.id }}" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <form method="post" action="{{ url_for('admin.admin_usuario_roles', user_id=u.id) }}">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Roles de {{ u.email }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted mb-2">Seleccioná los roles que querés asignar.</p>
+                                        {% for r in roles %}
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="roles"
+                                                   value="{{ r.id }}"
+                                                   id="role{{ r.id }}_user{{ u.id }}"
+                                                   {% if u.roles.filter_by(role_id=r.id).first() %}checked{% endif %}>
+                                            <label class="form-check-label" for="role{{ r.id }}_user{{ u.id }}">
+                                                {{ r.nombre }} <small class="text-muted">- {{ r.descripcion }}</small>
+                                            </label>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Reset Password (existente) -->
+                    <div class="modal fade" id="resetModal{{ u.id }}" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <form method="post" action="{{ url_for('admin.admin_usuario_reset_password', user_id=u.id) }}">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Resetear contraseña</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted">Ingresá una nueva contraseña para <strong>{{ u.email }}</strong>.</p>
+                                        <div class="mb-3">
+                                            <label class="form-label">Nueva contraseña</label>
+                                            <input type="password" name="nueva_password" class="form-control" required>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-warning">Actualizar contraseña</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Delete (existente) -->
+                    <div class="modal fade" id="deleteModal{{ u.id }}" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <form method="post" action="{{ url_for('admin.admin_usuario_delete', user_id=u.id) }}">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Eliminar usuario</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted">
+                                            ¿Seguro que querés eliminar al usuario <strong>{{ u.email }}</strong>?<br>
+                                            Esta acción no se puede deshacer.
+                                        </p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                        <button type="submit" class="btn btn-danger">Eliminar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+</div>
+</section>
+{% endblock %}

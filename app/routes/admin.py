@@ -333,3 +333,33 @@ def admin_usuario_plan(user_id):
           (" y consumo mensual reseteado." if resetear_consumo else "."), 
           "success")
     return redirect(url_for("admin.admin_usuarios"))
+
+@admin_bp.route("/usuarios/<int:user_id>/reset-consumo", methods=["POST"])
+def admin_usuario_reset_consumo(user_id):
+    """Resetea el consumo mensual de un usuario sin cambiar su plan."""
+    from app.models import UserPlan
+    
+    user = User.query.get_or_404(user_id)
+    user_plan = UserPlan.query.filter_by(user_id=user.id).first()
+    
+    if not user_plan:
+        flash(f"El usuario {user.email} no tiene un plan asignado", "error")
+        return redirect(url_for("admin.admin_usuarios"))
+    
+    # Resetear contadores
+    user_plan.consumo_transcripciones = 0
+    user_plan.consumo_analisis = 0
+    db.session.commit()
+    
+    # Log de la acción
+    log = ActivityLog(
+        user_id=current_user.id,
+        accion="reset_consumo",
+        detalle=f"Consumo mensual reseteado para {user.email} (Plan: {user_plan.plan})",
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    
+    flash(f"✅ Consumo de {user.email} reseteado a 0", "success")
+    return redirect(url_for("admin.admin_usuarios"))

@@ -255,35 +255,78 @@ class GroqLLMClient:
         """
         Análisis semántico individual de comentarios.
         Usado por planes Plata+.
+        Divide en lotes de 5 para evitar truncamiento de JSON por límite de tokens.
         """
         if not isinstance(comentarios, list):
             raise TypeError("comentarios debe ser una lista de textos.")
-        
+
         if len(comentarios) > 100:
             raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
-        
+
         if not comentarios:
             return {"analyses": []}
-        
-        comentarios = comentarios[:25]
-        
+
+        # Normalizar comentarios
         comentarios_normalizados = []
         for comentario in comentarios:
             if comentario is None:
                 comentario = ""
             comentario = str(comentario).strip()
             comentarios_normalizados.append(comentario)
-        
-        comentarios_texto = "\n".join(f"[{i + 1}] {comentario}" for i, comentario in enumerate(comentarios_normalizados))
-        contexto_texto = f"CONTEXTO ESPECÍFICO:\n{contexto.strip()}" if contexto and contexto.strip() else "CONTEXTO ESPECÍFICO:\nNo proporcionado."
-        
-        # Cargar prompt desde archivo
+
+        # ✅ NUEVO: Dividir en lotes de 5 para evitar truncamiento de JSON
+        lote_tamano = 5
+        lotes = [
+            comentarios_normalizados[i:i + lote_tamano]
+            for i in range(0, len(comentarios_normalizados), lote_tamano)
+        ]
+
+        todos_analyses = []
+        offset = 0  # Para mantener message_id secuencial global
+
+        for idx_lote, lote in enumerate(lotes, 1):
+            print(f"📦 Procesando lote {idx_lote}/{len(lotes)} ({len(lote)} comentarios)")
+            try:
+                resultado_lote = self._analizar_semantica_lote(
+                    comentarios=lote,
+                    contexto=contexto,
+                    offset=offset,
+                )
+                todos_analyses.extend(resultado_lote.get("analyses", []))
+                offset += len(lote)
+            except Exception as e:
+                print(f"❌ Lote {idx_lote} falló: {str(e)[:200]}")
+                # Si un lote falla, continuamos con los demás (mejor resultado parcial que ninguno)
+                # Los mensajes de ese lote aparecerán sin análisis semántico
+                offset += len(lote)
+                continue
+
+        return {"analyses": todos_analyses}
+
+
+    def _analizar_semantica_lote(
+        self,
+        comentarios: list,
+        contexto: str,
+        offset: int = 0,
+    ) -> dict:
+        """Analiza un lote de comentarios (método interno)."""
+        comentarios_texto = "\n".join(
+            f"[{i + 1}] {comentario}"
+            for i, comentario in enumerate(comentarios)
+        )
+        contexto_texto = (
+            f"CONTEXTO ESPECÍFICO:\n{contexto.strip()}"
+            if contexto and contexto.strip()
+            else "CONTEXTO ESPECÍFICO:\nNo proporcionado."
+        )
+
         prompt_base = cargar_prompt("semantic_prompt.txt")
-        prompt = f"{prompt_base}\n\n{contexto_texto}\n\nCOMENTARIOS:\n\n{comentarios_texto}"
-        
+        prompt = f"{prompt_base}\n{contexto_texto}\nCOMENTARIOS:\n{comentarios_texto}"
+
         max_intentos = 3
         ultimo_error = None
-        
+
         for intento in range(max_intentos):
             try:
                 response = self.client.chat.completions.create(
@@ -291,107 +334,246 @@ class GroqLLMClient:
                     messages=[
                         {
                             "role": "system",
-                            "content": "Sos un lingüista experto en discurso argentino. Analizás intención, ironía y sarcasmo. Priorizás evidencia sobre suposiciones. La ambigüedad es un resultado válido. Nunca inventes ironía. Respondé exclusivamente JSON válido."
+                            "content": (
+                                "Sos un lingüista experto en discurso argentino. "
+                                "Analizás intención, ironía y sarcasmo. "
+                                "Priorizás evidencia sobre suposiciones. "
+                                "La ambigüedad es un resultado válido. "
+                                "Nunca inventes ironía. "
+                                "Respondé exclusivamente JSON válido. "
+                                "NO incluyas 'texto_original' en el JSON."
+                            ),
                         },
-                        {"role": "user", "content": prompt}
+                        {"role": "user", "content": prompt},
                     ],
                     temperature=0.15 if intento == 0 else 0.05,
-                    max_tokens=4000,
+                    max_tokens=6000,  # ✅ Aumentado de 4000 a 6000
                 )
-                
-                # ✅ CORRECCIÓN DEFENSIVA
+
                 if hasattr(self, "token_monitor") and self.token_monitor is not None:
                     self.token_monitor.update_from_response(response)
-                
+
                 contenido = response.choices[0].message.content.strip()
                 resultado = self._extraer_json(contenido)
-                
+
                 if not isinstance(resultado, dict):
                     raise ValueError("La respuesta del modelo no es un objeto JSON.")
-                
+
                 if "analyses" not in resultado:
                     raise ValueError("Falta el campo 'analyses'.")
-                
+
                 analyses = resultado["analyses"]
-                
+
                 if not isinstance(analyses, list):
                     raise ValueError("'analyses' debe ser una lista.")
-                
-                if len(analyses) != len(comentarios_normalizados):
-                    raise ValueError(f"El modelo analizó {len(analyses)} comentarios pero se enviaron {len(comentarios_normalizados)}.")
-                
+
+                if len(analyses) != len(comentarios):
+                    raise ValueError(
+                        f"El modelo analizó {len(analyses)} comentarios "
+                        f"pero se enviaron {len(comentarios)}."
+                    )
+
                 # Validaciones de contrato
                 sentiments_validos = {"positive", "negative", "neutral"}
-                tones_validos = {"positive", "negative", "neutral", "ironic_positive", "ironic_negative", "sarcastic", "mixed", "ambiguous"}
+                tones_validos = {
+                    "positive", "negative", "neutral",
+                    "ironic_positive", "ironic_negative",
+                    "sarcastic", "mixed", "ambiguous",
+                }
                 irony_polarities_validas = {"positive", "negative", "neutral", "none"}
-                
+
                 for index, analysis in enumerate(analyses):
                     if not isinstance(analysis, dict):
                         raise ValueError(f"El análisis {index + 1} no es un objeto JSON.")
-                    
+
                     expected_id = str(index + 1)
                     if str(analysis.get("message_id")) != expected_id:
-                        raise ValueError(f"message_id incorrecto en posición {index + 1}.")
-                    
+                        raise ValueError(
+                            f"message_id incorrecto en posición {index + 1}."
+                        )
+
                     sentiment = analysis.get("sentiment")
                     if sentiment not in sentiments_validos:
-                        raise ValueError(f"sentiment inválido en mensaje {expected_id}: {sentiment}")
-                    
+                        raise ValueError(
+                            f"sentiment inválido en mensaje {expected_id}: {sentiment}"
+                        )
+
                     tone = analysis.get("tone")
                     if tone not in tones_validos:
-                        raise ValueError(f"tone inválido en mensaje {expected_id}: {tone}")
-                    
+                        raise ValueError(
+                            f"tone inválido en mensaje {expected_id}: {tone}"
+                        )
+
                     irony = analysis.get("irony")
                     if not isinstance(irony, bool):
-                        raise ValueError(f"'irony' debe ser booleano en mensaje {expected_id}.")
-                    
+                        raise ValueError(
+                            f"'irony' debe ser booleano en mensaje {expected_id}."
+                        )
+
                     sarcasm = analysis.get("sarcasm")
                     if not isinstance(sarcasm, bool):
-                        raise ValueError(f"'sarcasm' debe ser booleano en mensaje {expected_id}.")
-                    
+                        raise ValueError(
+                            f"'sarcasm' debe ser booleano en mensaje {expected_id}."
+                        )
+
                     irony_polarity = analysis.get("irony_polarity")
                     if irony_polarity not in irony_polarities_validas:
-                        raise ValueError(f"irony_polarity inválida en mensaje {expected_id}.")
-                    
+                        raise ValueError(
+                            f"irony_polarity inválida en mensaje {expected_id}."
+                        )
+
                     if not irony and irony_polarity != "none":
-                        raise ValueError(f"Mensaje {expected_id}: irony=false requiere irony_polarity='none'.")
-                    
+                        raise ValueError(
+                            f"Mensaje {expected_id}: "
+                            f"irony=false requiere irony_polarity='none'."
+                        )
+
                     confidence = analysis.get("confidence")
                     if not isinstance(confidence, (int, float)):
-                        raise ValueError(f"confidence inválida en mensaje {expected_id}.")
-                    
+                        raise ValueError(
+                            f"confidence inválida en mensaje {expected_id}."
+                        )
+
                     if not 0.0 <= float(confidence) <= 1.0:
-                        raise ValueError(f"confidence fuera de rango en mensaje {expected_id}.")
-                    
+                        raise ValueError(
+                            f"confidence fuera de rango en mensaje {expected_id}."
+                        )
+
                     evidence = analysis.get("evidence")
                     if not isinstance(evidence, list):
-                        raise ValueError(f"'evidence' debe ser una lista en mensaje {expected_id}.")
-                    
-                    if irony and len(evidence) == 0:
-                        raise ValueError(f"El mensaje {expected_id} fue marcado como irónico pero no contiene evidencias.")
-                
+                        raise ValueError(
+                            f"'evidence' debe ser una lista en mensaje {expected_id}."
+                        )
+
+                    # ✅ Relajado: si hay ironía pero no hay evidencia, NO falla.
+                    # El modelo a veces no genera evidencia aunque detecte ironía.
+                    # if irony and len(evidence) == 0:
+                    #     raise ValueError(...)
+
+                    # ✅ Corregir message_id para mantener secuencia global
+                    analysis["message_id"] = str(offset + index + 1)
+
                 return resultado
-                
+
             except Exception as e:
                 error_type = type(e).__name__
                 error_str = str(e)
-                
-                is_rate_limit = "RateLimitError" in error_type or "rate_limit" in error_str.lower() or "429" in error_str or "413" in error_str
-                
+                is_rate_limit = (
+                    "RateLimitError" in error_type
+                    or "rate_limit" in error_str.lower()
+                    or "429" in error_str
+                    or "413" in error_str
+                )
                 if is_rate_limit:
                     reset_info = self._extract_reset_time(error_str)
-                    raise Exception(f" Rate limit de Groq alcanzado. NO se reintentará automáticamente. {reset_info}") from e
-                
-                if isinstance(e, (ValueError,)) and "JSON" in error_str:
+                    raise Exception(
+                        f"⚠️ Rate limit de Groq alcanzado. "
+                        f"NO se reintentará automáticamente. {reset_info}"
+                    ) from e
+
+                if isinstance(e, ValueError) and "JSON" in error_str:
                     ultimo_error = e
-                    print(f"⚠️ Intento {intento + 1}/{max_intentos} falló (JSON inválido): {str(e)[:200]}")
+                    print(
+                        f"⚠️ Lote semántico, Intento {intento + 1}/{max_intentos} "
+                        f"falló (JSON inválido): {str(e)[:200]}"
+                    )
                     continue
-                
+
                 ultimo_error = e
-                print(f"⚠️ Intento {intento + 1}/{max_intentos} falló en analizar_semantica: {str(e)[:200]}")
+                print(
+                    f"⚠️ Lote semántico, Intento {intento + 1}/{max_intentos} "
+                    f"falló: {str(e)[:200]}"
+                )
                 continue
-        
-        raise Exception(f"Error procesando análisis semántico después de {max_intentos} intentos: {str(ultimo_error)}")
+
+        raise Exception(
+            f"Error procesando análisis semántico después de "
+            f"{max_intentos} intentos: {str(ultimo_error)}"
+        )
+
+    def resumir_conversacion(self, analyses: list, contexto: str = "") -> dict:
+        """
+        Meta-análisis: genera un resumen ejecutivo de la conversación
+        a partir de los análisis semánticos individuales.
+        """
+        if not analyses:
+            return {}
+
+        # Vista compacta de los análisis para el meta-análisis
+        vista = []
+        for i, a in enumerate(analyses, 1):
+            vista.append(
+                f"[{i}] sentiment={a.get('sentiment')} | tone={a.get('tone')} | "
+                f"irony={a.get('irony')} | sarcasm={a.get('sarcasm')} | "
+                f"literal: {a.get('literal_meaning', '')} | "
+                f"inferido: {a.get('inferred_meaning', '')}"
+            )
+        analyses_texto = "\n".join(vista)
+
+        contexto_texto = contexto.strip() if contexto and contexto.strip() else "No proporcionado."
+
+        prompt = f"""Sos un analista de opinión pública experto en discurso argentino.
+Te paso el resultado de un análisis semántico individual de comentarios de una conversación en redes sociales.
+Tu tarea es producir un RESUMEN EJECUTIVO para el dueño de la cuenta o marca analizada.
+
+CONTEXTO DE LA CONVERSACIÓN:
+{contexto_texto}
+
+ANÁLISIS INDIVIDUALES:
+{analyses_texto}
+
+Respondé ÚNICAMENTE con JSON válido, sin markdown, con esta estructura exacta:
+{{
+  "resumen_general": "resumen de 3 a 5 frases de la conversación",
+  "puntos_fuertes": ["punto 1", "punto 2"],
+  "puntos_debiles": ["punto 1", "punto 2"],
+  "polaridad_dominante": "positive|negative|mixed|neutral",
+  "conclusion": "conclusión clara: si los comentarios son mayoritariamente positivos, negativos o mixtos, y qué significa eso",
+  "enfoque_solucion": "recomendación concreta de enfoque o respuesta ante la situación detectada"
+}}
+
+REGLAS:
+- puntos_fuertes y puntos_debiles: listas de como máximo 4 elementos, concretos y accionables.
+- Si no hay puntos fuertes reales, devolvé una lista vacía.
+- polaridad_dominante debe reflejar la mayoría real de los sentimientos.
+- enfoque_solucion debe ser práctico y breve (máximo 3 frases).
+"""
+
+        max_intentos = 2
+        ultimo_error = None
+        for intento in range(max_intentos):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Sos un analista de opinión pública. Respondés exclusivamente con JSON válido.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=1500,
+                )
+                if hasattr(self, "token_monitor") and self.token_monitor is not None:
+                    self.token_monitor.update_from_response(response)
+
+                contenido = response.choices[0].message.content.strip()
+                resultado = self._extraer_json(contenido)
+
+                if not isinstance(resultado, dict):
+                    raise ValueError("El resumen no es un objeto JSON.")
+                for campo in ["resumen_general", "conclusion", "enfoque_solucion"]:
+                    if campo not in resultado:
+                        raise ValueError(f"Falta el campo '{campo}' en el resumen.")
+                return resultado
+
+            except Exception as e:
+                ultimo_error = e
+                print(f"⚠️ Resumen ejecutivo, intento {intento + 1}/{max_intentos} falló: {str(e)[:200]}")
+                continue
+
+        raise Exception(f"Error generando resumen ejecutivo: {str(ultimo_error)}")
 
     def _extract_reset_time(self, error_message: str) -> str:
         """Extrae información de tiempo de reseteo del mensaje de error de Groq."""

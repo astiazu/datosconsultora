@@ -1,3 +1,4 @@
+<!-- app/templates/analisis_sentimientos.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'analisis' %}
 
@@ -26,6 +27,82 @@
   {% endif %}
 {% endwith %}
 
+{# ========================================================================= #}
+{# PREVIEW PLATA: Vista premium del Plan Plata con Conversation              #}
+{# ========================================================================= #}
+{% if paso == 'preview_plata' and conversation %}
+<div class="card mb-4 border-primary">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+            <i class="fas fa-comments"></i> Conversación detectada ({{ conversation.total_messages }} mensajes)
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <p class="mb-1"><strong>Red social:</strong> {{ conversation.source.value | upper }}</p>
+                <p class="mb-0"><strong>Participantes:</strong> {{ conversation.total_participants }}</p>
+            </div>
+            <div class="col-md-6">
+                {% if contexto %}
+                <p class="mb-1"><strong>Contexto:</strong> {{ contexto }}</p>
+                {% endif %}
+                <p class="mb-0 text-muted small">ID de registro: #{{ record_id_plata }}</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <h6 class="mb-3">Vista previa de la conversación:</h6>
+        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-striped table-sm">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width: 30%;">Participante</th>
+                        <th>Mensaje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for message in conversation.messages %}
+                    <tr>
+                        <td>
+                            <span class="badge bg-secondary">
+                                {{ participants.get(message.participant_id, 'Anónimo') }}
+                            </span>
+                        </td>
+                        <td>{{ message.text }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <hr>
+
+        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="record_id_plata" value="{{ record_id_plata }}"/>
+            <input type="hidden" name="action" value="analizar_plata"/>
+
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                <strong>¿Listo para el análisis semántico?</strong><br>
+                El Motor Semántico interpretará ironía, sarcasmo, intención y temas profundos de esta conversación.
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-success btn-lg">
+                    <i class="fas fa-brain"></i> Ejecutar Motor Semántico
+                </button>
+                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-times"></i> Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {% if paso == 'input' or paso == 'preview' %}
     <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -37,6 +114,11 @@
                 {% if error_msg %}
                 <div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> {{ error_msg }}</div>
                 {% endif %}
+                <div class="alert alert-info small mb-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Nota:</strong> La extracción automática por URL está temporalmente bloqueada por Facebook, Instagram y X.
+                    Pegá la URL para dejarla registrada y copiá los comentarios manualmente abajo.
+                </div>
                 <div class="mb-3">
                     <label for="url_publicacion" class="form-label">URL de la publicación</label>
                     <input type="url" name="url_publicacion" id="url_publicacion" class="form-control" placeholder="https://facebook.com/..." value="{{ url_input or '' }}">
@@ -79,20 +161,33 @@
 
 {% if paso == 'preview' and comentarios_limpios %}
 <div class="card mb-4">
-    <div class="card-header"><h5 class="mb-0"><i class="fas fa-check-circle"></i> Comentarios limpios ({{ comentarios_limpios|length }})</h5></div>
+    <div class="card-header">
+        <h5 class="mb-0"><i class="fas fa-check-circle"></i> Comentarios limpios ({{ comentarios_limpios|length }})</h5>
+    </div>
     <div class="card-body">
         <p class="text-muted">Red detectada: <strong>{{ red_social|upper }}</strong></p>
         <table class="table table-striped">
-            <thead><tr><th>#</th><th>Usuario</th><th>Comentario</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Usuario</th>
+                    <th>Comentario</th>
+                </tr>
+            </thead>
             <tbody>
                 {% for c in comentarios_limpios %}
-                <tr><td>{{ loop.index }}</td><td>{{ c.usuario }}</td><td>{{ c.texto }}</td></tr>
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ c.usuario }}</td>
+                    <td>{{ c.texto }}</td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
+        
         <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-            <input type="hidden" name="comentarios_limpios_json" value="{{ comentarios_limpios|tojson }}">
+            <textarea name="comentarios" style="display:none;">{{ comentarios_raw }}</textarea>
             <input type="hidden" name="contexto" value="{{ contexto }}">
             <button type="submit" name="action" value="analizar" class="btn btn-primary">
                 <i class="fas fa-chart-bar"></i> Analizar {{ comentarios_limpios|length }} comentarios
@@ -102,146 +197,333 @@
 </div>
 {% endif %}
 
+{# ========================================================================= #}
+{# RESULTADO: Soporta tanto Bronce (sentimientos) como Plata (semántico)     #}
+{# ========================================================================= #}
 {% if paso == 'resultado' and resultado %}
-    {% if resultado.estadisticas is defined %}
-    
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-chart-pie"></i> Estadísticas</h5></div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="alert alert-success">
-                        <h6><i class="fas fa-smile"></i> Positivos</h6>
-                        <h3>{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</h3>
+
+    {# ============================================================= #}
+    {# RESULTADO SEMÁNTICO (Plan Plata+)                               #}
+    {# ============================================================= #}
+    {% if resultado.tipo_analisis is defined and resultado.tipo_analisis == 'semantico' %}
+        {% set analyses = resultado.semantic_analysis.get('analyses', []) if resultado.semantic_analysis else [] %}
+        {% set est = resultado.estadisticas_agregadas %}
+        {% set re = resultado.resumen_ejecutivo %}
+
+        <div class="card mb-4 border-dark">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-brain"></i> Informe Semántico de la Conversación</h5>
+                <span class="badge bg-light text-dark">{{ resultado.modelo_utilizado | default('N/A') }}</span>
+            </div>
+            <div class="card-body">
+
+                {# ============ FILA 1: GRÁFICO + CONTADORES ============ #}
+                <div class="row g-4 mb-4">
+                    <div class="col-md-5 text-center">
+                        <h6 class="text-muted mb-3">Distribución de sentimientos ({{ est.total }} mensajes)</h6>
+                        <div style="max-width: 260px; margin: 0 auto;">
+                            <canvas id="chartSentimientos"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <div class="row g-3 text-center">
+                            <div class="col-4">
+                                <div class="border rounded p-3 h-100">
+                                    <i class="fas fa-masks-theater fa-2x text-warning"></i>
+                                    <h4 class="mb-0 mt-2">{{ est.ironia }}</h4>
+                                    <small class="text-muted">Ironías detectadas</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-3 h-100">
+                                    <i class="fas fa-face-rolling-eyes fa-2x text-danger"></i>
+                                    <h4 class="mb-0 mt-2">{{ est.sarcasmo }}</h4>
+                                    <small class="text-muted">Sarcasmos detectados</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-3 h-100">
+                                    <i class="fas fa-circle-question fa-2x text-secondary"></i>
+                                    <h4 class="mb-0 mt-2">{{ est.ambiguos }}</h4>
+                                    <small class="text-muted">Ambiguos</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span class="text-success fw-bold">Positivos {{ est.porcentaje_positivo }}%</span>
+                                <span class="text-secondary fw-bold">Neutrales {{ est.porcentaje_neutral }}%</span>
+                                <span class="text-danger fw-bold">Negativos {{ est.porcentaje_negativo }}%</span>
+                            </div>
+                            <div class="progress" style="height: 12px;">
+                                <div class="progress-bar bg-success" style="width: {{ est.porcentaje_positivo }}%"></div>
+                                <div class="progress-bar bg-secondary" style="width: {{ est.porcentaje_neutral }}%"></div>
+                                <div class="progress-bar bg-danger" style="width: {{ est.porcentaje_negativo }}%"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="alert alert-secondary">
-                        <h6><i class="fas fa-meh"></i> Neutrales</h6>
-                        <h3>{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</h3>
+
+                <hr>
+
+                {# ============ FILA 2: RESUMEN EJECUTIVO ============ #}
+                {% if re and not re.get('error') %}
+                    <h6 class="fw-bold mb-3"><i class="fas fa-file-lines"></i> Resumen de la conversación</h6>
+                    <p class="mb-3">{{ re.resumen_general }}</p>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <div class="card h-100 border-success">
+                                <div class="card-header fw-bold text-success">
+                                    <i class="fas fa-thumbs-up"></i> Puntos fuertes
+                                </div>
+                                <div class="card-body">
+                                    {% if re.puntos_fuertes %}
+                                        <ul class="mb-0">
+                                            {% for p in re.puntos_fuertes %}<li class="mb-1">{{ p }}</li>{% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p class="mb-0 text-muted">No se detectaron puntos fuertes claros.</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card h-100 border-danger">
+                                <div class="card-header fw-bold text-danger">
+                                    <i class="fas fa-thumbs-down"></i> Puntos débiles
+                                </div>
+                                <div class="card-body">
+                                    {% if re.puntos_debiles %}
+                                        <ul class="mb-0">
+                                            {% for p in re.puntos_debiles %}<li class="mb-1">{{ p }}</li>{% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p class="mb-0 text-muted">No se detectaron puntos débiles claros.</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="alert alert-danger">
-                        <h6><i class="fas fa-frown"></i> Negativos</h6>
-                        <h3>{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</h3>
+
+                    {% set pol = re.polaridad_dominante | default('neutral') %}
+                    <div class="alert alert-{{ 'success' if pol == 'positive' else ('danger' if pol == 'negative' else 'warning') }}">
+                        <h6 class="fw-bold"><i class="fas fa-scale-balanced"></i> Conclusión</h6>
+                        <p class="mb-2">{{ re.conclusion }}</p>
+                        <h6 class="fw-bold mt-3"><i class="fas fa-lightbulb"></i> Enfoque sugerido</h6>
+                        <p class="mb-0">{{ re.enfoque_solucion }}</p>
                     </div>
-                </div>
-            </div>
-            <p class="text-muted mt-2">Total analizado: {{ resultado.estadisticas.total }} comentarios | Red social: {{ resultado.red_social|upper }}</p>
-        </div>
-    </div>
+                {% elif re and re.get('error') %}
+                    <div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> {{ re['error'] }}</div>
+                {% endif %}
 
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-file-alt"></i> Resumen General</h5></div>
-        <div class="card-body">
-            <p>{{ resultado.resumen_general }}</p>
-            {% if resultado.tono_general %}
-            <p class="text-muted"><strong>Tono general:</strong> {{ resultado.tono_general }}</p>
-            {% endif %}
-        </div>
-    </div>
+                {# ============ DETALLE COLAPSABLE ============ #}
+                <button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#detalleSemantico" aria-expanded="false">
+                    <i class="fas fa-list-ul"></i> Ver análisis detallado comentario por comentario ({{ analyses|length }})
+                </button>
 
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-tags"></i> Temas Principales</h5></div>
-        <div class="card-body">
-            <div class="d-flex flex-wrap gap-2 mb-3">
-                {% for tema in resultado.temas_principales %}
-                <span class="badge bg-primary">{{ tema }}</span>
-                {% endfor %}
-            </div>
-            
-            {% if resultado.palabras_clave %}
-            <h6>Palabras Clave</h6>
-            <div class="d-flex flex-wrap gap-2">
-                {% for palabra in resultado.palabras_clave %}
-                <span class="badge bg-info text-dark">{{ palabra }}</span>
-                {% endfor %}
-            </div>
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-lightbulb"></i> Insights</h5></div>
-        <div class="card-body">
-            <ul class="list-group list-group-flush">
-                {% for insight in resultado.insights %}
-                <li class="list-group-item"><i class="fas fa-check text-success me-2"></i> {{ insight }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    </div>
-
-    {% if resultado.recomendaciones %}
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-tasks"></i> Recomendaciones</h5></div>
-        <div class="card-body">
-            <ul class="list-group list-group-flush">
-                {% for rec in resultado.recomendaciones %}
-                <li class="list-group-item"><i class="fas fa-arrow-right text-primary me-2"></i> {{ rec }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    </div>
-    {% endif %}
-
-    <div class="card mb-4">
-        <div class="card-header"><h5 class="mb-0"><i class="fas fa-list"></i> Análisis Detallado</h5></div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped table-hover">
-                    <thead class="table-light">
-                        <tr>
-                            <th>#</th>
-                            <th>Sentimiento</th>
-                            <th>Resumen</th>
-                            <th>Confianza</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in resultado.analisis_individual %}
-                        <tr>
-                            <td>{{ item.numero }}</td>
-                            <td>
-                                {% if item.sentimiento == 'positivo' %}
-                                    <span class="badge bg-success">Positivo</span>
-                                {% elif item.sentimiento == 'negativo' %}
-                                    <span class="badge bg-danger">Negativo</span>
+                <div class="collapse mt-3" id="detalleSemantico">
+                    {% for a in analyses %}
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <strong>
+                                {% if a.metadata and a.metadata.get('participante') %}
+                                    {{ a.metadata['participante'] }}
                                 {% else %}
-                                    <span class="badge bg-secondary">Neutral</span>
+                                    Mensaje {{ loop.index }}
                                 {% endif %}
-                            </td>
-                            <td>{{ item.resumen_corto }}</td>
-                            <td>{{ (item.confianza * 100)|int }}%</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            
-            <div class="d-flex gap-2 mt-3">
-                <button onclick="exportarJSON()" class="btn btn-success">
-                    <i class="fas fa-download"></i> Exportar JSON
-                </button>
-                <button onclick="window.print()" class="btn btn-outline-secondary">
-                    <i class="fas fa-print"></i> Imprimir
-                </button>
-                <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> Nuevo Análisis
-                </a>
+                            </strong>
+                            <div class="d-flex gap-1 flex-wrap">
+                                <span class="badge bg-{{ 'danger' if a.sentiment == 'negative' else ('success' if a.sentiment == 'positive' else 'secondary') }}">{{ a.sentiment | upper }}</span>
+                                <span class="badge bg-info text-dark">{{ a.tone }}</span>
+                                {% if a.irony %}<span class="badge bg-warning text-dark">Ironía</span>{% endif %}
+                                {% if a.sarcasm %}<span class="badge bg-danger">Sarcasmo</span>{% endif %}
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            {% if a.metadata and a.metadata.get('texto_original') %}
+                                <p class="mb-2 fst-italic text-muted">"{{ a.metadata['texto_original'] }}"</p>
+                            {% endif %}
+                            <p class="mb-1"><strong>Significado literal:</strong> {{ a.literal_meaning }}</p>
+                            <p class="mb-1"><strong>Significado inferido:</strong> {{ a.inferred_meaning }}</p>
+                            <p class="mb-0"><strong>Confianza:</strong> {{ (a.confidence * 100) | int }}%</p>
+                            {% if a.evidence %}
+                                <div class="mt-2">
+                                    <strong>Evidencia:</strong>
+                                    <ul class="mb-0">{% for ev in a.evidence %}<li>{{ ev }}</li>{% endfor %}</ul>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="d-flex gap-2 mt-4">
+                    <button onclick="exportarJSON()" class="btn btn-success">
+                        <i class="fas fa-download"></i> Exportar JSON
+                    </button>
+                    <button onclick="window.print()" class="btn btn-outline-secondary">
+                        <i class="fas fa-print"></i> Imprimir
+                    </button>
+                    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Nuevo Análisis
+                    </a>
+                </div>
             </div>
         </div>
-    </div>
+
+    {# ============================================================= #}
+    {# RESULTADO BRONCE (sentimientos básico)                          #}
+    {# ============================================================= #}
+    {% elif resultado.estadisticas is defined %}
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-chart-pie"></i> Estadísticas</h5></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="alert alert-success">
+                            <h6><i class="fas fa-smile"></i> Positivos</h6>
+                            <h3>{{ resultado.estadisticas.positivos }} ({{ resultado.estadisticas.porcentaje_positivo }}%)</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-secondary">
+                            <h6><i class="fas fa-meh"></i> Neutrales</h6>
+                            <h3>{{ resultado.estadisticas.neutrales }} ({{ resultado.estadisticas.porcentaje_neutral }}%)</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-danger">
+                            <h6><i class="fas fa-frown"></i> Negativos</h6>
+                            <h3>{{ resultado.estadisticas.negativos }} ({{ resultado.estadisticas.porcentaje_negativo }}%)</h3>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-muted mt-2">Total analizado: {{ resultado.estadisticas.total }} comentarios | Red social: {{ resultado.red_social|upper }}</p>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-file-alt"></i> Resumen General</h5></div>
+            <div class="card-body">
+                <p>{{ resultado.resumen_general }}</p>
+                {% if resultado.tono_general %}
+                <p class="text-muted"><strong>Tono general:</strong> {{ resultado.tono_general }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-tags"></i> Temas Principales</h5></div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    {% for tema in resultado.temas_principales %}
+                    <span class="badge bg-primary">{{ tema }}</span>
+                    {% endfor %}
+                </div>
+                
+                {% if resultado.palabras_clave %}
+                <h6>Palabras Clave</h6>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for palabra in resultado.palabras_clave %}
+                    <span class="badge bg-info text-dark">{{ palabra }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-lightbulb"></i> Insights</h5></div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    {% for insight in resultado.insights %}
+                    <li class="list-group-item"><i class="fas fa-check text-success me-2"></i> {{ insight }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        {% if resultado.recomendaciones %}
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-tasks"></i> Recomendaciones</h5></div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    {% for rec in resultado.recomendaciones %}
+                    <li class="list-group-item"><i class="fas fa-arrow-right text-primary me-2"></i> {{ rec }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card mb-4">
+            <div class="card-header"><h5 class="mb-0"><i class="fas fa-list"></i> Análisis Detallado</h5></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>#</th>
+                                <th>Sentimiento</th>
+                                <th>Resumen</th>
+                                <th>Confianza</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in resultado.analisis_individual %}
+                            <tr>
+                                <td>{{ item.numero }}</td>
+                                <td>
+                                    {% if item.sentimiento == 'positivo' %}
+                                        <span class="badge bg-success">Positivo</span>
+                                    {% elif item.sentimiento == 'negativo' %}
+                                        <span class="badge bg-danger">Negativo</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Neutral</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.resumen_corto }}</td>
+                                <td>{{ (item.confianza * 100)|int }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="d-flex gap-2 mt-3">
+                    <button onclick="exportarJSON()" class="btn btn-success">
+                        <i class="fas fa-download"></i> Exportar JSON
+                    </button>
+                    <button onclick="window.print()" class="btn btn-outline-secondary">
+                        <i class="fas fa-print"></i> Imprimir
+                    </button>
+                    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Nuevo Análisis
+                    </a>
+                </div>
+            </div>
+        </div>
 
     {% else %}
-    <div class="alert alert-danger">
-        <h4><i class="fas fa-exclamation-triangle"></i> Error en el análisis</h4>
-        <p>No se pudo completar el análisis. Por favor, intentá de nuevo con menos comentarios.</p>
-    </div>
-    <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary mt-3">
-        <i class="fas fa-redo"></i> Intentar de nuevo
-    </a>
+        <div class="alert alert-danger">
+            <h4><i class="fas fa-exclamation-triangle"></i> Error en el análisis</h4>
+            <p>No se pudo completar el análisis. Por favor, intentá de nuevo con menos comentarios.</p>
+            {% if resultado.errors %}
+                <details class="mt-2">
+                    <summary>Ver detalles técnicos</summary>
+                    <ul class="mt-2">
+                        {% for err in resultado.errors %}
+                        <li>{{ err }}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endif %}
+        </div>
+        <a href="{{ url_for('servicios.analisis_sentimientos') }}" class="btn btn-primary mt-3">
+            <i class="fas fa-redo"></i> Intentar de nuevo
+        </a>
     {% endif %}
 
 {% endif %}
@@ -258,5 +540,40 @@ function exportarJSON() {
     a.download = 'analisis_' + new Date().toISOString().split('T')[0] + '.json';
     a.click();
 }
+{% if paso == 'resultado' and resultado and resultado.tipo_analisis is defined and resultado.tipo_analisis == 'semantico' %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+    const est = {{ resultado.estadisticas_agregadas | tojson }};
+    const ctx = document.getElementById('chartSentimientos');
+    if (ctx && window.Chart) {
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Positivos', 'Neutrales', 'Negativos'],
+                datasets: [{
+                    data: [est.positivos, est.neutrales, est.negativos],
+                    backgroundColor: ['#198754', '#6c757d', '#dc3545'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                cutout: '60%',
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(c) {
+                                const total = est.total || 1;
+                                const v = c.parsed;
+                                return c.label + ': ' + v + ' (' + Math.round(v / total * 100) + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
+{% endif %}
 </script>
 {% endblock %}

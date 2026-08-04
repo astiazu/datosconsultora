@@ -1,0 +1,43 @@
+# app/templates/plata/historial.html
+{% extends "historial_layout.html" %} {% block content %}
+
+<div class="container">
+  <h2 class="mb-4">Plan Plata</h2>
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h4>📁 Mis Archivos</h4>
+
+          <p>
+            Historial completo de conversaciones, transcripciones y análisis.
+          </p>
+
+          <a class="btn btn-primary" href="{{ url_for('plata.mis_archivos') }}">
+            Abrir
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h4>🧠 Motor Semántico</h4>
+
+          <p>Interpretación avanzada de comentarios, temas e intención.</p>
+
+          <a
+            class="btn btn-success"
+            href="{{ url_for('plata.motor_semantico') }}"
+          >
+            Abrir
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

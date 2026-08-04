@@ -1,3 +1,4 @@
+# app/mic/domain/entities/conversation.py
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any
@@ -48,3 +49,9 @@ class Conversation:
     @property
     def has_messages(self):
         return len(self.messages) > 0
+
+def get_participant(self, participant_id: str):
+    for participant in self.participants:
+        if participant.participant_id == participant_id:
+            return participant
+    return None

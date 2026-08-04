@@ -1,0 +1,71 @@
+{% extends "dashboard_layout.html" %}
+
+{% block dashboard_content %}
+
+<h3 class="mb-4">
+
+🧠 Motor Semántico
+
+</h3>
+
+<div class="row">
+
+    <div class="col-md-6">
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h5>Nueva conversación</h5>
+
+                <p>
+
+                    Extraer comentarios desde Facebook o Instagram.
+
+                </p>
+
+                <a
+                    href="{{ url_for('plata.nueva_conversacion') }}"
+                    class="btn btn-success">
+
+                    Comenzar
+
+                </a>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="col-md-6">
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h5>Mis archivos</h5>
+
+                <p>
+
+                    Historial inteligente del MIC.
+
+                </p>
+
+                <a
+                    href="{{ url_for('plata.mis_archivos') }}"
+                    class="btn btn-outline-primary">
+
+                    Abrir
+
+                </a>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

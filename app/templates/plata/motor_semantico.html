@@ -1,0 +1,62 @@
+{% extends "dashboard_layout.html" %} {% block content %}
+
+<div class="container mt-4">
+  <h2>Motor Semántico</h2>
+
+  <hr />
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card mb-3 shadow">
+        <div class="card-body">
+          <h5>Nueva conversación</h5>
+
+          <p>Extraer comentarios desde redes sociales.</p>
+
+          <a
+            href="{{ url_for('plata.nueva_conversacion') }}"
+            class="btn btn-success"
+          >
+            Comenzar
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card mb-3 shadow">
+        <div class="card-body">
+          <h5>Historial</h5>
+
+          <p>Análisis realizados.</p>
+
+          <a
+            href="{{ url_for('plata.historial') }}"
+            class="btn btn-outline-primary"
+          >
+            Abrir
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card shadow">
+        <div class="card-body">
+          <h5>Estadísticas</h5>
+
+          <p>Próximamente.</p>
+
+          <a
+            href="{{ url_for('plata.estadisticas') }}"
+            class="btn btn-outline-secondary"
+          >
+            Ver
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
