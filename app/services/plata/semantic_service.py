@@ -41,6 +41,11 @@ class SemanticService:
                 # El resumen es un "extra": si falla, no rompe el análisis
                 resumen_ejecutivo = {"error": f"No se pudo generar el resumen ejecutivo: {exc}"}
 
+        warnings = list(result.warnings)
+        sem_warning = (result.semantic_analysis or {}).get("metadata", {}).get("warning")
+        if sem_warning:
+            warnings.append(sem_warning)
+
         return {
             "success": result.success,
             "tipo_analisis": "semantico",
@@ -49,7 +54,7 @@ class SemanticService:
             "estadisticas_agregadas": estadisticas,
             "resumen_ejecutivo": resumen_ejecutivo,
             "semantic_analysis": analyses_serialized,
-            "warnings": result.warnings,
+            "warnings": warnings,
             "errors": result.errors,
             "modelo_utilizado": provider.get_model_id(),
         }

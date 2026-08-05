@@ -66,6 +66,10 @@ class ConversationService:
             source = SourceType.FACEBOOK
         elif "x" in red_lower or "twitter" in red_lower:
             source = SourceType.X
+        elif "whatsapp" in red_lower:
+            source = SourceType.WHATSAPP
+        elif "transcripcion" in red_lower:
+            source = SourceType.TEXT            
         else:
             source = SourceType.FACEBOOK  # Fallback por defecto
         

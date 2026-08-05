@@ -253,6 +253,7 @@ def analisis_sentimientos():
                         origen=origen_para_mic,
                         user_plan=user_plan_name,
                         contexto=contexto,
+                        fuente=red_social,
                     )
 
                     if resultado_dict["success"]:
@@ -261,6 +262,9 @@ def analisis_sentimientos():
                             resultado["contexto"] = contexto
                         resultado["red_social"] = red_social
                         resultado["total_comentarios_limpios"] = len(comentarios_limpios)
+
+                        if resultado_dict.get("advertencia"):
+                            flash(f"⚠️ {resultado_dict['advertencia']}", "warning")
 
                         registrar_uso_analisis(current_user)
 
@@ -329,7 +333,11 @@ def analisis_sentimientos():
 
                         resultado = resultado_dict
                         paso = "resultado"
-                        flash(f"✅ Análisis semántico completado ({conversation_plata.total_messages} mensajes)", "success")
+                        total_analizados = resultado_dict.get("estadisticas_agregadas", {}).get("total", conversation_plata.total_messages)
+                        flash(f"✅ Análisis semántico completado ({total_analizados} mensajes analizados)", "success")
+                        for w in resultado_dict.get("warnings", []):
+                            flash(f"⚠️ {w}", "warning")
+
                     else:
                         error_msg = resultado_dict.get("errors", ["Error en el análisis"])
                         if isinstance(error_msg, list):

@@ -103,8 +103,13 @@ class GroqLLMClient:
         Usado por planes Free/Bronce.
         Divide en lotes para evitar límites de TPM.
         """
+        advertencia = None
         if len(comentarios) > 100:
-            raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
+            advertencia = (
+                f"Recibiste {len(comentarios)} comentarios. "
+                f"Se analizaron solo los primeros 100 (límite por análisis)."
+            )
+            comentarios = comentarios[:100]
         
         # Dividir en lotes de 15 para evitar error 413
         lote_tamano = 15
@@ -204,8 +209,11 @@ class GroqLLMClient:
         
         # Consolidar resultados de todos los lotes
         if len(resultados_lotes) == 1:
-            return resultados_lotes[0]
-        
+            resultado = resultados_lotes[0]
+            if advertencia:
+                resultado["advertencia"] = advertencia
+            return resultado
+     
         # Consolidación múltiple
         analisis_individual_consolidado = []
         temas_set, palabras_set, insights_set = set(), set(), set()
@@ -248,9 +256,11 @@ class GroqLLMClient:
             "palabras_clave": list(palabras_set)[:5],
             "tono_general": resultados_lotes[0].get("tono_general", ""),
             "insights": list(insights_set)[:3],
-            "recomendaciones": resultados_lotes[0].get("recomendaciones", [])
+            "recomendaciones": resultados_lotes[0].get("recomendaciones", []),
+            "advertencia": advertencia,
         }
 
+            
     def analizar_semantica(self, comentarios: list, contexto: str = "") -> dict:
         """
         Análisis semántico individual de comentarios.
@@ -260,11 +270,17 @@ class GroqLLMClient:
         if not isinstance(comentarios, list):
             raise TypeError("comentarios debe ser una lista de textos.")
 
+        advertencia = None
         if len(comentarios) > 100:
-            raise ValueError(f"Máximo 100 comentarios por análisis. Recibiste {len(comentarios)}.")
+            advertencia = (
+                f"Recibiste {len(comentarios)} comentarios. "
+                f"Se analizaron solo los primeros 100 (límite por análisis)."
+            )
+            comentarios = comentarios[:100]
 
         if not comentarios:
             return {"analyses": []}
+
 
         # Normalizar comentarios
         comentarios_normalizados = []
@@ -301,9 +317,12 @@ class GroqLLMClient:
                 offset += len(lote)
                 continue
 
-        return {"analyses": todos_analyses}
-
-
+        resultado = {"analyses": todos_analyses}
+        if advertencia:
+            resultado["warning"] = advertencia
+        return resultado
+    
+    
     def _analizar_semantica_lote(
         self,
         comentarios: list,
