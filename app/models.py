@@ -11,7 +11,8 @@ class User(UserMixin, db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     telefono = db.Column(db.String(30), nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
+    password_hash = db.Column(db.String(200), nullable=True)  # nullable: usuarios de Google no tienen contraseña
+    google_id = db.Column(db.String(100), unique=True, nullable=True)  # OAuth Google
     is_admin = db.Column(db.Boolean, default=False)
     is_active_account = db.Column(db.Boolean, default=True)
     email_verificado = db.Column(db.Boolean, default=False)
@@ -22,9 +23,10 @@ class User(UserMixin, db.Model):
         self.password_hash = generate_password_hash(pw)
 
     def check_password(self, pw):
+        if not self.password_hash:
+            return False  # Usuario de solo Google: no puede loguearse con password
         return check_password_hash(self.password_hash, pw)
-
-
+    
 class ContactSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email1 = db.Column(db.String(120), default="hola@datosconsultora.ar")

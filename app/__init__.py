@@ -24,10 +24,8 @@ class Config:
     # Soporte dual: PostgreSQL (Render) o SQLite (local)
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
-        # Render usa postgres://, SQLAlchemy necesita postgresql://
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
-        # Forzar el uso del driver psycopg (versión 3) que sí funciona en Python 3.14
         if database_url.startswith("postgresql://"):
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         SQLALCHEMY_DATABASE_URI = database_url
@@ -52,6 +50,10 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
+
 
 def create_app():
     app = Flask(__name__)
@@ -68,6 +70,10 @@ def create_app():
     login_manager.init_app(app)
     mail.init_app(app)
     csrf.init_app(app)
+
+    # OAuth de Google (solo se activa si hay credenciales en el entorno)
+    from app.services.google_oauth_service import init_oauth
+    init_oauth(app)
 
     from app.models import User, ContactSettings
 
@@ -112,12 +118,45 @@ def create_app():
     return app
 
 
+def _migrar_google_oauth():
+    """Migración idempotente para OAuth de Google (corre en local y en Render)."""
+    from sqlalchemy import inspect as sa_inspect, text
+
+    insp = sa_inspect(db.engine)
+    cols = [c["name"] for c in insp.get_columns("user")]
+
+    if "google_id" not in cols:
+        db.session.execute(text('ALTER TABLE "user" ADD COLUMN google_id VARCHAR(100)'))
+        db.session.commit()
+        print("✅ Columna google_id agregada")
+
+    insp2 = sa_inspect(db.engine)
+    idx_names = [i["name"] for i in insp2.get_indexes("user")]
+    if "uq_user_google_id" not in idx_names:
+        try:
+            db.session.execute(text('CREATE UNIQUE INDEX uq_user_google_id ON "user" (google_id)'))
+            db.session.commit()
+            print("✅ Índice único google_id creado")
+        except Exception as e:
+            db.session.rollback()
+            print(f"⚠️ No se pudo crear índice google_id: {e}")
+
+    # Hacer password_hash nullable (Postgres/Render). En SQLite viejo no se
+    # puede: si querés probar Google en local con una DB vieja, borrala y se
+    # recrea con el schema nuevo.
+    try:
+        db.session.execute(text('ALTER TABLE "user" ALTER COLUMN password_hash DROP NOT NULL'))
+        db.session.commit()
+        print("✅ password_hash ahora es nullable")
+    except Exception:
+        db.session.rollback()
+
+
 def init_db(app):
     from app.models import User, ContactSettings, Role
-    from app.services.plan_service import inicializar_planes_por_defecto
-
     with app.app_context():
         db.create_all()
+        _migrar_google_oauth()
 
         if not ContactSettings.query.first():
             db.session.add(ContactSettings())
@@ -141,19 +180,12 @@ def init_db(app):
             )
             u.set_password(admin_pw)
             db.session.add(u)
-
-        db.session.commit()
-
-        # ✅ NUEVO: Crear planes automáticamente al arrancar.
-        # Esto garantiza que los planes existan en cualquier DB nueva (local o Render).
-        # Es seguro llamarla siempre porque tiene la protección:
-        #   if Plan.query.count() > 0: return
-        inicializar_planes_por_defecto()
+            db.session.commit()
 
 
 # ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
 app = create_app()
 
-# ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
+# ⭐ Inicializar la BD automáticamente al arrancar
 with app.app_context():
     init_db(app)
