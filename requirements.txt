@@ -26,3 +26,5 @@ pytest-cov>=6.0.0
 
 # compatibilidad Python 3.12
 greenlet>=3.0.3
+
+authlib>=1.3.0

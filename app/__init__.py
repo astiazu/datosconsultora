@@ -71,9 +71,18 @@ def create_app():
     mail.init_app(app)
     csrf.init_app(app)
 
-    # OAuth de Google (solo se activa si hay credenciales en el entorno)
-    from app.services.google_oauth_service import init_oauth
-    init_oauth(app)
+    # OAuth de Google (opcional: si authlib no está instalado o falla el init,
+    # la app arranca igual con GOOGLE_ENABLED=False)
+    try:
+        from app.services.google_oauth_service import init_oauth
+        init_oauth(app)
+    except Exception as exc:
+        app.config["GOOGLE_ENABLED"] = False
+        import logging
+        logging.getLogger(__name__).warning(
+            f"⚠️ No se pudo inicializar OAuth de Google: {exc}. "
+            f"El login con Google quedará deshabilitado."
+        )
 
     from app.models import User, ContactSettings
 
