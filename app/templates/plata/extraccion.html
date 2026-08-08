@@ -1,0 +1,124 @@
+<!-- templates/plata/extraccion.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'analisis' %}
+{% block title %}Extracción de comentarios - DatosConsultora{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-download"></i> Extracción de comentarios</h2>
+        <p class="text-muted">Instagram, con ritmo humano y reanudación automática.</p>
+    </div>
+    <a href="{{ url_for('dashboard.dashboard_user') }}" class="btn btn-secondary">← Volver al Panel</a>
+</div>
+
+{# ✅ Bloque de flashes: sin esto no ves ningún aviso de éxito/error #}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'success' if category == 'success' else 'danger' if category == 'error' else 'warning' }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <h5 class="mb-3"><i class="bi bi-key-fill me-2"></i>Sesión de Instagram</h5>
+        {% if sesion and not sesion.expirada %}
+            <p class="text-success mb-2"><i class="bi bi-check-circle-fill"></i> Sesión activa (actualizada {{ sesion.actualizado.strftime('%d/%m/%Y') }})</p>
+        {% elif sesion and sesion.expirada %}
+            <p class="text-danger mb-2"><i class="bi bi-exclamation-circle-fill"></i> La sesión expiró: subí una nueva.</p>
+        {% else %}
+            <p class="text-muted mb-2">Sin sesión conectada todavía.</p>
+        {% endif %}
+        <p class="small text-muted">
+            Generala en tu máquina con <code>python login_instagram_guardar_sesion.py</code>
+            (usá una <strong>cuenta secundaria</strong>) y subí acá el archivo
+            <code>sesion_instagram.b64.txt</code> que genera.
+        </p>
+        {# ✅ enctype="multipart/form-data" es OBLIGATORIO para subir archivos #}
+        <form method="POST" action="{{ url_for('plata.subir_sesion_instagram') }}"
+              enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
+            <input type="file" name="session_file" accept=".txt,.b64" class="form-control form-control-sm" required>
+            <button class="btn btn-sm btn-outline-primary">Subir</button>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <h5 class="mb-3"><i class="bi bi-plus-circle me-2"></i>Nueva extracción</h5>
+        <form method="POST" action="{{ url_for('plata.extraccion') }}">
+            <div class="mb-3">
+                <label class="form-label">URL de la publicación</label>
+                <input type="url" name="url" class="form-control" placeholder="https://www.instagram.com/p/..." required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Contexto (opcional)</label>
+                <textarea name="contexto" class="form-control" rows="2" maxlength="300" placeholder="Ej: Comentarios sobre la campaña de verano"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-play-fill me-1"></i>Encolar extracción</button>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body">
+        <h5 class="mb-3"><i class="bi bi-list-check me-2"></i>Extracciones</h5>
+        {% if not jobs %}
+            <p class="text-muted mb-0">Todavía no encolaste ninguna extracción.</p>
+        {% else %}
+        <div class="table-responsive">
+            <table class="table align-middle table-hover">
+                <thead><tr><th>#</th><th>URL</th><th>Estado</th><th>Comentarios</th><th></th></tr></thead>
+                <tbody>
+                {% for j in jobs %}
+                <tr>
+                    <td>{{ j.id }}</td>
+                    <td class="small text-truncate" style="max-width: 320px;">{{ j.url }}</td>
+                    <td>
+                        <span class="badge bg-{{ 'success' if j.estado == 'completado' else ('danger' if j.estado == 'fallido' else ('warning' if j.estado == 'pausa_rate_limit' else ('primary' if j.estado == 'progreso' else 'secondary'))) }}" data-job-estado="{{ j.id }}">
+                            {{ j.estado }}
+                        </span>
+                    </td>
+                    <td><span data-job-total="{{ j.id }}">{{ j.total_extraido }}</span></td>
+                    <td><a href="{{ url_for('plata.detalle_extraccion', job_id=j.id) }}" class="btn btn-sm btn-outline-primary">Detalle</a></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ✅ Solo pollear si hay jobs ACTIVOS al cargar la página.
+// Antes se recargaba cada 5 segundos aunque solo hubiera jobs
+// terminados/fallidos, y eso borraba el archivo seleccionado.
+const estadosActivos = ['cola', 'progreso', 'pausa_rate_limit'];
+const habiaActivos = Array.from(document.querySelectorAll('[data-job-estado]'))
+    .some(b => estadosActivos.includes(b.textContent.trim()));
+
+if (habiaActivos) {
+    setInterval(async () => {
+        try {
+            const r = await fetch("{{ url_for('plata.progreso_extraccion') }}");
+            if (!r.ok) return;
+            const data = await r.json();
+            if (data.length === 0) { location.reload(); return; }
+            data.forEach(j => {
+                const badge = document.querySelector(`[data-job-estado="${j.id}"]`);
+                const total = document.querySelector(`[data-job-total="${j.id}"]`);
+                if (badge) badge.textContent = j.estado;
+                if (total) total.textContent = j.total_extraido;
+            });
+        } catch (e) { /* sin conexión, ignorar */ }
+    }, 5000);
+}
+</script>
+{% endblock %}

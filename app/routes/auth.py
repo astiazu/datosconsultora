@@ -143,14 +143,13 @@ def reenviar_verificacion():
     if current_user.email_verificado:
         flash("Tu email ya está verificado", "success")
         return redirect(url_for("dashboard.dashboard_user"))
-    
+
     from app.utils.verificacion import generar_token_email, enviar_email_verificacion
     token = generar_token_email(current_user)
-    email_enviado = enviar_email_verificacion(current_user, token)
+    email_enviado, error_msg = enviar_email_verificacion(current_user, token)
     
     if email_enviado:
         flash("✅ Email de verificación reenviado. Por favor, revisá tu bandeja de entrada y también la carpeta de Spam/Correo no deseado.", "success")
     else:
-        flash("❌ No pudimos enviar el email. Contactá al administrador.", "error")
-    
+        flash(f"❌ No pudimos enviar el email. Error: {error_msg}", "error")
     return redirect(url_for("dashboard.dashboard_user"))

@@ -354,3 +354,42 @@ class ConversationRecord(db.Model):
             except:
                 return {}
         return {}
+
+class SesionPlataforma(db.Model):
+    __tablename__ = "sesion_plataforma"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    plataforma = db.Column(db.String(50), nullable=False)      # instagram
+    storage_state_json = db.Column(db.Text)                    # sesión instaloader
+    actualizado = db.Column(db.DateTime, default=utc_now)
+    expirada = db.Column(db.Boolean, default=False)
+    user = db.relationship("User", backref=db.backref("sesiones_plataforma", lazy="dynamic"))
+    __table_args__ = (db.UniqueConstraint("user_id", "plataforma", name="uq_sesion_plataforma_user"),)
+
+class ExtraccionJob(db.Model):
+    __tablename__ = "extraccion_job"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    plataforma = db.Column(db.String(50), nullable=False)
+    url = db.Column(db.String(500), nullable=False)
+    contexto = db.Column(db.String(500), default="")
+    estado = db.Column(db.String(50), default="cola")  # cola|progreso|pausa_rate_limit|captcha|completado|fallido
+    total_extraido = db.Column(db.Integer, default=0)
+    checkpoint_json = db.Column(db.Text, default="{}")
+    error = db.Column(db.String(500))
+    proximo_intento = db.Column(db.DateTime, nullable=True)
+    conversation_record_id = db.Column(db.Integer, db.ForeignKey("conversation_record.id"), nullable=True)
+    creado = db.Column(db.DateTime, default=utc_now)
+    actualizado = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship("User", backref=db.backref("extracciones", lazy="dynamic"))
+
+    def checkpoint(self) -> dict:
+        import json
+        try:
+            return json.loads(self.checkpoint_json or "{}")
+        except (TypeError, ValueError):
+            return {}
+
+    def set_checkpoint(self, datos: dict) -> None:
+        import json
+        self.checkpoint_json = json.dumps(datos, ensure_ascii=False)
