@@ -32,6 +32,20 @@ class Config:
     else:
         SQLALCHEMY_DATABASE_URI = "sqlite:///datosconsultora.db"
 
+    # ✅ ANTI-SSL-ERROR: valida y recicla conexiones a PostgreSQL
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,         # valida conexión antes de cada query
+        "pool_recycle": 280,           # recicla cada 280s (< 300s de Render)
+        "pool_timeout": 30,
+        "connect_args": {
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        } if database_url else {},
+    }
+
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
     MAX_CONTENT_LENGTH = 200 * 1024 * 1024
 
@@ -50,10 +64,6 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
 
-    # Google OAuth
-    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
-    GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
-
 
 def create_app():
     app = Flask(__name__)
@@ -70,19 +80,6 @@ def create_app():
     login_manager.init_app(app)
     mail.init_app(app)
     csrf.init_app(app)
-
-    # OAuth de Google (opcional: si authlib no está instalado o falla el init,
-    # la app arranca igual con GOOGLE_ENABLED=False)
-    try:
-        from app.services.google_oauth_service import init_oauth
-        init_oauth(app)
-    except Exception as exc:
-        app.config["GOOGLE_ENABLED"] = False
-        import logging
-        logging.getLogger(__name__).warning(
-            f"⚠️ No se pudo inicializar OAuth de Google: {exc}. "
-            f"El login con Google quedará deshabilitado."
-        )
 
     from app.models import User, ContactSettings
 
@@ -127,45 +124,10 @@ def create_app():
     return app
 
 
-def _migrar_google_oauth():
-    """Migración idempotente para OAuth de Google (corre en local y en Render)."""
-    from sqlalchemy import inspect as sa_inspect, text
-
-    insp = sa_inspect(db.engine)
-    cols = [c["name"] for c in insp.get_columns("user")]
-
-    if "google_id" not in cols:
-        db.session.execute(text('ALTER TABLE "user" ADD COLUMN google_id VARCHAR(100)'))
-        db.session.commit()
-        print("✅ Columna google_id agregada")
-
-    insp2 = sa_inspect(db.engine)
-    idx_names = [i["name"] for i in insp2.get_indexes("user")]
-    if "uq_user_google_id" not in idx_names:
-        try:
-            db.session.execute(text('CREATE UNIQUE INDEX uq_user_google_id ON "user" (google_id)'))
-            db.session.commit()
-            print("✅ Índice único google_id creado")
-        except Exception as e:
-            db.session.rollback()
-            print(f"⚠️ No se pudo crear índice google_id: {e}")
-
-    # Hacer password_hash nullable (Postgres/Render). En SQLite viejo no se
-    # puede: si querés probar Google en local con una DB vieja, borrala y se
-    # recrea con el schema nuevo.
-    try:
-        db.session.execute(text('ALTER TABLE "user" ALTER COLUMN password_hash DROP NOT NULL'))
-        db.session.commit()
-        print("✅ password_hash ahora es nullable")
-    except Exception:
-        db.session.rollback()
-
-
 def init_db(app):
     from app.models import User, ContactSettings, Role
     with app.app_context():
         db.create_all()
-        _migrar_google_oauth()
 
         if not ContactSettings.query.first():
             db.session.add(ContactSettings())
@@ -195,6 +157,6 @@ def init_db(app):
 # ⭐ CLAVE: Crear la app a nivel de módulo para que gunicorn la encuentre
 app = create_app()
 
-# ⭐ Inicializar la BD automáticamente al arrancar
+# ⭐ Inicializar la BD automáticamente al arrancar (solo si no existe el admin)
 with app.app_context():
     init_db(app)
