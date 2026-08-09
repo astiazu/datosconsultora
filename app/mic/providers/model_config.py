@@ -91,11 +91,11 @@ AVAILABLE_MODELS: dict[str, ModelConfig] = {
 
 # Mapeo: plan del usuario → modelo recomendado
 PLAN_MODEL_MAP: dict[str, str] = {
-    "free": "llama-3.1-8b-instant",       # Rápido y barato
-    "bronce": "llama-3.1-8b-instant",     # Rápido y barato
-    "plata": "llama-3.3-70b-versatile",   # Balance calidad/velocidad
-    "oro": "qwen-qwq-32b",                # Mejor para ironía/razonamiento
-    "lifetime": "qwen-qwq-32b",           # Premium
+    "free": "llama-3.3-70b-versatile",      # ✅ CAMBIADO: más capacidad (100k TPM)
+    "bronce": "llama-3.3-70b-versatile",    # ✅ CAMBIADO: más capacidad (100k TPM)
+    "plata": "llama-3.3-70b-versatile",     # Balance calidad/velocidad
+    "oro": "qwen-qwq-32b",                  # Mejor para ironía/razonamiento
+    "lifetime": "qwen-qwq-32b",             # Premium
     "premium": "qwen-qwq-32b",
 }
 
