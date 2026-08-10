@@ -1,24 +1,10 @@
+<!-- app/templates/analisis_sentimientos.html -->
 {% extends "dashboard_layout.html" %}
 {% set active_section = 'analisis' %}
 
 {% block title %}Análisis de Sentimientos - DatosConsultora{% endblock %}
 
 {% block content %}
-{# ✅ OVERLAY DE PROCESAMIENTO (al inicio del content, oculto por defecto) #}
-<div id="overlayProcesando" style="display:none !important; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
-    <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="Procesando" style="width:160px; height:160px; object-fit:contain;">
-    <div style="margin-top:1.5rem; font-weight:700; font-size:1.25rem; color:#004d5c;">
-        Procesando tus comentarios…
-    </div>
-    <div style="color:#6c757d; font-size:.875rem; margin-top:.5rem;">
-        El análisis con IA puede tardar un par de minutos.<br>
-        No cierres esta pestaña.
-    </div>
-    <div class="spinner-border mt-3" style="color:#004d5c;" role="status">
-        <span class="visually-hidden">Procesando…</span>
-    </div>
-</div>
-
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2><i class="fas fa-comments"></i> Análisis de Sentimientos</h2>
@@ -93,7 +79,8 @@
 
         <hr>
 
-        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" class="form-analisis">
+        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}"
+      onsubmit="var o=document.getElementById('overlayProcesando'); if(o){o.style.display='flex';} return true;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="hidden" name="record_id_plata" value="{{ record_id_plata }}"/>
             <input type="hidden" name="action" value="analizar_plata"/>
@@ -118,7 +105,8 @@
 {% endif %}
 
 {% if paso == 'input' or paso == 'preview' %}
-    <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" class="form-analisis">
+    <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}"
+      onsubmit="var o=document.getElementById('overlayProcesando'); if(o){o.style.display='flex';} return true;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         
         {% if tiene_acceso_url %}
@@ -199,7 +187,8 @@
             </tbody>
         </table>
         
-        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" class="form-analisis">
+        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}"
+      onsubmit="var o=document.getElementById('overlayProcesando'); if(o){o.style.display='flex';} return true;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <textarea name="comentarios" style="display:none;">{{ comentarios_raw }}</textarea>
             <input type="hidden" name="contexto" value="{{ contexto }}">
@@ -543,6 +532,13 @@
 {% endif %}
 {% endblock %}
 
+<!-- ✅ Overlay de procesamiento (siempre presente en el DOM) -->
+<div id="overlayProcesando" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
+    <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="Procesando" style="width:140px; height:140px; object-fit:contain;">
+    <div style="margin-top:1rem; font-weight:700; font-size:1.25rem; color:#004d5c;">Procesando tus comentarios…</div>
+    <div style="color:#6c757d; font-size:.875rem; margin-top:.25rem;">El análisis con IA puede tardar un par de minutos.<br>No cierres esta pestaña.</div>
+</div>
+
 {% block extra_js %}
 <script>
 function exportarJSON() {
@@ -552,24 +548,25 @@ function exportarJSON() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'analisis_' + new Date().toISOString().split('T')[0] + '.json';
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
 }
 
-{# ✅ Mostrar overlay al enviar cualquier formulario con clase "form-analisis" #}
+{# ✅ JavaScript del overlay #}
 (function () {
     var overlay = document.getElementById('overlayProcesando');
     if (!overlay) return;
     
-    // Blindaje: asegurar que esté oculto al cargar
+    // ✅ BLINDAJE: ocultar al cargar (gana sobre cualquier clase de Bootstrap)
     overlay.style.setProperty('display', 'none', 'important');
     
-    // Capturar solo los submits de formularios de análisis
-    document.querySelectorAll('form.form-analisis').forEach(function (form) {
-        form.addEventListener('submit', function () {
-            overlay.style.setProperty('display', 'flex', 'important');
+    // ✅ Mostrar solo cuando se envía un formulario de análisis/limpieza
+    document.querySelectorAll('form').forEach(function (form) {
+        form.addEventListener('submit', function (ev) {
+            var btn = ev.submitter || form.querySelector('button[type="submit"]');
+            var accion = btn ? (btn.getAttribute('value') || '') : '';
+            if (accion === 'analizar' || accion === 'limpiar') {
+                overlay.style.setProperty('display', 'flex', 'important');
+            }
         });
     });
 })();
@@ -612,5 +609,3 @@ function exportarJSON() {
 </script>
 {% endif %}
 {% endblock %}
-
-
