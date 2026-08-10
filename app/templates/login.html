@@ -48,6 +48,11 @@
                     {% endfor %}
                     {% endif %}
                     {% endwith %}
+                    {% if config.GOOGLE_ENABLED %}
+                        <div class="alert alert-info small">🟢 Google habilitado</div>
+                    {% else %}
+                        <div class="alert alert-warning small">🔴 Google deshabilitado (faltan credenciales)</div>
+                    {% endif %}
                     <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="mb-3">
                             <label class="form-label">Email</label>
