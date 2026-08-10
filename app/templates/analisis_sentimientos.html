@@ -529,9 +529,9 @@
 {% endif %}
 {% endblock %}
 
-{# ✅ Overlay de procesamiento con logo animado #}
+{# ✅ OVERLAY HTML - Fuera del bloque extra_js, es HTML no JavaScript #}
 <div id="overlayProcesando"
-     style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
+     style="display:none !important; position:fixed; inset:0; z-index:9999; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
     <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="DatosConsultora procesando" style="width:140px; height:140px; object-fit:contain;">
     <div class="mt-3 fw-bold fs-5" style="color:#004d5c;">Procesando tus comentarios…</div>
     <div class="text-muted small mt-1">El análisis con IA puede tardar un par de minutos.<br>No cierres esta pestaña.</div>
@@ -551,6 +551,26 @@ function exportarJSON() {
     a.download = 'analisis_' + new Date().toISOString().split('T')[0] + '.json';
     a.click();
 }
+
+{# ✅ JavaScript del overlay #}
+(function () {
+    var overlay = document.getElementById('overlayProcesando');
+    if (!overlay) return;
+    
+    // ✅ BLINDAJE: ocultar al cargar (gana sobre cualquier clase de Bootstrap)
+    overlay.style.setProperty('display', 'none', 'important');
+    
+    // ✅ Mostrar solo cuando se envía un formulario de análisis/limpieza
+    document.querySelectorAll('form').forEach(function (form) {
+        form.addEventListener('submit', function (ev) {
+            var btn = ev.submitter || form.querySelector('button[type="submit"]');
+            var accion = btn ? (btn.getAttribute('value') || '') : '';
+            if (accion === 'analizar' || accion === 'limpiar') {
+                overlay.style.setProperty('display', 'flex', 'important');
+            }
+        });
+    });
+})();
 </script>
 
 {% if paso == 'resultado' and resultado and resultado.tipo_analisis is defined and resultado.tipo_analisis == 'semantico' and resultado.estadisticas_agregadas is defined %}
@@ -589,30 +609,4 @@ function exportarJSON() {
 })();
 </script>
 {% endif %}
-
-{# ✅ Overlay de procesamiento con logo animado de DatosConsultora #}
-<div id="overlayProcesando" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(244,245,247,0.96);" class="d-flex flex-column align-items-center justify-content-center text-center p-3">
-    <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="DatosConsultora procesando" style="width:140px; height:140px; object-fit:contain;">
-    <div class="mt-3 fw-bold fs-5" style="color:#004d5c;">Procesando tus comentarios…</div>
-    <div class="text-muted small mt-1">El análisis con IA puede tardar un par de minutos.<br>No cierres esta pestaña.</div>
-    <div class="spinner-border mt-3" style="color:#004d5c;" role="status">
-        <span class="visually-hidden">Procesando…</span>
-    </div>
-</div>
-
-<script>
-(function () {
-    var overlay = document.getElementById('overlayProcesando');
-    if (!overlay) return;
-    document.querySelectorAll('form').forEach(function (form) {
-        form.addEventListener('submit', function (ev) {
-            var btn = ev.submitter || form.querySelector('button[type="submit"]');
-            var accion = btn ? (btn.getAttribute('value') || '') : '';
-            if (accion === 'analizar' || accion === 'limpiar') {
-                overlay.style.display = 'flex';
-            }
-        });
-    });
-})();
-</script>
 {% endblock %}
