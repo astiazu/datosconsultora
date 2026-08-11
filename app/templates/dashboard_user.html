@@ -214,52 +214,54 @@
 <div class="row g-4 mt-2">
     <div class="col-lg-6">
         {% if plan_obj and plan_obj.incluye_agentes %}
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-shield-fill-check me-2 text-success"></i> Agente Judicial
-                </h6>
-                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
-                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="fw-bold text-petroleo mb-2">
+                        <i class="bi bi-shield-fill-check me-2 text-success"></i> Agente Judicial
+                    </h6>
+                    <p class="text-muted small mb-3">Seguí expedientes de MEV-SCBA y Córdoba sin entrar a mano a cada sitio.</p>
+                    <a href="{{ url_for('agentes.panel_agentes') }}" class="btn btn-success btn-sm">
+                        <i class="bi bi-shield-fill-check me-1"></i>Abrir Agente Judicial
+                    </a>
+                </div>
             </div>
-        </div>
         {% else %}
-        <div class="card border-0 shadow-sm h-100 opacity-75">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
-                    <i class="bi bi-lock-fill me-2 text-muted"></i> Agente Judicial
-                </h6>
-                <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
-                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
-                    <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
-                </a>
+            <div class="card border-0 shadow-sm h-100 opacity-75">
+                <div class="card-body">
+                    <h6 class="fw-bold text-petroleo mb-2">
+                        <i class="bi bi-lock-fill me-2 text-muted"></i> Agente Judicial
+                    </h6>
+                    <p class="text-muted small mb-3">Asistente IA especializado en temas legales.</p>
+                    <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
+                    </a>
+                </div>
             </div>
-        </div>
         {% endif %}
     </div>
     <div class="col-lg-6">
         {% if plan_obj and plan_obj.incluye_agentes %}
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <h6 class="fw-bold text-petroleo mb-2">
                     <i class="bi bi-eye-fill me-2 text-success"></i> Agente de Monitoreo
-                </h6>
-                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
-                <button class="btn btn-outline-primary btn-sm" disabled>Próximamente</button>
+                    </h6>
+                    <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                    <button class="btn btn-outline-secondary btn-sm" disabled>En desarrollo</button>
+                </div>
             </div>
-        </div>
         {% else %}
-        <div class="card border-0 shadow-sm h-100 opacity-75">
-            <div class="card-body">
-                <h6 class="fw-bold text-petroleo mb-2">
+            <div class="card border-0 shadow-sm h-100 opacity-75">
+                <div class="card-body">
+                    <h6 class="fw-bold text-petroleo mb-2">
                     <i class="bi bi-lock-fill me-2 text-muted"></i> Agente de Monitoreo
-                </h6>
-                <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
-                <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
+                    </h6>
+                    <p class="text-muted small mb-3">Monitoreo automático de redes y menciones.</p>
+                    <a href="{{ url_for('planes.lista_planes') }}" class="btn btn-outline-primary btn-sm">
                     <i class="bi bi-arrow-up-circle me-1"></i> Upgrade a Oro
-                </a>
+                    </a>
+                </div>
             </div>
-        </div>
         {% endif %}
     </div>
 </div>

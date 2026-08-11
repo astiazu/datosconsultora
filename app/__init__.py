@@ -137,10 +137,88 @@ def create_app():
     return app
 
 
+def _migrar_donation():
+    """
+    Migración idempotente para la tabla donation.
+    Agrega columnas faltantes (external_reference, mp_preference_id) si no existen.
+    Se ejecuta automáticamente al arrancar la app.
+    """
+    from sqlalchemy import inspect, text
+    
+    insp = inspect(db.engine)
+    
+    # Verificar que la tabla existe
+    if "donation" not in insp.get_table_names():
+        return  # Se creará al primer arranque normal
+    
+    cols = [c["name"] for c in insp.get_columns("donation")]
+    
+    columnas_necesarias = {
+        "external_reference": "VARCHAR(100)",
+        "mp_preference_id": "VARCHAR(100)",
+    }
+    
+    # Agregar columnas faltantes
+    for col, tipo in columnas_necesarias.items():
+        if col not in cols:
+            try:
+                db.session.execute(text(f'ALTER TABLE donation ADD COLUMN {col} {tipo}'))
+                db.session.commit()
+                print(f"✅ Columna '{col}' agregada a donation")
+            except Exception as e:
+                db.session.rollback()
+                print(f"⚠️ Migración de '{col}' omitida: {e}")
+    
+    # Ajustar NOT NULL de external_reference si existen filas viejas sin valor
+    try:
+        insp2 = inspect(db.engine)
+        cols2 = [c["name"] for c in insp2.get_columns("donation")]
+        if "external_reference" in cols2:
+            # Detectar dialecto: PostgreSQL vs SQLite
+            dialect_name = db.engine.dialect.name
+            
+            if dialect_name == "postgresql":
+                # PostgreSQL: usar cast nativo
+                db.session.execute(text("""
+                    UPDATE donation 
+                    SET external_reference = 'legacy-' || id::text 
+                    WHERE external_reference IS NULL
+                """))
+            else:
+                # SQLite y otros: usar CAST estándar
+                db.session.execute(text("""
+                    UPDATE donation 
+                    SET external_reference = 'legacy-' || CAST(id AS TEXT) 
+                    WHERE external_reference IS NULL
+                """))
+            
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"⚠️ No se pudo poblar external_reference legacy: {e}")
+    
+    # Crear índice único para external_reference si no existe
+    try:
+        idx_existentes = [i["name"] for i in insp.get_indexes("donation")]
+        if "uq_donation_external_reference" not in idx_existentes:
+            db.session.execute(text(
+                'CREATE UNIQUE INDEX uq_donation_external_reference '
+                'ON donation (external_reference)'
+            ))
+            db.session.commit()
+            print("✅ Índice único external_reference creado")
+    except Exception as e:
+        db.session.rollback()
+        print(f"⚠️ No se pudo crear índice único: {e}")
+
+
 def init_db(app):
     from app.models import User, ContactSettings, Role
     with app.app_context():
         db.create_all()
+        
+        # ✅ Migración automática de tabla donation
+        _migrar_donation()
 
         if not ContactSettings.query.first():
             db.session.add(ContactSettings())
