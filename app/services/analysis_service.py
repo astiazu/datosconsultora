@@ -22,15 +22,22 @@ class AnalysisService:
         origen: str,
         user_plan: str,
         contexto: str = "",
-        fuente: str = "",
+        limite_comentarios: int | None = None,
     ) -> dict[str, Any]:
         """Analiza comentarios según el plan del usuario."""
         plan_lower = user_plan.lower()
+        if limite_comentarios is None:
+            from app.services.plan_service import LIMITES_COMENTARIOS_POR_PLAN
+            limite_comentarios = LIMITES_COMENTARIOS_POR_PLAN.get(plan_lower, 50)
 
         if plan_lower in ["free", "bronce"]:
-            return self._analizar_sentimientos(datos_crudos, origen, contexto, user_plan, fuente)
+            return self._analizar_sentimientos(
+                datos_crudos, origen, contexto, user_plan, limite_comentarios
+            )
         elif plan_lower in ["plata", "oro", "lifetime", "premium"]:
-            return self._analizar_semantica(datos_crudos, origen, contexto, user_plan)
+            return self._analizar_semantica(
+                datos_crudos, origen, contexto, user_plan, limite_comentarios
+            )
         else:
             return {
                 "success": False,
@@ -43,12 +50,12 @@ class AnalysisService:
         origen: str,
         contexto: str,
         user_plan: str,
-        fuente: str = "",
+        limite_comentarios: int | None = None,
     ) -> dict[str, Any]:
         """Análisis básico de sentimientos para Free/Bronce."""
         try:
             comentarios = self._extraer_comentarios(datos_crudos, origen)
-            logger.info("Comentarios extraídos: %s", comentarios)
+            logger.info("Comentarios extraídos: %s", len(comentarios))
 
             if not comentarios:
                 return {
@@ -56,26 +63,23 @@ class AnalysisService:
                     "error": "No se encontraron comentarios válidos.",
                 }
 
-            # ✅ NUEVO: le decimos al LLM de qué fuente vienen los comentarios
-            contexto_llm = contexto
-            if fuente:
-                nota = f"Fuente de los comentarios: {fuente}."
-                contexto_llm = f"{nota} {contexto}" if contexto else nota
-
             provider = ProviderRegistry.get_provider(user_plan=user_plan)
+
             resultado_llm = provider.analyze_sentiment(
                 comentarios=comentarios,
-                contexto=contexto_llm,
+                contexto=contexto,
+                limite_comentarios=limite_comentarios,
             )
-            logger.warning("RESULTADO SENTIMIENTOS RAW: %s", resultado_llm)
 
-            # ✅ APLANAR: Fusionar resultado_llm en el nivel superior
+            logger.warning("RESULTADO SENTIMIENTOS RAW: keys=%s", list(resultado_llm.keys()))
+
+            # APLANAR: Fusionar resultado_llm en el nivel superior
             return {
                 "success": True,
                 "tipo_analisis": "sentimientos",
-                "modelo_utilizado": provider.get_model_id(),
+                "modelo_utilizado": getattr(provider._client, "model", provider.get_model_id()),
                 "total_comentarios": len(comentarios),
-                **resultado_llm,  # <--- ESTO ES LA CLAVE
+                **resultado_llm,
             }
         except Exception as exc:
             logger.exception("Error en análisis de sentimientos")
@@ -90,6 +94,7 @@ class AnalysisService:
         origen: str,
         contexto: str,
         user_plan: str,
+        limite_comentarios: int | None = None,
     ) -> dict[str, Any]:
         """Análisis semántico avanzado para Plata+."""
         try:
@@ -102,13 +107,16 @@ class AnalysisService:
             result = mic.analizar(
                 datos_crudos=datos_crudos,
                 origen=origen,
-                metadata={"contexto": contexto},
+                metadata={
+                    "contexto": contexto,
+                    "limite_comentarios": limite_comentarios,
+                },
             )
 
             return {
                 "success": result.success,
                 "tipo_analisis": "semantico",
-                "modelo_utilizado": provider.get_model_id(),
+                "modelo_utilizado": getattr(provider._client, "model", provider.get_model_id()),
                 "conversation_id": result.conversation_id,
                 "analisis": self._serializar_semantic_analysis(result.semantic_analysis),
                 "warnings": result.warnings,

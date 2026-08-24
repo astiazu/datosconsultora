@@ -162,18 +162,11 @@ class MIC:
         Factory de Adapters.
         Selecciona el adapter correcto según el origen.
         """
-        origen_lower = origen.lower()
-
-        if origen_lower in ["facebook", "instagram"]:
-            return FacebookAdapter()
-
-        # Futuros adapters:
-        # elif origen_lower == "whatsapp":
-        #     return WhatsAppAdapter()
-        # elif origen_lower == "csv":
-        #     return CSVAdapter()
-
-        raise ValueError(
-            f"Origen '{origen}' no soportado. "
-            f"Origenes disponibles: facebook, instagram"
-        )
+        from app.mic.adapters.adapter_factory import AdapterFactory
+        try:
+            return AdapterFactory.create(origen.lower())
+        except ValueError:
+            raise ValueError(
+                f"Origen '{origen}' no soportado. "
+                f"Orígenes disponibles: facebook, instagram, x"
+            )

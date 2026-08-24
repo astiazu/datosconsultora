@@ -1,4 +1,4 @@
-# app\mic\facebook\facebook_adapter.py
+# app/mic/adapters/facebook/facebook_adapter.py
 from datetime import datetime
 from app.mic.adapters.base_adapter import BaseAdapter
 from app.mic.builders.conversation_builder import ConversationBuilder
@@ -6,31 +6,32 @@ from app.mic.domain.enums import SourceType
 
 class FacebookAdapter(BaseAdapter):
     """
-    Convierte la respuesta de Facebook
-    en una Conversation.
+    Convierte la respuesta del scraper en una Conversation.
+    La lógica de conversión es genérica para todas las redes;
+    cada subclase solo define su red mediante `source_type`.
     """
+
+    source_type = SourceType.FACEBOOK
+
     def convert(self, data):
         builder = ConversationBuilder()
         builder.create(
             conversation_id=data["post_id"],
-            source=SourceType.FACEBOOK,
-            title=data.get("title", "Facebook"),
+            source=self.source_type,  # ← PARAMETRIZADO
+            title=data.get("title", self.source_type.value.capitalize()),
             created_at=datetime.now()
         )
 
         users = {}
 
         for comment in data["comments"]:
-
             uid = comment["user_id"]
-
             if uid not in users:
                 users[uid] = True
                 builder.add_participant(
                     participant_id=uid,
                     display_name=comment["user_name"]
                 )
-
             builder.add_message(
                 message_id=comment["comment_id"],
                 participant_id=uid,

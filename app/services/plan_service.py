@@ -173,3 +173,22 @@ def resetear_consumo(user):
     user_plan.consumo_transcripciones = 0
     user_plan.consumo_analisis = 0
     db.session.commit()
+
+# =========================================================================
+# Límite de comentarios por análisis según plan (None = sin límite)
+# =========================================================================
+LIMITES_COMENTARIOS_POR_PLAN = {
+    "free": 50,
+    "bronce": 100,
+    "plata": 500,
+    "oro": None,
+    "lifetime": None,
+    "premium": None,
+}
+
+def limite_comentarios_para_plan(user):
+    """Cuántos comentarios puede analizar por análisis según su plan. None = ilimitado."""
+    user_plan = obtener_plan_usuario(user)
+    plan = user_plan.obtener_plan_obj()
+    nombre = (plan.nombre if plan else "free").lower()
+    return LIMITES_COMENTARIOS_POR_PLAN.get(nombre, 50)

@@ -10,7 +10,10 @@ from app.models import UserFile, Transcription, AnalysisSession
 from app.services.transcription.groq_backend import GroqBackend
 from app.services.analysis_service import AnalysisService
 from app.services.analysis.text_cleaner import limpiar_comentarios
-from app.services.plan_service import puede_transcribir, registrar_uso_transcripcion, puede_analizar, registrar_uso_analisis
+from app.services.plan_service import (
+    puede_transcribir, registrar_uso_transcripcion,
+    puede_analizar, registrar_uso_analisis, limite_comentarios_para_plan
+)
 
 servicios_bp = Blueprint("servicios", __name__)
 
@@ -106,7 +109,7 @@ def analisis_sentimientos():
     paso = "input"
     url_input = ""
     contexto = ""
-    mostrar_pestaña_url = False
+    mostrar_fallback = False  # ✅ INICIALIZADO (era variable no declarada)
 
     # Variables para la vista premium del Plan Plata (Conversation)
     conversation_plata = None
@@ -123,75 +126,134 @@ def analisis_sentimientos():
         comentarios_raw = request.form.get("comentarios", "").strip()
         contexto = request.form.get("contexto", "").strip()
 
-        if url_input:
-            mostrar_pestaña_url = True
-
         # =========================================================================
-        # LÓGICA 1: Flujo Plan Plata+ (Motor Semántico)
+        # LÓGICA 1: URL (Plan Plata+) — AUTOMÁTICO: descarga, guarda y parsea
         # =========================================================================
-        # CORREGIDO: Este bloque ahora está AL MISMO NIVEL que `if url_input:`.
-        # Se activa para cualquier usuario Plata+ que presione "analizar",
-        # con o sin URL. La URL es opcional y queda como referencia.
-        if tiene_acceso_url and action == "analizar" and not request.form.get("record_id_plata"):
+        if url_input and tiene_acceso_url and action == "analizar":
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
                 if not puede_usar:
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
                     return redirect(url_for("servicios.analisis_sentimientos"))
 
-                # ⚠️ Aviso sobre la URL (solo si el usuario pegó una)
-                if url_input:
-                    flash(
-                        "⚠️ La extracción automática por URL está bloqueada por "
-                        "Facebook, Instagram y X. La URL se registra como referencia, "
-                        "pero por favor copiá y pegá los comentarios en el campo de abajo.",
-                        "warning",
-                    )
+                # PASO 1: contexto opcional desde video/audio (transcripción)
+                media = request.files.get("media_contexto")
+                if media and media.filename:
+                    ext_media = media.filename.rsplit(".", 1)[-1].lower()
+                    if ext_media in ALLOWED_EXT:
+                        try:
+                            from app.services.transcription.audio_utils import prepare_for_transcription
+                            tmp_path = os.path.join(current_app.config["UPLOAD_FOLDER"], str(current_user.id), f"{uuid4().hex}.{ext_media}")
+                            os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
+                            media.save(tmp_path)
+                            chunks = prepare_for_transcription(tmp_path)
+                            backend = GroqBackend()
+                            texto_media = " ".join(backend.transcribe(c).get("text", "") for c in chunks).strip()
+                            if texto_media:
+                                contexto = f"{contexto}\n{texto_media}".strip() if contexto else texto_media
+                                flash("🎙️ Video/audio transcrito y usado como contexto.", "success")
+                        except Exception as e:
+                            flash(f"⚠️ No se pudo transcribir el contexto: {str(e)[:120]}", "warning")
 
-                if not comentarios_raw:
-                    error_msg = (
-                        "Pegá los comentarios de la publicación para continuar con "
-                        "el Motor Semántico."
-                    )
-                    paso = "input"
-                else:
-                    # Procesamos el texto pegado → Conversation → preview_plata
-                    from app.services.conversation_service import ConversationService
-                    service = ConversationService()
-                    respuesta = service.from_manual_text(comentarios_raw, contexto)
+                # PASO 2: extracción automática (descarga + guarda en origen + parsea)
+                from app.services.conversation_service import ConversationService
+                service = ConversationService()
+                respuesta = service.extraer_conversation(url_input)
 
-                    if not respuesta["success"]:
-                        flash(f"⚠️ {respuesta.get('error_msg', 'Error al procesar')}", "warning")
-                        paso = "input"
-                    else:
-                        conversation_plata = respuesta["conversation"]
-                        red_social = respuesta.get("red_social", "desconocido")
-                        participants_plata = {
-                            p.participant_id: p.display_name
-                            for p in conversation_plata.participants
-                        }
-
-                        # Registrar la URL como referencia en la metadata
-                        if url_input:
-                            conversation_plata.metadata["url_referencia"] = url_input
-
-                        # Guardar la Conversation en la DB para el historial del Plan Plata
-                        from app.services.plata.conversation_repository import ConversationRepository
-                        repo = ConversationRepository()
-                        record_plata = repo.guardar(
-                            user_id=current_user.id,
-                            conversation=conversation_plata,
-                            contexto=contexto,
-                        )
-                        record_id_plata = record_plata.id
-
-                        flash(f"✅ Se detectaron {conversation_plata.total_messages} comentarios ({red_social})", "success")
+                if respuesta["success"]:
+                    conversation_plata = respuesta["conversation"]
+                    url_lower = url_input.lower()
+                    red_social = "instagram" if "instagram" in url_lower else ("x" if ("x.com" in url_lower or "twitter" in url_lower) else "facebook")
+                    participants_plata = {p.participant_id: p.display_name for p in conversation_plata.participants}
+                    flash(f"✅ Página guardada en origen y {conversation_plata.total_messages} comentarios detectados ({red_social}).", "success")
+                    paso = "preview_plata"
+                                        # Mensaje contextual si trajo menos de los declarados
+                    stats = conversation_plata.metadata.get("stats", {})
+                    declarados = stats.get("comentarios")
+                    if declarados:
+                        try:
+                            decl_num = int(str(declarados).replace(".", "").replace(",", ""))
+                            if conversation_plata.total_messages < decl_num:
+                                flash(
+                                    f"ℹ️ Se extrajeron {conversation_plata.total_messages} de {decl_num} comentarios declarados. "
+                                    f"Instagram puede limitar el acceso automático. Para recuperar todos, usá el método de página guardada.",
+                                    "info"
+                                )
+                        except (ValueError, TypeError):
+                            pass
+                elif comentarios_raw:
+                    # Fallback 1: el usuario pegó comentarios → los usamos
+                    respuesta_manual = service.from_manual_text(comentarios_raw, contexto)
+                    if respuesta_manual["success"]:
+                        conversation_plata = respuesta_manual["conversation"]
+                        red_social = respuesta_manual.get("red_social", "desconocido")
+                        participants_plata = {p.participant_id: p.display_name for p in conversation_plata.participants}
+                        flash("⚠️ La red no dejó extraer automáticamente; usamos los comentarios pegados.", "warning")
                         paso = "preview_plata"
+                    else:
+                        flash(f"⚠️ {respuesta_manual.get('error_msg')}", "warning")
+                        paso = "input"
+                        mostrar_fallback = True
+                else:
+                    # Fallback 2: Plan B (subir página guardada)
+                    flash("⚠️ La red social bloqueó la extracción automática. Usá el Plan B de abajo: guardá la página con Ctrl+S y subila.", "warning")
+                    paso = "input"
+                    mostrar_fallback = True
 
             except Exception as e:
                 error_msg = f"Error inesperado: {str(e)}"
                 flash(f"❌ {error_msg}", "error")
                 paso = "input"
+                mostrar_fallback = True
+
+        # =========================================================================
+        # LÓGICA 1B: PLAN B — subir página guardada (Ctrl+S)
+        # =========================================================================
+        elif action == "subir_pagina":
+            try:
+                puede_usar, uso_actual, limite = puede_analizar(current_user)
+                if not puede_usar:
+                    flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
+                    return redirect(url_for("servicios.analisis_sentimientos"))
+
+                archivo = request.files.get("archivo_pagina")
+                if not archivo or not archivo.filename or not archivo.filename.lower().endswith((".html", ".htm")):
+                    flash("❌ Subí el archivo .html que guardaste con Ctrl+S.", "error")
+                    paso = "input"
+                    mostrar_fallback = True
+                else:
+                    carpeta = os.path.join(current_app.config["UPLOAD_FOLDER"], "paginas_origen")
+                    os.makedirs(carpeta, exist_ok=True)
+                    path_pagina = os.path.join(carpeta, f"{uuid4().hex}_{secure_filename(archivo.filename)}")
+                    archivo.save(path_pagina)
+                    with open(path_pagina, "r", encoding="utf-8", errors="ignore") as f:
+                        html_content = f.read()
+
+                    from app.services.conversation_service import ConversationService
+                    service = ConversationService()
+                    respuesta = service.from_saved_page(html_content, url_input, contexto)
+                    if respuesta["success"]:
+                        conversation_plata = respuesta["conversation"]
+                        red_social = respuesta.get("red_social", "facebook")
+                        participants_plata = {p.participant_id: p.display_name for p in conversation_plata.participants}
+                        flash(f"✅ {conversation_plata.total_messages} comentarios recuperados de la página guardada.", "success")
+                        paso = "preview_plata"
+                                            # Mensaje de éxito con métricas si existen
+                    stats = conversation_plata.metadata.get("stats", {})
+                    if stats.get("comentarios"):
+                        flash(
+                            f"📊 Publicación con {stats['comentarios']} comentarios declarados. "
+                            f"Recuperaste {conversation_plata.total_messages} mediante página guardada.",
+                            "info"
+                        )
+                    else:
+                        flash("⚠️ " + (respuesta.get("error_msg") or "No se pudo procesar la página."), "warning")
+                        paso = "input"
+                        mostrar_fallback = True
+            except Exception as e:
+                flash(f"❌ Error procesando la página: {str(e)}", "error")
+                paso = "input"
+                mostrar_fallback = True
 
         # =========================================================================
         # LÓGICA 2: Limpiar y previsualizar (Plan Bronce - INTACTO)
@@ -219,7 +281,7 @@ def analisis_sentimientos():
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
                     return redirect(url_for("servicios.analisis_sentimientos"))
 
-                # ✅ LEER DIRECTAMENTE EL TEXTO RAW (viene del textarea oculto, 100% seguro)
+                # ✅ LEER DIRECTAMENTE EL TEXTO RAW
                 comentarios_raw = request.form.get("comentarios", "").strip()
                 contexto = request.form.get("contexto", "").strip()
 
@@ -230,7 +292,6 @@ def analisis_sentimientos():
                     flash("⚠️ No hay comentarios válidos.", "warning")
                     paso = "input"
                 else:
-                    from app.services.analysis_service import AnalysisService
                     datos_crudos = {
                         "comments": [
                             {"text": f"[{c['usuario']}]: {c['texto']}"}
@@ -238,22 +299,21 @@ def analisis_sentimientos():
                         ]
                     }
 
-                    # ✅ CORREGIDO: La LÓGICA 3 siempre usa el flujo Bronce (sentimientos básico).
-                    # Los usuarios Plata+ entran por la LÓGICA 1 (Motor Semántico).
-                    # Esto evita el KeyError 'post_id' que ocurría cuando un usuario Plata
-                    # pegaba comentarios sin URL y el servicio intentaba el flujo semántico.
+                    # ✅ La LÓGICA 3 usa el flujo Bronce (sentimientos básico por lotes).
+                    # Los usuarios Plata+ entran por la LÓGICA 1 (Motor Semántico con URL).
                     user_plan_name = "bronce"
 
                     # Normalizar origen para el MIC (evita "desconocido")
                     origen_para_mic = red_social if red_social in ["facebook", "instagram", "x"] else "facebook"
 
                     service = AnalysisService()
+                    # ✅ CORREGIDO: eliminado `fuente=red_social` (ese parámetro no existe en el método)
                     resultado_dict = service.analizar(
                         datos_crudos=datos_crudos,
                         origen=origen_para_mic,
                         user_plan=user_plan_name,
                         contexto=contexto,
-                        fuente=red_social,
+                        limite_comentarios=limite_comentarios_para_plan(current_user),
                     )
 
                     if resultado_dict["success"]:
@@ -299,57 +359,109 @@ def analisis_sentimientos():
                     flash(f"❌ Has alcanzado el límite de {limite} análisis este mes.", "error")
                     return redirect(url_for("servicios.analisis_sentimientos"))
 
-                record_id = int(request.form.get("record_id_plata"))
-
-                # Cargar la Conversation desde la DB
-                from app.services.plata.conversation_repository import ConversationRepository
-                repo = ConversationRepository()
-                data = repo.obtener(record_id, current_user.id)
-
-                if not data:
-                    flash("❌ No se encontró la conversación guardada.", "error")
+                # ✅ CORREGIDO: try/except para parseo seguro del record_id
+                try:
+                    record_id = int(request.form.get("record_id_plata"))
+                except (TypeError, ValueError):
+                    flash("❌ ID de conversación inválido.", "error")
                     paso = "input"
                 else:
-                    conversation_plata = data["conversation"]
-                    record_id_plata = data["record"].id
+                    # Cargar la Conversation desde la DB
+                    from app.services.plata.conversation_repository import ConversationRepository
+                    repo = ConversationRepository()
+                    data = repo.obtener(record_id, current_user.id)
 
-                    # Ejecutar el Motor Semántico
-                    from app.services.plata.semantic_service import SemanticService
-                    semantic_service = SemanticService()
-                    user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
-
-                    resultado_dict = semantic_service.analizar(
-                        conversation=conversation_plata,
-                        user_plan=user_plan_name,
-                        contexto=conversation_plata.metadata.get("contexto", ""),
-                    )
-
-                    if resultado_dict["success"]:
-                        # Guardar el resultado en la DB
-                        repo.guardar_resultado(record_id, resultado_dict)
-
-                        # Registrar el uso
-                        registrar_uso_analisis(current_user)
-
-                        resultado = resultado_dict
-                        paso = "resultado"
-                        total_analizados = resultado_dict.get("estadisticas_agregadas", {}).get("total", conversation_plata.total_messages)
-                        flash(f"✅ Análisis semántico completado ({total_analizados} mensajes analizados)", "success")
-                        for w in resultado_dict.get("warnings", []):
-                            flash(f"⚠️ {w}", "warning")
-
-                    else:
-                        error_msg = resultado_dict.get("errors", ["Error en el análisis"])
-                        if isinstance(error_msg, list):
-                            error_msg = error_msg[0] if error_msg else "Error en el análisis"
-                        flash(f"❌ {error_msg}", "error")
+                    if not data:
+                        flash("❌ No se encontró la conversación guardada.", "error")
                         paso = "input"
+                    else:
+                        conversation_plata = data["conversation"]
+                        record_id_plata = data["record"].id
+
+                        # Ejecutar el Motor Semántico
+                        from app.services.plata.semantic_service import SemanticService
+                        semantic_service = SemanticService()
+                        user_plan_name = current_user.user_plan.plan if current_user.user_plan else "free"
+
+                        contexto_semantico = (
+                            data["record"].contexto
+                            or conversation_plata.metadata.get("contexto", "")
+                            or ""
+                        )
+                        resultado_dict = semantic_service.analizar(
+                            conversation=conversation_plata,
+                            user_plan=user_plan_name,
+                            contexto=contexto_semantico,
+                        )
+
+                        if resultado_dict["success"]:
+                            # Guardar el resultado en la DB
+                            repo.guardar_resultado(record_id, resultado_dict)
+
+                            # Registrar el uso
+                            registrar_uso_analisis(current_user)
+
+                            resultado = resultado_dict
+                            paso = "resultado"
+                            total_analizados = resultado_dict.get("estadisticas_agregadas", {}).get("total", conversation_plata.total_messages)
+                            flash(f"✅ Análisis semántico completado ({total_analizados} mensajes analizados)", "success")
+                            for w in resultado_dict.get("warnings", []):
+                                flash(f"⚠️ {w}", "warning")
+                        else:
+                            error_msg = resultado_dict.get("errors", ["Error en el análisis"])
+                            if isinstance(error_msg, list):
+                                error_msg = error_msg[0] if error_msg else "Error en el análisis"
+                            flash(f"❌ {error_msg}", "error")
+                            paso = "input"
 
             except Exception as e:
                 error_msg = str(e)
                 flash(f"❌ Error en el análisis semántico: {error_msg}", "error")
                 current_app.logger.error(f"Error en análisis semántico: {str(e)}")
                 paso = "input"
+
+    # =========================================================================
+    # PERSISTENCIA: si quedó una Conversation nueva sin guardar (URL o Plan B),
+    # la guardamos para que "Ejecutar Motor Semántico" tenga un record_id real.
+    # =========================================================================
+    if conversation_plata is not None and record_id_plata is None:
+        try:
+            # Enriquecer contexto con caption + métricas (sin duplicar si ya están)
+            if conversation_plata.metadata.get("caption") and "PUBLICACIÓN ORIGINAL:" not in contexto:
+                cap = conversation_plata.metadata["caption"]
+                contexto = f"PUBLICACIÓN ORIGINAL: {cap}\n{contexto}" if contexto else f"PUBLICACIÓN ORIGINAL: {cap}"
+
+            st = conversation_plata.metadata.get("stats") or {}
+            if st and "Métricas de la publicación" not in contexto:
+                partes = []
+                if st.get("likes"):
+                    partes.append(f"{st['likes']} likes")
+                if st.get("comentarios"):
+                    partes.append(f"{st['comentarios']} comentarios declarados en la publicación")
+                if st.get("compartidos"):
+                    partes.append(f"{st['compartidos']} compartidos")
+                if partes:
+                    linea = "Métricas de la publicación: " + ", ".join(partes) + "."
+                    contexto = f"{contexto}\n{linea}" if contexto else linea
+
+            # El contexto COMPLETO viaja dentro del JSON de la Conversation;
+            # la columna `contexto` de la DB es VARCHAR(500) → truncamos por
+            # seguridad (PostgreSQL en Render sí enforcea el límite).
+            conversation_plata.metadata["contexto"] = contexto
+
+            from app.services.plata.conversation_repository import ConversationRepository
+            repo = ConversationRepository()
+            record = repo.guardar(current_user.id, conversation_plata, contexto[:500])
+            record_id_plata = record.id
+        except Exception as e:
+            current_app.logger.error(f"No se pudo persistir la conversación: {e}")
+            flash("⚠️ La conversación no se pudo guardar; el Motor Semántico podría no estar disponible para esta preview.", "warning")
+
+    # =========================================================================
+    # Agregar `mostrar_fallback` al contexto del template (necesario para Plan B)
+    # =========================================================================
+    if 'mostrar_fallback' not in locals():
+        mostrar_fallback = False
 
     return render_template(
         "analisis_sentimientos.html",
@@ -362,8 +474,9 @@ def analisis_sentimientos():
         tiene_acceso_url=tiene_acceso_url,
         url_input=url_input,
         contexto=contexto,
-        mostrar_pestaña_url=mostrar_pestaña_url,
+        mostrar_fallback=mostrar_fallback,  # ✅ AGREGADO
         conversation=conversation_plata,
         participants=participants_plata,
         record_id_plata=record_id_plata,
+        limite_comentarios=limite_comentarios_para_plan(current_user),
     )

@@ -1,0 +1,24 @@
+Sos un analista de opinión pública experto en discurso argentino.
+Te paso resúmenes parciales de tramos de UNA MISMA conversación de redes sociales.
+Producí un RESUMEN EJECUTIVO final unificado que integre todas las partes.
+
+CONTEXTO DE LA CONVERSACIÓN:
+__CONTEXTO__
+
+RESÚMENES PARCIALES:
+__PARCIALES__
+
+Respondé ÚNICAMENTE con JSON válido, sin markdown, con esta estructura exacta:
+{
+  "resumen_general": "resumen integrado de 3 a 5 frases",
+  "puntos_fuertes": ["punto 1", "punto 2"],
+  "puntos_debiles": ["punto 1", "punto 2"],
+  "polaridad_dominante": "positive|negative|mixed|neutral",
+  "conclusion": "conclusión global de la conversación completa",
+  "enfoque_solucion": "recomendación concreta de enfoque o respuesta ante la situación detectada"
+}
+
+REGLAS:
+- puntos_fuertes y puntos_debiles: como máximo 4 elementos, concretos, accionables y sin duplicados entre partes.
+- polaridad_dominante debe reflejar la mayoría global de toda la conversación.
+- enfoque_solucion debe ser práctico y breve (máximo 3 frases).

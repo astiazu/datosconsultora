@@ -53,47 +53,39 @@ class GroqSemanticAnalyzer(SemanticAnalyzer):
                 },
             }
 
+        # ✅ ACÁ VA EL SEGMENTO: reemplaza el bloque viejo de analyze()
         contexto = str(metadata.get("contexto", "")).strip()
+        limite = metadata.get("limite_comentarios")
         comentarios = [mensaje["texto"] for mensaje in mensajes]
 
         try:
             client = self._get_client()
 
-            # Llamada al motor semántico (SIN plan)
             resultado_groq = client.analizar_semantica(
                 comentarios=comentarios,
                 contexto=contexto,
+                limite_comentarios=limite,
             )
 
-            # Convertir dict crudo a SemanticResult objects
             analyses = self._convert_to_semantic_results(
                 resultado_groq.get("analyses", []),
                 mensajes,
             )
 
-            metadata_salida = {
+            meta = {
                 "provider": "groq",
                 "model": client.model,
                 "total_analizados": len(analyses),
             }
-
-            # ✅ NUEVO: propagar el warning del cliente
-            # (ej: "se analizaron solo los primeros 100 comentarios")
             if resultado_groq.get("warning"):
-                metadata_salida["warning"] = resultado_groq["warning"]
+                meta["warning"] = resultado_groq["warning"]
 
-            return {
-                "analyses": analyses,
-                "metadata": metadata_salida,
-            }
+            return {"analyses": analyses, "metadata": meta}
 
         except AttributeError:
             logger.exception(
                 "GroqLLMClient no dispone de analizar_semantica()."
             )
-            # ✅ NUEVO: "error" en el nivel superior para que el
-            # SemanticStep lo detecte y el Pipeline marque el fallo
-            # (evita informes en blanco con success=True).
             return {
                 "error": (
                     "GroqLLMClient no tiene implementado "
@@ -112,7 +104,6 @@ class GroqSemanticAnalyzer(SemanticAnalyzer):
             logger.exception(
                 "Error ejecutando análisis semántico con Groq."
             )
-            # ✅ NUEVO: "error" en el nivel superior (ver comentario arriba)
             return {
                 "error": f"Fallo en el motor semántico: {exc}",
                 "analyses": [],

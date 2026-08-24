@@ -4,7 +4,7 @@
 {% block title %}Análisis de Sentimientos - DatosConsultora{% endblock %}
 
 {% block content %}
-{# ✅ OVERLAY DE PROCESAMIENTO (al inicio del content, oculto por defecto) #}
+<!-- ✅ OVERLAY DE PROCESAMIENTO (al inicio del content, oculto por defecto) -->
 <div id="overlayProcesando" style="display:none !important; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
     <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="Procesando" style="width:160px; height:160px; object-fit:contain;">
     <div style="margin-top:1.5rem; font-weight:700; font-size:1.25rem; color:#004d5c;">
@@ -14,6 +14,7 @@
         El análisis con IA puede tardar un par de minutos.<br>
         No cierres esta pestaña.
     </div>
+    <div id="overlayPasoTexto" style="color:#004d5c; font-size:.9rem; margin-top:.75rem; font-weight:600;">Preparando…</div>
     <div class="spinner-border mt-3" style="color:#004d5c;" role="status">
         <span class="visually-hidden">Procesando…</span>
     </div>
@@ -29,7 +30,7 @@
     </a>
 </div>
 
-{# Mostrar mensajes flash #}
+<!-- Mostrar mensajes flash -->
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     {% for category, message in messages %}
@@ -53,6 +54,27 @@
     </div>
     <div class="card-body">
         <div class="row mb-3">
+            {% if conversation.metadata and conversation.metadata.get('stats') %}
+                {% set st = conversation.metadata['stats'] %}
+                <p class="mb-0 small text-muted">
+                    📊 <strong>Métricas de la publicación:</strong>
+                    {% set declarados = (st.comentarios | replace('.', '') | replace(',', '') | int) if st.comentarios else 0 %}
+                    {% if declarados and conversation.total_messages < declarados %}
+                    <div class="alert alert-warning small mt-2 mb-0">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Se extrajeron <strong>{{ conversation.total_messages }}</strong> de
+                        <strong>{{ declarados }}</strong> comentarios declarados por la publicación.
+                        Instagram solo entrega los que estaban cargados al momento de la extracción.
+                        Para analizar <em>todos</em>: abrí la publicación en tu navegador (logueado),
+                        clickeá <strong>"Cargar más comentarios"</strong> hasta llegar al final,
+                        y usá el <strong>Plan B</strong> (Ctrl+S → subir el archivo).
+                    </div>
+                    {% endif %}
+                    {% if st.likes %}❤️ {{ st.likes }} likes{% endif %}
+                    {% if st.comentarios %} · 💬 {{ st.comentarios }} comentarios{% endif %}
+                    {% if st.compartidos %} · 🔁 {{ st.compartidos }} compartidos{% endif %}
+                </p>
+            {% endif %}            
             <div class="col-md-6">
                 <p class="mb-1"><strong>Red social:</strong> {{ conversation.source.value | upper }}</p>
                 <p class="mb-0"><strong>Participantes:</strong> {{ conversation.total_participants }}</p>
@@ -118,32 +140,62 @@
 {% endif %}
 
 {% if paso == 'input' or paso == 'preview' %}
-    <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" class="form-analisis">
+    <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" enctype="multipart/form-data" class="form-analisis">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
         
         {% if tiene_acceso_url %}
         <div class="card mb-4 border-primary">
             <div class="card-body">
-                <h5 class="card-title"><i class="fas fa-link"></i> Analizar desde URL (Premium)</h5>
+                <h5 class="card-title"><i class="fas fa-link"></i> Extracción rápida desde URL</h5>
+                <small class="text-muted d-block mb-3">
+                    <i class="fas fa-info-circle"></i>
+                    En Instagram puede traer solo una parte de los comentarios por restricciones de carga y sesión.
+                    Para publicaciones con muchos comentarios, usá el método de página guardada de abajo.
+                </small>
+                
                 {% if error_msg %}
                 <div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> {{ error_msg }}</div>
                 {% endif %}
-                <div class="alert alert-info small mb-3">
-                    <i class="fas fa-info-circle"></i>
-                    <strong>Nota:</strong> La extracción automática por URL está temporalmente bloqueada por Facebook, Instagram y X.
-                    Pegá la URL para dejarla registrada y copiá los comentarios manualmente abajo.
-                </div>
+                
                 <div class="mb-3">
                     <label for="url_publicacion" class="form-label">URL de la publicación</label>
-                    <input type="url" name="url_publicacion" id="url_publicacion" class="form-control" placeholder="https://facebook.com/..." value="{{ url_input or '' }}">
+                    <input type="url" name="url_publicacion" id="url_publicacion" class="form-control" 
+                           placeholder="https://facebook.com/... o https://instagram.com/p/..." 
+                           value="{{ url_input or '' }}">
                 </div>
+                
                 <div class="mb-3">
                     <label for="contexto_url" class="form-label">Contexto (opcional)</label>
-                    <textarea name="contexto" id="contexto_url" class="form-control" rows="2" maxlength="300" placeholder="Ej: Comentarios sobre la gestión municipal">{{ contexto or '' }}</textarea>
+                    <textarea name="contexto" id="contexto_url" class="form-control" rows="2" 
+                              maxlength="300" placeholder="Ej: Comentarios sobre la gestión municipal">{{ contexto or '' }}</textarea>
                 </div>
+                
+                <div class="mb-3">
+                    <label for="media_contexto" class="form-label">Contexto desde video/audio (opcional)</label>
+                    <input type="file" name="media_contexto" id="media_contexto" class="form-control" accept="audio/*,video/*">
+                    <small class="text-muted">Si la publicación es un video, subilo: usamos su transcripción como contexto.</small>
+                </div>
+                
                 <button type="submit" name="action" value="analizar" class="btn btn-primary">
                     <i class="fas fa-robot"></i> Extraer y Analizar Automáticamente
                 </button>
+
+                <!-- Plan B siempre visible para usuarios Plata+ -->
+                <hr>
+                <div class="alert alert-warning mb-0">
+                    <h6 class="fw-bold"><i class="fas fa-life-ring"></i> Método recomendado para Instagram: página guardada</h6>
+                    <p class="small mb-2">
+                        Para recuperar <strong>todos</strong> los comentarios visibles:
+                        <br>1. Abrí la publicación logueado en tu navegador
+                        <br>2. Scrolleá hasta el final (clickeá "Ver más comentarios" si aparece)
+                        <br>3. <strong>Ctrl+S → "Página web, solo HTML"</strong>
+                        <br>4. Subí el archivo acá
+                    </p>
+                    <input type="file" name="archivo_pagina" accept=".html,.htm" class="form-control mb-2">
+                    <button type="submit" name="action" value="subir_pagina" class="btn btn-warning btn-sm">
+                        <i class="fas fa-file-upload"></i> Procesar página guardada
+                    </button>
+                </div>
             </div>
         </div>
         <hr>
@@ -199,7 +251,7 @@
             </tbody>
         </table>
         
-        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" class="form-analisis">
+        <form method="POST" action="{{ url_for('servicios.analisis_sentimientos') }}" enctype="multipart/form-data" class="form-analisis">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <textarea name="comentarios" style="display:none;">{{ comentarios_raw }}</textarea>
             <input type="hidden" name="contexto" value="{{ contexto }}">
@@ -558,7 +610,7 @@ function exportarJSON() {
     window.URL.revokeObjectURL(url);
 }
 
-{# ✅ Mostrar overlay al enviar cualquier formulario con clase "form-analisis" #}
+// ✅ Overlay con pasos animados 
 (function () {
     var overlay = document.getElementById('overlayProcesando');
     if (!overlay) return;
@@ -566,10 +618,30 @@ function exportarJSON() {
     // Blindaje: asegurar que esté oculto al cargar
     overlay.style.setProperty('display', 'none', 'important');
     
+    var textoPaso = document.getElementById('overlayPasoTexto');
+    var pasos = [
+        '1/4 · Procesando el contexto…',
+        '2/4 · Descargando y guardando la página en origen…',
+        '3/4 · Extrayendo comentarios…',
+        '4/4 · Armando la conversación…'
+    ];
+    var idx = 0, timer = null;
+    
+    function pintar() {
+        if (textoPaso) textoPaso.textContent = pasos[Math.min(idx, pasos.length - 1)];
+    }
+    
     // Capturar solo los submits de formularios de análisis
     document.querySelectorAll('form.form-analisis').forEach(function (form) {
-        form.addEventListener('submit', function () {
-            overlay.style.setProperty('display', 'flex', 'important');
+        form.addEventListener('submit', function (ev) {
+            var btn = ev.submitter || form.querySelector('button[type="submit"]');
+            var accion = btn ? (btn.getAttribute('value') || '') : '';
+            if (['analizar', 'limpiar', 'subir_pagina', 'analizar_plata'].indexOf(accion) !== -1) {
+                if (timer) clearInterval(timer);
+                idx = 0; pintar();
+                timer = setInterval(function () { if (idx < pasos.length - 1) idx++; pintar(); }, 12000);
+                overlay.style.setProperty('display', 'flex', 'important');
+            }
         });
     });
 })();
@@ -612,5 +684,3 @@ function exportarJSON() {
 </script>
 {% endif %}
 {% endblock %}
-
-

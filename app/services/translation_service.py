@@ -1,12 +1,13 @@
 # app/services/translation_service.py
 import os
 from groq import Groq
+from app.mic.providers.model_config import DEFAULT_MODEL
 
 
 class TranslationService:
     """Servicio de traducción usando Groq LLM."""
 
-    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+    def __init__(self, model: str = DEFAULT_MODEL):
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
             raise ValueError(

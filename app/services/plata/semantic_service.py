@@ -7,6 +7,7 @@ calcula estadísticas agregadas y genera un resumen ejecutivo.
 from app.mic.mic_engine import MIC
 from app.mic.analyzers.groq_semantic_analyzer import GroqSemanticAnalyzer
 from app.mic.providers import ProviderRegistry
+from app.services.plan_service import LIMITES_COMENTARIOS_POR_PLAN
 
 
 class SemanticService:
@@ -17,12 +18,13 @@ class SemanticService:
         provider = ProviderRegistry.get_provider(user_plan=user_plan)
         analyzer = GroqSemanticAnalyzer(groq_client=provider._client)
         mic = MIC(semantic_analyzer=analyzer)
+        limite = LIMITES_COMENTARIOS_POR_PLAN.get((user_plan or "free").lower(), 50)
 
         result = mic.analyze(
             conversation,
-            metadata={"contexto": contexto},
+            metadata={"contexto": contexto, "limite_comentarios": limite},
         )
-
+        
         analyses_serialized = self._serializar(result.semantic_analysis)
         analyses = analyses_serialized.get("analyses", [])
 
