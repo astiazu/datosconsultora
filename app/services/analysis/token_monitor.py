@@ -78,7 +78,17 @@ class TokenMonitor:
     def reset(cls) -> None:
         """Reset para tests."""
         cls._instance = None
-    
+
+    def pacing_lote(self) -> None:
+        """Pausa corta entre lotes del worker para no tocar el techo de TPM."""
+        import time
+        if self._status.limit_tokens > 0 and self._status.usage_percent >= 80:
+            pausa = min(self._status.reset_seconds or 5, 30)
+            logger.warning(f"⏳ Pacing: tokens al {self._status.usage_percent:.0f}%, pausando {pausa}s")
+            time.sleep(pausa)
+        else:
+            time.sleep(1)
+                
     def update_from_response(self, response: Any) -> TokenStatus:
         """
         Extrae los headers de rate-limit de la respuesta HTTP de Groq.

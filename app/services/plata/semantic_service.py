@@ -16,6 +16,9 @@ class SemanticService:
     def analizar(self, conversation, user_plan: str, contexto: str = "") -> dict:
         """Analiza la conversación y devuelve un dict serializable."""
         provider = ProviderRegistry.get_provider(user_plan=user_plan)
+        # ✅ Oro/Lifetime a full speed; el resto espera proactivamente (tier free)
+        provider._client.pace_inicial = 0 if user_plan.lower() in ("oro", "lifetime") else 8
+        
         analyzer = GroqSemanticAnalyzer(groq_client=provider._client)
         mic = MIC(semantic_analyzer=analyzer)
         limite = LIMITES_COMENTARIOS_POR_PLAN.get((user_plan or "free").lower(), 50)

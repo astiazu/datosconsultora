@@ -53,6 +53,17 @@ def mercadopago_webhook():
             return jsonify({"status": "ignored"}), 200
         if donation.mp_payment_id and donation.mp_payment_id != str(payment_id):
             return jsonify({"error": "pago ya asociado"}), 409
+
+        # ✅ Validación económica ANTES de tocar la donación
+        if pago["status"] == "approved":
+            if pago.get("currency_id") != donation.moneda:
+                current_app.logger.warning("Webhook MP: moneda inesperada %s", pago.get("currency_id"))
+                return jsonify({"status": "ignored"}), 200
+            if float(pago.get("transaction_amount", 0)) < float(donation.monto):
+                current_app.logger.warning("Webhook MP: monto insuficiente %s", pago.get("transaction_amount"))
+                return jsonify({"status": "ignored"}), 200
+
+        # Recién ahora mutamos y acreditamos
         donation.mp_payment_id = str(payment_id)
         donation.estado = pago["status"]
         if pago["status"] == "approved":
@@ -64,3 +75,4 @@ def mercadopago_webhook():
         db.session.rollback()
         current_app.logger.exception("Error procesando webhook Mercado Pago")
         return jsonify({"status": "error"}), 500
+

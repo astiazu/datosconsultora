@@ -82,9 +82,11 @@ class MercadoPagoService:
             payment = payment_response["response"]
             
             return {
-                "status": payment["status"],  # approved, pending, rejected
+                "status": payment["status"],
                 "status_detail": payment.get("status_detail", ""),
                 "external_reference": payment.get("external_reference", ""),
+                "transaction_amount": float(payment.get("transaction_amount", 0)),
+                "currency_id": payment.get("currency_id", ""),
             }
         except Exception as e:
             raise Exception(f"Error verificando pago: {str(e)}")

@@ -118,6 +118,7 @@ def create_app():
     from app.routes.agentes import agentes_bp
     from app.routes.api import api_bp
     from app.routes.plata import plata_bp
+    from app.routes.monitor import monitor_bp
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp)
@@ -133,6 +134,7 @@ def create_app():
     app.register_blueprint(agentes_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(plata_bp)
+    app.register_blueprint(monitor_bp)
 
     return app
 

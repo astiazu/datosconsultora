@@ -4,21 +4,24 @@
 {% block title %}Análisis de Sentimientos - DatosConsultora{% endblock %}
 
 {% block content %}
-<!-- ✅ OVERLAY DE PROCESAMIENTO (al inicio del content, oculto por defecto) -->
-<div id="overlayProcesando" style="display:none !important; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:rgba(244,245,247,0.96); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
-    <img src="{{ url_for('static', filename='img/logo_animado.gif') }}" alt="Procesando" style="width:160px; height:160px; object-fit:contain;">
-    <div style="margin-top:1.5rem; font-weight:700; font-size:1.25rem; color:#004d5c;">
-        Procesando tus comentarios…
+<!-- ✅ OVERLAY DE PROCESAMIENTO: reloj de arena + tiempo + pasos -->
+<div id="overlayProcesando" style="display:none !important; position:fixed; top:0; left:0; right:0; bottom:0; z-index:99999; background:rgba(244, 245, 247, 0.562); flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:1rem;">
+    <div id="dcHourglass" style="font-size:72px; line-height:1; animation:dcGiro 2s linear infinite;">⏳</div>
+    <div style="margin-top:1.2rem; font-weight:700; font-size:1.25rem; color:#004d5c;">
+        Procesando tu conversación…
     </div>
     <div style="color:#6c757d; font-size:.875rem; margin-top:.5rem;">
-        El análisis con IA puede tardar un par de minutos.<br>
-        No cierres esta pestaña.
+        El Motor Semántico analiza comentario por comentario.<br>
+        Puede tardar varios minutos: <strong>no cierres esta pestaña</strong>.
     </div>
-    <div id="overlayPasoTexto" style="color:#004d5c; font-size:.9rem; margin-top:.75rem; font-weight:600;">Preparando…</div>
-    <div class="spinner-border mt-3" style="color:#004d5c;" role="status">
-        <span class="visually-hidden">Procesando…</span>
+    <div id="overlayPasoTexto" style="color:#004d5c; font-size:.95rem; margin-top:1rem; font-weight:600; min-height:1.4em;">
+        Preparando…
     </div>
+    <div id="overlayTiempo" style="color:#9ca3af; font-size:.8rem; margin-top:.4rem;">0:00 transcurridos</div>
 </div>
+<style>
+@keyframes dcGiro { to { transform: rotate(360deg); } }
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -610,39 +613,57 @@ function exportarJSON() {
     window.URL.revokeObjectURL(url);
 }
 
-// ✅ Overlay con pasos animados 
+// ✅ Overlay con reloj de arena, pasos animados y contador de tiempo
 (function () {
     var overlay = document.getElementById('overlayProcesando');
     if (!overlay) return;
-    
-    // Blindaje: asegurar que esté oculto al cargar
     overlay.style.setProperty('display', 'none', 'important');
-    
+
     var textoPaso = document.getElementById('overlayPasoTexto');
+    var tiempoEl  = document.getElementById('overlayTiempo');
     var pasos = [
-        '1/4 · Procesando el contexto…',
-        '2/4 · Descargando y guardando la página en origen…',
-        '3/4 · Extrayendo comentarios…',
-        '4/4 · Armando la conversación…'
+        '🧠 Preparando el análisis…',
+        '🔎 Interpretando ironía y sarcasmo comentario por comentario…',
+        '📊 Consolidando estadísticas…',
+        '✍️ Redactando el resumen ejecutivo…',
+        '⏳ Seguimos trabajando, gracias por tu paciencia…'
     ];
-    var idx = 0, timer = null;
-    
-    function pintar() {
+    var idx = 0, segundos = 0, timerPasos = null, timerSeg = null;
+
+    function pintarPaso() {
         if (textoPaso) textoPaso.textContent = pasos[Math.min(idx, pasos.length - 1)];
+        if (idx < pasos.length - 1) idx++;
     }
-    
-    // Capturar solo los submits de formularios de análisis
-    document.querySelectorAll('form.form-analisis').forEach(function (form) {
-        form.addEventListener('submit', function (ev) {
-            var btn = ev.submitter || form.querySelector('button[type="submit"]');
-            var accion = btn ? (btn.getAttribute('value') || '') : '';
-            if (['analizar', 'limpiar', 'subir_pagina', 'analizar_plata'].indexOf(accion) !== -1) {
-                if (timer) clearInterval(timer);
-                idx = 0; pintar();
-                timer = setInterval(function () { if (idx < pasos.length - 1) idx++; pintar(); }, 12000);
-                overlay.style.setProperty('display', 'flex', 'important');
-            }
-        });
+    function pintarTiempo() {
+        segundos++;
+        var m = Math.floor(segundos / 60), s = segundos % 10 === segundos ? '0' + segundos : segundos;
+        if (tiempoEl) tiempoEl.textContent = m + ':' + (segundos % 60 < 10 ? '0' : '') + (segundos % 60) + ' transcurridos';
+    }
+    function arrancar() {
+        idx = 0; segundos = 0;
+        pintarPaso(); pintarTiempo();
+        if (timerPasos) clearInterval(timerPasos);
+        if (timerSeg) clearInterval(timerSeg);
+        timerPasos = setInterval(pintarPaso, 15000);   // mensaje nuevo cada 15 s
+        timerSeg   = setInterval(pintarTiempo, 1000);  // reloj cada 1 s
+        overlay.style.setProperty('display', 'flex', 'important');
+    }
+
+    // Captura TODOS los submits de formularios de análisis (aunque el botón no tenga value)
+    document.addEventListener('submit', function (ev) {
+        var form = ev.target;
+        if (!form || !form.matches('form.form-analisis')) return;
+        var accion = '';
+        if (ev.submitter && ev.submitter.getAttribute('value')) {
+            accion = ev.submitter.getAttribute('value');
+        }
+        if (!accion) {
+            var hidden = form.querySelector('input[name="action"]');
+            if (hidden) accion = hidden.value;
+        }
+        if (['analizar', 'limpiar', 'subir_pagina', 'analizar_plata'].indexOf(accion) !== -1) {
+            arrancar();
+        }
     });
 })();
 </script>

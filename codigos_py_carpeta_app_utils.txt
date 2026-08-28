@@ -1,0 +1,205 @@
+================================================================================
+ARCHIVO: datetime_utils.py
+================================================================================
+
+# app/utils/datetime_utils.py
+from datetime import datetime, timezone
+
+def utc_now():
+    """
+    Devuelve la fecha/hora actual en UTC como datetime naive.
+    Reemplaza a datetime.utcnow() que está deprecado en Python 3.12+.
+    
+    Usamos .replace(tzinfo=None) para mantener compatibilidad con SQLAlchemy
+    y evitar problemas de comparación entre timezone-aware y naive datetimes.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+================================================================================
+ARCHIVO: decorators.py
+================================================================================
+
+# app/utils/decoratosrs.py
+from functools import wraps
+from flask import redirect, url_for, flash
+from flask_login import current_user
+
+def active_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_active_account:
+            flash("Cuenta inactiva", "error")
+            return redirect(url_for("auth.logout"))
+        return f(*args, **kwargs)
+    return wrapper
+
+def role_required(role_name):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if not current_user.is_authenticated:
+                flash("Iniciá sesión para acceder.", "error")
+                return redirect(url_for("auth.login"))
+
+            roles = [ur.role.nombre for ur in current_user.roles]
+            if role_name not in roles and not current_user.is_admin:
+                flash("No tenés permisos para acceder a esta sección.", "error")
+                return redirect(url_for("dashboard.dashboard"))
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+def feature_required(feature_name):
+    """Bloquea el acceso si el plan del usuario no incluye la feature dada.
+
+    Usa Plan.tiene_feature(feature_name) a traves de UserPlan, que ya existe
+    en app/services/plan_service.py. Ejemplo de uso:
+
+        @agentes_bp.route("/dashboard/agentes")
+        @login_required
+        @feature_required("agentes")
+        def panel_agentes():
+            ...
+    """
+    def decorator(f):
+        from functools import wraps
+
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            from app.services.plan_service import obtener_plan_usuario
+
+            user_plan = obtener_plan_usuario(current_user)
+            plan_obj = user_plan.obtener_plan_obj()
+
+            if not plan_obj or not plan_obj.tiene_feature(feature_name):
+                flash(
+                    "Esta funcion esta disponible a partir del plan Oro. "
+                    "Mejora tu plan para acceder.",
+                    "error",
+                )
+                return redirect(url_for("planes.mi_plan"))
+
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+================================================================================
+ARCHIVO: logs.py
+================================================================================
+
+# app/utils/logs.py
+"""
+Helper centralizado para registrar actividad en ActivityLog.
+
+Antes este mismo bloque (crear ActivityLog, add, commit) se repetía
+textualmente en casi cada vista de admin.py y auth.py. Centralizarlo acá
+evita divergencias (por ejemplo, olvidarse de guardar la IP en algún lado)
+y hace más simple agregar nuevos tipos de log en el futuro.
+"""
+
+from app import db
+from app.models import ActivityLog
+
+
+def registrar_log(user_id, accion, detalle, request):
+    """Crea y guarda un ActivityLog.
+
+    :param user_id: id del usuario relacionado con la acción (puede ser None
+                     para intentos fallidos de login con email inexistente).
+    :param accion: string corto que identifica el tipo de acción (ej: "login").
+    :param detalle: descripción legible de lo que pasó.
+    :param request: objeto request de Flask, para extraer la IP.
+    """
+    log = ActivityLog(
+        user_id=user_id,
+        accion=accion,
+        detalle=detalle,
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return log
+
+
+================================================================================
+ARCHIVO: verificacion.py
+================================================================================
+
+# app/utils/verificacion.py
+import secrets
+from flask import url_for
+from flask_mail import Message
+from app import mail, db
+from app.models import User, EmailVerificationToken, WhatsAppVerification
+
+
+def generar_token_email(user):
+    """Genera y guarda un token de verificación de email."""
+    # Invalidar tokens anteriores
+    EmailVerificationToken.query.filter_by(user_id=user.id, usado=False).update({'usado': True})
+    
+    token = secrets.token_urlsafe(32)
+    vt = EmailVerificationToken(user_id=user.id, token=token)
+    db.session.add(vt)
+    db.session.commit()
+    
+    return token
+
+
+def enviar_email_verificacion(user, token):
+    """Envía email con link de verificación."""
+    verification_url = url_for('verificacion.verificar_email', token=token, _external=True)
+    
+    msg = Message(
+        subject="Verificá tu email - DatosConsultora",
+        recipients=[user.email],
+        html=f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #004d5c;">¡Bienvenido/a a DatosConsultora!</h2>
+            <p>Hola {user.nombre},</p>
+            <p>Para activar tu cuenta, hacé click en el siguiente botón:</p>
+            <p style="text-align: center; margin: 30px 0;">
+                <a href="{verification_url}" 
+                   style="background-color: #004d5c; color: white; padding: 12px 30px; 
+                          text-decoration: none; border-radius: 8px; display: inline-block;">
+                   Verificar mi email
+                </a>
+            </p>
+        </div>
+        """
+    )
+    
+    try:
+        mail.send(msg)
+        return True, None  # ← CAMBIO: Devolvemos None como error
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"❌ ERROR REAL ENVIANDO EMAIL: {error_msg}")  # Esto aparecerá en los Logs de Render
+        return False, error_msg  # ← CAMBIO: Devolvemos el error real
+
+
+def generar_codigo_whatsapp(user):
+    """Genera y guarda un código de verificación de WhatsApp."""
+    # Invalidar códigos anteriores
+    WhatsAppVerification.query.filter_by(user_id=user.id, usado=False).update({'usado': True})
+    
+    codigo = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    wv = WhatsAppVerification(user_id=user.id, codigo=codigo)
+    db.session.add(wv)
+    db.session.commit()
+    
+    return codigo
+
+
+def obtener_link_whatsapp(user, codigo):
+    """Genera link de WhatsApp con mensaje prellenado."""
+    from app.models import ContactSettings
+    cs = ContactSettings.query.first()
+    numero_empresa = cs.whatsapp if cs else "5491100000000"
+    
+    mensaje = f"Hola! Mi código de verificación es: {codigo}"
+    mensaje_encoded = mensaje.replace(" ", "%20")
+    
+    return f"https://wa.me/{numero_empresa}?text={mensaje_encoded}"
+

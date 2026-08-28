@@ -395,3 +395,46 @@ class ExtraccionJob(db.Model):
     def set_checkpoint(self, datos: dict) -> None:
         import json
         self.checkpoint_json = json.dumps(datos, ensure_ascii=False)
+
+class MarcaMonitoreada(db.Model):
+    """Marca/candidato/producto que un usuario Plata+ sigue con el agente de marca."""
+    __tablename__ = "marca_monitoreada"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    nombre = db.Column(db.String(200), nullable=False)
+    platform = db.Column(db.String(20), nullable=False)  # facebook | instagram | x
+    url = db.Column(db.String(500), default="")
+    keywords_json = db.Column(db.Text, default="[]")
+    ultimo_export = db.Column(db.String(500))   # path del último HTML Plan B subido
+    ultimo_informe = db.Column(db.String(500))  # path del último .md generado
+    ultima_corrida = db.Column(db.DateTime, nullable=True)
+    activo = db.Column(db.Boolean, default=True)
+    creado = db.Column(db.DateTime, default=utc_now)
+    user = db.relationship("User", backref=db.backref("marcas_monitoreadas", lazy="dynamic"))
+
+    def keywords(self):
+        import json
+        try:
+            return json.loads(self.keywords_json or "[]")
+        except (TypeError, ValueError):
+            return []
+
+    def set_keywords(self, lista):
+        import json
+        self.keywords_json = json.dumps(lista, ensure_ascii=False)
+
+class MarcaSnapshot(db.Model):
+    """Foto periódica del sentimiento de una marca monitoreada.
+    Una fila por corrida del agente → alimenta el gráfico de línea de tiempo."""
+    __tablename__ = "marca_snapshot"
+    id = db.Column(db.Integer, primary_key=True)
+    marca_id = db.Column(db.Integer, db.ForeignKey("marca_monitoreada.id"), nullable=False)
+    fecha = db.Column(db.DateTime, default=utc_now)
+    total_comentarios = db.Column(db.Integer, default=0)
+    comentarios_nuevos = db.Column(db.Integer, default=0)
+    pct_positivo = db.Column(db.Float, default=0.0)
+    pct_neutro = db.Column(db.Float, default=0.0)
+    pct_negativo = db.Column(db.Float, default=0.0)
+    riesgos_json = db.Column(db.Text, default="[]")
+    metodo = db.Column(db.String(50), default="")
+    marca = db.relationship("MarcaMonitoreada", backref=db.backref("snapshots", lazy="dynamic"))

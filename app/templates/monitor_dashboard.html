@@ -1,0 +1,246 @@
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'monitor' %}
+{% block title %}Monitoreo de Marca - DatosConsultora{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="text-petroleo fw-bold mb-1">
+      <i class="bi bi-eye-fill me-2"></i>Monitoreo de Marca
+    </h1>
+    <p class="text-muted">Seguí qué se dice de tus marcas/candidatos sin entrar a cada sitio a mano.</p>
+  </div>
+  <a href="{{ url_for('monitor.nuevo_monitor') }}" class="btn btn-primary">
+    <i class="bi bi-plus-lg me-1"></i>Agregar marca
+  </a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'success' if category == 'success' else 'danger' if category == 'error' else 'warning' }} alert-dismissible fade show">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+{% if not marcas %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5">
+      <i class="bi bi-inbox fs-1 text-muted"></i>
+      <p class="text-muted mt-3">Todavía no cargaste ninguna marca para seguir.</p>
+      <a href="{{ url_for('monitor.nuevo_monitor') }}" class="btn btn-primary">Agregar la primera</a>
+    </div>
+  </div>
+{% else %}
+  {% for m in marcas %}
+    {% set st = estados.get(m.id) %}
+    {% set snaps = series.get(m.id) if series is defined else [] %}
+    
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        
+        <!-- Header de la marca -->
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="text-petroleo fw-bold mb-1">{{ m.nombre }}</h5>
+            <span class="badge bg-info text-dark">{{ m.platform }}</span>
+            {% if m.keywords() %}
+              <small class="text-muted ms-2">Keywords: {{ m.keywords() | join(', ') }}</small>
+            {% endif %}
+          </div>
+          <form method="POST" action="{{ url_for('monitor.eliminar_monitor', marca_id=m.id) }}"
+                onsubmit="return confirm('¿Dejar de monitorear {{ m.nombre }}?');">
+            <button class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </div>
+
+        <!-- Estado del último monitoreo -->
+        {% if st %}
+          <div class="border-top pt-2 mt-2 small">
+            <p class="mb-1">
+              <strong>Última corrida:</strong> {{ st.fecha | default('-') }} · 
+              {{ st.menciones | default(0) }} comentarios
+            </p>
+            
+            <p class="mb-1">
+              <strong>Sentimiento:</strong>
+              {% for k, v in (st.sentimiento | default({})).items() %}
+                {{ k }}: {{ v }}%{% if not loop.last %} · {% endif %}
+              {% endfor %}
+            </p>
+
+            {% set cob = st.cobertura | default({}) %}
+            {% if cob and cob.get('analizados', 0) < cob.get('total', 0) %}
+              <p class="mb-1 text-warning">
+                <strong>Cobertura:</strong> {{ cob.analizados }}/{{ cob.total }} comentarios analizados
+              </p>
+            {% endif %}
+
+            {% set riesgos = st.riesgos | default([]) %}
+            {% if riesgos %}
+              <p class="mb-1 text-danger">
+                <strong>Riesgos:</strong>
+                {% for r in riesgos %}
+                  {{ r.titulo if r.titulo is defined else r.get('titulo', '?') }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </p>
+            {% endif %}
+
+            {% if snaps %}
+              <div class="border-top pt-2 mt-2">
+                <h6 class="small fw-bold text-petroleo mb-1">
+                  <i class="bi bi-graph-up me-1"></i>Evolución del sentimiento
+                </h6>
+                <div style="position: relative; height: 160px;">
+                  <canvas id="chart{{ m.id }}"></canvas>
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        {% else %}
+          <p class="text-muted small mt-2 mb-0">
+            <i class="bi bi-hourglass-split me-1"></i>Todavía no se corrió el primer monitoreo.
+          </p>
+        {% endif %}
+
+        <!-- Formulario de generación de informe -->
+        <div class="border-top pt-2 mt-2">
+          <form method="POST" action="{{ url_for('monitor.generar_informe', marca_id=m.id) }}" class="d-flex gap-2">
+            <input type="text" name="contexto" class="form-control form-control-sm"
+              placeholder="Contexto + mochila: ej: precandidato 2027. Padre acusado de coimas (cámara oculta)."
+              value="{{ m.contexto or '' }}">
+            <button class="btn btn-sm btn-primary" type="submit">
+              <i class="bi bi-file-earmark-text me-1"></i>Generar informe
+            </button>
+          </form>
+          {% if m.ultimo_informe %}
+            <small class="text-muted d-block mt-1">
+              <i class="bi bi-check-circle-fill text-success me-1"></i>
+              Último informe: {{ m.ultimo_informe.split('/')[-1] }}
+              <a href="{{ url_for('monitor.ver_informe', marca_id=m.id) }}" class="ms-2">Ver</a>
+            </small>
+          {% endif %}
+        </div>
+
+        <!-- Formulario unificado: sube el HTML Y corre el monitoreo en el mismo paso -->
+        <form method="POST" enctype="multipart/form-data"
+              action="{{ url_for('monitor.correr_monitor', marca_id=m.id) }}"
+              class="row g-2 align-items-end mt-2 border-top pt-2">
+          <div class="col-md-5">
+            <label class="form-label small mb-1">Plan B: HTML guardado con Ctrl+S</label>
+            <input type="file" name="archivo_pagina" accept=".html,.htm" class="form-control form-control-sm">
+            {% if m.ultimo_export %}
+              <small class="text-success">
+                <i class="bi bi-check-circle-fill me-1"></i>
+                Ya tiene export guardado (si no subís uno nuevo, usa ese).
+              </small>
+            {% endif %}
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="con_ia" id="ia{{ m.id }}" checked>
+              <label class="form-check-label small" for="ia{{ m.id }}">
+                Analizar sentimientos (consume 1 análisis)
+              </label>
+            </div>
+          </div>
+          <div class="col-md-2">
+            <button class="btn btn-sm btn-success w-100">
+              <i class="bi bi-play-fill me-1"></i>Correr
+            </button>
+          </div>
+          {% if m.ultimo_informe %}
+            <div class="col-md-2 text-md-end">
+              <a class="btn btn-sm btn-outline-primary w-100" href="{{ url_for('monitor.ver_informe', marca_id=m.id) }}">
+                <i class="bi bi-file-earmark-text me-1"></i>Informe
+              </a>
+            </div>
+          {% endif %}
+        </form>
+
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+{% for m in marcas %}
+  {% set snaps = series.get(m.id) if series is defined else [] %}
+  {% if snaps %}
+    new Chart(document.getElementById('chart{{ m.id }}'), {
+      type: 'line',
+      data: {
+        labels: [
+          {% for s in snaps %}
+            '{{ s.fecha.strftime('%d/%m %H:%M') }}'{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        datasets: [
+          {
+            label: 'Positivos %',
+            data: [
+              {% for s in snaps %}
+                {{ s.pct_positivo }}{% if not loop.last %},{% endif %}
+              {% endfor %}
+            ],
+            borderColor: '#198754',
+            backgroundColor: 'rgba(25,135,84,.15)',
+            tension: .3,
+            fill: true
+          },
+          {
+            label: 'Negativos %',
+            data: [
+              {% for s in snaps %}
+                {{ s.pct_negativo }}{% if not loop.last %},{% endif %}
+              {% endfor %}
+            ],
+            borderColor: '#dc3545',
+            backgroundColor: 'rgba(220,53,69,.15)',
+            tension: .3,
+            fill: true
+          },
+          {
+            label: 'Neutros %',
+            data: [
+              {% for s in snaps %}
+                {{ s.pct_neutro }}{% if not loop.last %},{% endif %}
+              {% endfor %}
+            ],
+            borderColor: '#6c757d',
+            tension: .3,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            min: 0,
+            max: 100,
+            ticks: {
+              callback: v => v + '%'
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            position: 'bottom'
+          }
+        }
+      }
+    });
+  {% endif %}
+{% endfor %}
+</script>
+{% endblock %}

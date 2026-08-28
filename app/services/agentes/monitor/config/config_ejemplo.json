@@ -1,0 +1,31 @@
+{
+  "marca": "Café Aurora",
+  "headless": true,
+  "umbral_negativo": 0.25,
+  "carpeta_estados": "estados",
+  "carpeta_informes": "informes",
+  "carpeta_exports": "exports",
+  "targets": [
+    {
+      "nombre": "Café Aurora",
+      "platform": "facebook",
+      "url": "https://www.facebook.com/cafeaurora/posts/10159823",
+      "keywords": ["envío", "demora", "precio", "sucursal"],
+      "html_local": "exports/aurora_fb_2026-02-14.html"
+    },
+    {
+      "nombre": "Café Aurora",
+      "platform": "instagram",
+      "url": "https://www.instagram.com/p/DBx4kQyJt2c/",
+      "keywords": ["envío", "demora", "atención"],
+      "html_local": null
+    },
+    {
+      "nombre": "Café Aurora",
+      "platform": "x",
+      "url": "https://x.com/search?q=cafe%20aurora",
+      "keywords": ["café aurora", "aurora"],
+      "html_local": null
+    }
+  ]
+}

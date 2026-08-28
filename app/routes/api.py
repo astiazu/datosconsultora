@@ -22,7 +22,7 @@ Response:
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from app.services.analysis_service import AnalysisService
-
+from app.services.plan_service import puede_analizar, registrar_uso_analisis, obtener_plan_usuario
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -68,10 +68,17 @@ def analizar():
                 for c in comentarios
             ]
         }
+        # agragado nuevo - limites
+        puede, uso, limite = puede_analizar(current_user)
+        if not puede:
+            return jsonify({
+                "success": False,
+                "error": f"Límite de {limite} análisis mensuales alcanzado. Mejorá tu plan.",
+            }), 429
         
-        # 5. Obtener plan del usuario
-        user_plan = getattr(current_user, "plan", "free")
-        
+        # 5. Plan REAL del usuario (User no tiene .plan; vive en UserPlan)
+        user_plan = obtener_plan_usuario(current_user).obtener_plan_obj().nombre
+
         # 6. Ejecutar análisis
         service = AnalysisService()
         resultado = service.analizar(
@@ -80,9 +87,13 @@ def analizar():
             user_plan=user_plan,
             contexto=contexto,
         )
-        
-        # 7. Devolver respuesta
-        status_code = 200 if resultado.get("success") else 400
+
+        # 7. Descontar cuota SOLO si el análisis funcionó
+        if resultado.get("success"):
+            registrar_uso_analisis(current_user)
+            status_code = 200
+        else:
+            status_code = 400
         return jsonify(resultado), status_code
         
     except Exception as exc:

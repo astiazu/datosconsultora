@@ -1,0 +1,17 @@
+{
+  "marca": "Traslasierra Noticias",
+  "headless": true,
+  "umbral_negativo": 0.25,
+  "carpeta_estados": "instance/monitor/estados",
+  "carpeta_informes": "instance/monitor/informes",
+  "carpeta_exports": "instance/uploads/paginas_origen",
+  "targets": [
+    {
+      "nombre": "Traslasierra Noticias",
+      "platform": "facebook",
+      "url": "https://www.facebook.com/traslasierranoticias",
+      "keywords": ["precios", "turismo", "merlo", "san luis", "milei"],
+      "html_local": "instance/uploads/paginas_origen/pagina_20260825_XXXX.html"
+    }
+  ]
+}

@@ -154,7 +154,7 @@ class ConversationService:
             if primer_user.startswith(autor) or autor.startswith(primer_user):
                 caption = comentarios.pop(0)["texto"]
 
-        stats = self.scraper._extraer_stats(soup)
+        stats = self.scraper._extraer_stats(soup, red)
 
         source = {
             "instagram": SourceType.INSTAGRAM,

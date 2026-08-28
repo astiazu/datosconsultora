@@ -1,0 +1,991 @@
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\__init__.py
+================================================================================
+# app/services/agentes/monitor/__init__.py
+"""
+Agente de Monitoreo de Marca — paquete.
+
+Arquitectura espejada del módulo judicial (app/services/agentes):
+  · config/     → dataclasses puras (MonitorConfig, MonitorTarget, Platform)
+  · scrapers/   → un archivo por familia de red, contrato ScrapedData
+  · analyzers/  → comparación vs. estado_{slug}.json + detección de riesgos
+  · reporters/  → consola (qué cambió) + informe .md detallado
+  · run_monitor → CLI/worker para cron de Render (headless=True, fuera del request)
+
+Se exporta lo mínimo: orquestador + configuración.
+"""
+from .config.monitor_config import MonitorConfig, MonitorTarget, Platform
+from .monitor_agent import MonitorAgent, ResultadoTarget
+
+__all__ = [
+    "MonitorAgent",
+    "MonitorConfig",
+    "MonitorTarget",
+    "Platform",
+    "ResultadoTarget",
+]
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\monitor_agent.py
+================================================================================
+# app/services/agentes/monitor/monitor_agent.py
+"""
+MonitorAgent: orquestador del monitoreo de marca.
+
+Flujo por target:
+    scrape (URL → Plan B) → MIC (sentimiento) → comparar vs. estado_{slug}.json
+    → consola (qué cambió) → informe .md si hubo cambios → guardar estado
+
+Acá no se importa Playwright ni Flask: los servicios llegan inyectados.
+Es el mismo patrón que monitor_service.py del módulo judicial.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Callable, List, Optional
+
+from .analyzers.evolucion import (
+    ComparadorEvolucion,
+    ComentarioAnalizado,
+    ResultadoComparacion,
+    huella,
+)
+from .config.monitor_config import MonitorConfig, MonitorTarget, Platform
+from .scrapers.base import ComentarioCrudo, ScrapedData
+
+log = logging.getLogger("monitor.marca")
+
+
+@dataclass
+class ResultadoTarget:
+    """Foto final de un target: qué se extrajo, qué cambió, dónde quedó."""
+
+    target: MonitorTarget
+    scrape: ScrapedData
+    comparacion: ResultadoComparacion
+    informe: Optional[str] = None  # ruta del .md, solo si hubo cambios
+
+
+class MonitorAgent:
+    """Orquesta scrape → análisis → comparación → informe por target."""
+
+    def __init__(
+        self,
+        config: MonitorConfig,
+        scraper_factory: Callable[[Platform], object],
+        analysis_service: object = None,
+        token_monitor: object = None,
+    ) -> None:
+        """
+        scraper_factory: callable(platform) → objeto con .extraer(target)
+        analysis_service: puente al MIC (plan Bronce/Plata de la cuenta).
+                          None = modo seco (tests/CI, todo neutro).
+        token_monitor:    pacing extra entre lotes Groq (opcional).
+        """
+        self.config = config
+        self._scraper_factory = scraper_factory
+        self._analysis = analysis_service
+        self._tokens = token_monitor
+        self._comparador = ComparadorEvolucion(config.carpeta_estados)
+
+    # ------------------------------------------------------------- público
+    def correr(self) -> List[ResultadoTarget]:
+        """Run completo: todos los targets, en orden, sin cascada de errores."""
+        resultados: List[ResultadoTarget] = []
+        for target in self.config.targets:
+            try:
+                resultados.append(self._monitorear(target))
+            except Exception as e:  # un target roto no tumba el run entero
+                log.error("Target '%s' falló: %s", target.nombre, e)
+        return resultados
+
+    # ------------------------------------------------------------- interno
+    def _monitorear(self, target: MonitorTarget) -> ResultadoTarget:
+        log.info("▸ %s · %s", target.nombre, target.platform.value)
+
+        # 1) Extracción. El scraper decide solo si cae al Plan B.
+        scraper = self._scraper_factory(target.platform)
+        scrape = scraper.extraer(target)
+        log.info("✓ %d comentarios vía %s", len(scrape.comentarios), scrape.metodo)
+
+        # 2) Sentimiento con el MIC existente (Groq gpt-oss-20b).
+        analizados = self._analizar(scrape.comentarios)
+
+        # 3) Riesgos: ratio de negativos + clusters por keyword de la marca.
+        riesgos = self._detectar_riesgos(target, analizados)
+
+        # 4) Comparar contra estado_{slug}.json.
+        comparacion = self._comparador.comparar(target, analizados, riesgos)
+
+        # 5) Informe solo si algo cambió; si no, "sin novedades" y listo.
+        informe: Optional[str] = None
+        if comparacion.sin_novedades:
+            log.info("■ %s: sin novedades", target.nombre)
+        else:
+            from .reporters.informe import escribir_informe
+
+            informe = escribir_informe(self.config, target, comparacion, scrape)
+
+        # 6) Guardar la foto nueva (aun sin cambios, refresca la fecha).
+        self._comparador.guardar_estado(
+            target, analizados, comparacion.sentimiento_actual, riesgos
+        )
+        return ResultadoTarget(target, scrape, comparacion, informe)
+
+    def _analizar(self, comentarios: List[ComentarioCrudo]) -> List[ComentarioAnalizado]:
+        """Pasa los crudos por el MIC en tandas de 50 (patrón del resumen)."""
+        if self._analysis is None:
+            # Modo seco: sin Groq, todo neutro. Para tests y CI.
+            return [
+                ComentarioAnalizado(huella(c.autor, c.texto), c.autor, c.texto,
+                                    "neutro", c.likes)
+                for c in comentarios
+            ]
+        resultados: List[ComentarioAnalizado] = []
+        for i in range(0, len(comentarios), 50):
+            lote = comentarios[i : i + 50]
+            # El MIC ya absorbe el 429 (espera el reset y reintenta el lote);
+            # TokenMonitor es doble seguro para el tier free (~8000 TPM).
+            resultados.extend(self._analysis.analizar_lote(lote))
+            if self._tokens is not None:
+                self._tokens.pacing_lote()
+        return resultados
+
+    def _detectar_riesgos(
+        self, target: MonitorTarget, analizados: List[ComentarioAnalizado]
+    ) -> List[dict]:
+        if not analizados:
+            return []
+        negativos = [c for c in analizados if c.sentimiento == "negativo"]
+        riesgos: List[dict] = []
+
+        ratio = len(negativos) / len(analizados)
+        if ratio >= self.config.umbral_negativo:
+            riesgos.append(
+                {"titulo": "Ratio de negativos alto", "severidad": "alta",
+                 "detalle": f"{ratio:.0%} de los comentarios"}
+            )
+
+        # Cluster por keyword: 3+ negativos con la misma queja = riesgo,
+        # aunque el ratio global esté bien. Es la señal temprana que le
+        # sirve al consultor.
+        for kw in target.keywords:
+            menciones = [c for c in negativos if kw.lower() in c.texto.lower()]
+            if len(menciones) >= 3:
+                riesgos.append(
+                    {"titulo": f"Queja recurrente: {kw}", "severidad": "media",
+                     "detalle": f"{len(menciones)} comentarios"}
+                )
+        return riesgos
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\run_monitor.py
+================================================================================
+# app/services/agentes/monitor/run_monitor.py
+#!/usr/bin/env python3
+"""
+CLI del Agente de Monitoreo de Marca.
+
+Uso:
+    python -m app.services.agentes.monitor.run_monitor \
+        --config app/services/agentes/monitor/config/config_ejemplo.json \
+        --marca "Café Aurora"
+
+Pensado para el cron de Render (patrón worker, igual que el judicial):
+Playwright JAMÁS corre dentro del ciclo request/response de Flask.
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+
+from .config.monitor_config import MonitorConfig, Platform
+from .monitor_agent import MonitorAgent
+from .reporters.consola import imprimir_cambios, imprimir_sin_novedades
+from .scrapers.meta_scraper import MetaScraper
+
+
+def _factory(platform: Platform) -> object:
+    """Un scraper por familia de red. Sumar X/TikTok = sumar una rama."""
+    if platform in (Platform.FACEBOOK, Platform.INSTAGRAM):
+        service = None
+        try:
+            # Import diferido: Playwright se toca solo en el worker.
+            from app.services.scraper_service import ScraperService
+
+            service = ScraperService(headless=True)
+        except ImportError:
+            pass  # fuera del repo (tests sueltos) → solo Plan B
+        return MetaScraper(service)
+    raise NotImplementedError(f"Todavía no hay scraper para {platform.value}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Monitor de marca (worker)")
+    parser.add_argument("--config", required=True, help="Path al JSON de configuración")
+    parser.add_argument("--marca", help="Sobreescribe la marca de la config")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    config = MonitorConfig.desde_json(args.config)
+    if args.marca:
+        config.marca = args.marca
+
+    # analysis_service=None → modo seco. En producción se le pasa el
+    # AnalysisService del proyecto (MIC → Groq gpt-oss-20b según plan).
+    agente = MonitorAgent(config, scraper_factory=_factory)
+
+    for res in agente.correr():
+        if res.comparacion.sin_novedades:
+            imprimir_sin_novedades(res.target.nombre)
+        else:
+            imprimir_cambios(res.comparacion)
+            if res.informe:
+                print(f"  ✓ Informe: {res.informe}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\analyzers\evolucion.py
+================================================================================
+# app/services/agentes/monitor/analyzers/evolucion.py
+"""
+Comparación contra el estado anterior + detección de evolución.
+
+Decisión documentada: el estado vive en estado_{slug}.json (un archivo
+por target). Cuando el monitor sea multiusuario migra a una tabla tipo
+ExpedienteMonitoreo del módulo judicial; el contrato del comparador no
+cambia, solo cambia el backend de guardar/cargar.
+
+El comparador es puro: entra estado viejo + comentarios nuevos, sale
+un ResultadoComparacion. Cero I/O salvo el JSON de estado → testeable.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+def huella(autor: str, texto: str) -> str:
+    """ID estable de comentario: tolera espacios y reordenamientos del DOM.
+
+    ' Ana ' + '  el café  está bueno ' == 'ana' + 'el café está bueno'
+    """
+    crudo = f"{autor.strip().lower()}::{' '.join(texto.split()).lower()}"
+    return hashlib.sha1(crudo.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass
+class ComentarioAnalizado:
+    """Comentario con sentimiento asignado por el MIC."""
+
+    huella: str
+    autor: str
+    texto: str
+    sentimiento: str  # positivo | neutro | negativo
+    likes: int = 0
+
+
+@dataclass
+class ResultadoComparacion:
+    """Todo lo que cambió (o no) respecto del estado anterior."""
+
+    marca: str
+    sin_novedades: bool
+    nuevos: List[ComentarioAnalizado] = field(default_factory=list)
+    eliminados: int = 0
+    sentimiento_actual: Dict[str, float] = field(default_factory=dict)
+    sentimiento_anterior: Dict[str, float] = field(default_factory=dict)
+    riesgos: List[dict] = field(default_factory=list)
+    estado_anterior_fecha: Optional[str] = None
+
+    @property
+    def delta_positivo(self) -> float:
+        return self.sentimiento_actual.get(
+            "positivo", 0.0
+        ) - self.sentimiento_anterior.get("positivo", 0.0)
+
+
+class ComparadorEvolucion:
+    """Carga/guarda estado_{slug}.json y lo compara contra lo nuevo."""
+
+    def __init__(self, carpeta_estados: str = "estados") -> None:
+        self.carpeta = Path(carpeta_estados)
+        self.carpeta.mkdir(parents=True, exist_ok=True)
+
+    def cargar_estado(self, target) -> Optional[dict]:
+        """Estado guardado anterior; None si es la primera corrida."""
+        ruta = self.carpeta / target.archivo_estado
+        if not ruta.exists():
+            return None
+        return json.loads(ruta.read_text(encoding="utf-8"))
+
+    def comparar(
+        self,
+        target,
+        comentarios: List[ComentarioAnalizado],
+        riesgos: List[dict],
+    ) -> ResultadoComparacion:
+        """Núcleo del agente: qué es nuevo, qué desapareció, qué se movió."""
+        anterior = self.cargar_estado(target)
+
+        if anterior is None:
+            # Primera corrida: todo es "nuevo", pero no es una alarma.
+            return ResultadoComparacion(
+                marca=target.nombre,
+                sin_novedades=False,
+                nuevos=comentarios,
+                sentimiento_actual=self._distribucion(comentarios),
+                riesgos=riesgos,
+            )
+
+        conocidas = {c["huella"] for c in anterior.get("comentarios", [])}
+        nuevos = [c for c in comentarios if c.huella not in conocidas]
+        eliminados = len(conocidas - {c.huella for c in comentarios})
+
+        dist_actual = self._distribucion(comentarios)
+        dist_anterior = anterior.get("sentimiento", {})
+        riesgos_previos = {r["titulo"] for r in anterior.get("riesgos", [])}
+
+        # "Sin novedades" = nada nuevo, nada perdido, sentimiento estable
+        # (±1 pt de ruido) y ningún riesgo que no estuviera ya anotado.
+        sin_novedades = (
+            not nuevos
+            and eliminados == 0
+            and not any(r["titulo"] not in riesgos_previos for r in riesgos)
+            and abs(dist_actual.get("positivo", 0.0)
+                    - dist_anterior.get("positivo", 0.0)) < 1.0
+        )
+
+        return ResultadoComparacion(
+            marca=target.nombre,
+            sin_novedades=sin_novedades,
+            nuevos=nuevos,
+            eliminados=eliminados,
+            sentimiento_actual=dist_actual,
+            sentimiento_anterior=dist_anterior,
+            riesgos=riesgos,
+            estado_anterior_fecha=anterior.get("fecha"),
+        )
+
+    def guardar_estado(self, target, comentarios, sentimiento, riesgos) -> Path:
+        """Pisa estado_{slug}.json con la foto nueva (el 'guardado' del patrón)."""
+        payload = {
+            "marca": target.nombre,
+            "platform": target.platform.value,
+            "fecha": datetime.now().isoformat(timespec="seconds"),
+            "menciones": len(comentarios),
+            "sentimiento": sentimiento,
+            "comentarios": [
+                {"huella": c.huella, "autor": c.autor, "texto": c.texto,
+                 "sentimiento": c.sentimiento, "likes": c.likes}
+                for c in comentarios
+            ],
+            "riesgos": riesgos,
+        }
+        ruta = self.carpeta / target.archivo_estado
+        ruta.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return ruta
+
+    @staticmethod
+    def _distribucion(comentarios: List[ComentarioAnalizado]) -> Dict[str, float]:
+        """Porcentajes positivo/neutro/negativo, redondeados a 1 decimal."""
+        cuentas = {"positivo": 0, "neutro": 0, "negativo": 0}
+        for c in comentarios:
+            cuentas[c.sentimiento] = cuentas.get(c.sentimiento, 0) + 1
+        total = len(comentarios) or 1
+        return {k: round(v / total * 100, 1) for k, v in cuentas.items()}
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\config\config_ejemplo.json
+================================================================================
+{
+  "marca": "Café Aurora",
+  "headless": true,
+  "umbral_negativo": 0.25,
+  "carpeta_estados": "estados",
+  "carpeta_informes": "informes",
+  "carpeta_exports": "exports",
+  "targets": [
+    {
+      "nombre": "Café Aurora",
+      "platform": "facebook",
+      "url": "https://www.facebook.com/cafeaurora/posts/10159823",
+      "keywords": ["envío", "demora", "precio", "sucursal"],
+      "html_local": "exports/aurora_fb_2026-02-14.html"
+    },
+    {
+      "nombre": "Café Aurora",
+      "platform": "instagram",
+      "url": "https://www.instagram.com/p/DBx4kQyJt2c/",
+      "keywords": ["envío", "demora", "atención"],
+      "html_local": null
+    },
+    {
+      "nombre": "Café Aurora",
+      "platform": "x",
+      "url": "https://x.com/search?q=cafe%20aurora",
+      "keywords": ["café aurora", "aurora"],
+      "html_local": null
+    }
+  ]
+}
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\config\monitor_config.py
+================================================================================
+# app/services/agentes/monitor/config/monitor_config.py
+"""
+Configuración del Agente de Monitoreo de Marca.
+
+Acá viven los dataclasses puros: sin Flask, sin Playwright, sin red.
+Eso deja todo el módulo testeable en cualquier máquina y con el mismo
+contrato listo para reutilizar cuando el monitor se adapte al PJN.
+"""
+from __future__ import annotations
+
+import json
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import List, Optional
+
+
+class Platform(str, Enum):
+    """Redes soportadas. Sumar una red = agregar un valor + un scraper."""
+
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+    X = "x"
+
+
+def slugify(texto: str) -> str:
+    """'Café Aurora' -> 'cafe_aurora'. Nombres de archivo sin dolores."""
+    limpio = unicodedata.normalize("NFKD", texto)
+    limpio = "".join(c for c in limpio if not unicodedata.combining(c))
+    limpio = re.sub(r"[^a-zA-Z0-9]+", "_", limpio).strip("_")
+    return limpio.lower() or "target"
+
+
+@dataclass
+class MonitorTarget:
+    """Una marca / candidato / producto observado en UNA red."""
+
+    nombre: str
+    platform: Platform
+    url: str
+    keywords: List[str] = field(default_factory=list)
+    # Plan B: export "Página web, solo HTML" desde sesión logueada (Ctrl+S).
+    # Es el camino confiable para Meta hoy (ago/2026): cero bloqueos.
+    html_local: Optional[str] = None
+
+    @property
+    def slug(self) -> str:
+        return slugify(self.nombre)
+
+    @property
+    def archivo_estado(self) -> str:
+        """estado_cafe_aurora.json — como pide la especificación."""
+        return f"estado_{self.slug}.json"
+
+
+@dataclass
+class MonitorConfig:
+    """Configuración general del run + lista de targets."""
+
+    marca: str
+    targets: List[MonitorTarget] = field(default_factory=list)
+    # Proporción de negativos que dispara un riesgo "ratio alto".
+    umbral_negativo: float = 0.25
+    carpeta_estados: str = "estados"
+    carpeta_informes: str = "informes"
+    carpeta_exports: str = "exports"
+    # Siempre headless en el worker; jamás dentro del request de Flask.
+    headless: bool = True
+
+    @classmethod
+    def desde_json(cls, ruta: str | Path) -> "MonitorConfig":
+        """Levanta un config_ejemplo.json y lo hidrata a dataclasses."""
+        crudo = json.loads(Path(ruta).read_text(encoding="utf-8"))
+        targets = [
+            MonitorTarget(
+                nombre=t["nombre"],
+                platform=Platform(t["platform"]),
+                url=t["url"],
+                keywords=t.get("keywords", []),
+                html_local=t.get("html_local"),
+            )
+            for t in crudo.get("targets", [])
+        ]
+        return cls(
+            marca=crudo["marca"],
+            targets=targets,
+            umbral_negativo=crudo.get("umbral_negativo", 0.25),
+            carpeta_estados=crudo.get("carpeta_estados", "estados"),
+            carpeta_informes=crudo.get("carpeta_informes", "informes"),
+            carpeta_exports=crudo.get("carpeta_exports", "exports"),
+            headless=crudo.get("headless", True),
+        )
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\reporters\consola.py
+================================================================================
+# app/services/agentes/monitor/reporters/consola.py
+"""
+Reporter de consola: muestra QUÉ CAMBIÓ, como pide la especificación.
+
+ANSI puro, cero dependencias. En Render/cron esto va al log del worker;
+en local se ve coloreado, igual que la salida del worker judicial.
+"""
+from ..analyzers.evolucion import ResultadoComparacion
+
+_V = "\033[92m"  # verde → ok / comentarios nuevos
+_A = "\033[93m"  # ámbar → atención / variaciones de sentimiento
+_R = "\033[91m"  # rojo  → riesgos
+_C = "\033[96m"  # cian  → datos sueltos
+_X = "\033[0m"
+
+
+def imprimir_cambios(r: ResultadoComparacion) -> None:
+    """Lista de cambios con el nivel de detalle justo para la consola."""
+    print(f"{_R}◆ CAMBIOS DETECTADOS{_X} · {r.marca}")
+
+    if r.nuevos:
+        por_sent = {
+            s: sum(1 for c in r.nuevos if c.sentimiento == s)
+            for s in ("positivo", "neutro", "negativo")
+        }
+        print(
+            f"  {_V}+ {len(r.nuevos)} comentarios nuevos{_X} "
+            f"({por_sent['positivo']} pos · {por_sent['neutro']} neu · "
+            f"{por_sent['negativo']} neg)"
+        )
+        for c in r.nuevos[:5]:
+            print(f"    {_C}·{_X} {c.autor}: “{c.texto[:90]}” [{c.sentimiento}]")
+        if len(r.nuevos) > 5:
+            print(f"    … y {len(r.nuevos) - 5} más (detalle en el informe)")
+
+    if r.eliminados:
+        print(f"  {_A}− {r.eliminados} comentarios dejaron de aparecer{_X}")
+
+    delta = r.delta_positivo
+    if abs(delta) >= 1.0:
+        flecha = "▼" if delta < 0 else "▲"
+        print(
+            f"  {_A}~ sentimiento positivo: "
+            f"{r.sentimiento_anterior.get('positivo', 0):.0f}% → "
+            f"{r.sentimiento_actual.get('positivo', 0):.0f}% "
+            f"({flecha} {abs(delta):.0f} pts){_X}"
+        )
+
+    for riesgo in r.riesgos:
+        print(f"  {_R}▲ RIESGO: {riesgo['titulo']} · {riesgo['detalle']}{_X}")
+
+
+def imprimir_sin_novedades(nombre: str) -> None:
+    """El caso feliz: no pasó nada, y está bien decirlo cortito."""
+    print(f"{_V}■ {nombre}: SIN NOVEDADES{_X} (0 cambios vs. estado anterior)")
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\reporters\informe.py
+================================================================================
+# app/services/agentes/monitor/reporters/informe.py
+"""
+Informe detallado en Markdown: informes/informe_{slug}_{fecha}.md
+
+Pensado para que lo lea un consultor apurado: resumen ejecutivo arriba,
+evidencia abajo. Se regenera en cada corrida con cambios.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+
+from ..analyzers.evolucion import ResultadoComparacion
+from ..config.monitor_config import MonitorConfig, MonitorTarget
+from ..scrapers.base import ScrapedData
+
+
+def escribir_informe(
+    config: MonitorConfig,
+    target: MonitorTarget,
+    r: ResultadoComparacion,
+    scrape: ScrapedData,
+) -> str:
+    """Arma el .md y lo deja en carpeta_informes. Devuelve la ruta."""
+    fecha = datetime.now().strftime("%Y-%m-%d")
+    carpeta = Path(config.carpeta_informes)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    ruta = carpeta / f"informe_{target.slug}_{fecha}.md"
+
+    l: list[str] = [
+        f"# Informe de evolución — {target.nombre}",
+        "",
+        f"**Marca:** {config.marca} · **Red:** {target.platform.value} · **Fecha:** {fecha}",
+        f"**Método de extracción:** {scrape.metodo} · **Comentarios:** {len(scrape.comentarios)}",
+        f"**Estado anterior:** {r.estado_anterior_fecha or 'primera corrida'}",
+        "",
+        "## Resumen ejecutivo",
+        "",
+        f"- Comentarios nuevos: **{len(r.nuevos)}**"
+        + (f" · eliminados: {r.eliminados}" if r.eliminados else ""),
+        f"- Sentimiento positivo: {r.sentimiento_anterior.get('positivo', 0):.1f}% → "
+        f"**{r.sentimiento_actual.get('positivo', 0):.1f}%** "
+        f"(Δ {r.delta_positivo:+.1f} pts)",
+    ]
+
+    for riesgo in r.riesgos:
+        l.append(f"- **▲ Riesgo:** {riesgo['titulo']} · {riesgo['severidad']} · {riesgo['detalle']}")
+
+    l += ["", "| Autor | Comentario | Sentimiento | Likes |", "|---|---|---|---|"]
+    for c in r.nuevos:
+        texto = c.texto.replace("|", "/")[:110]
+        l.append(f"| {c.autor} | {texto} | {c.sentimiento} | {c.likes} |")
+
+    l += [
+        "",
+        "---",
+        "Generado por MonitorAgent · MIC (Groq gpt-oss-20b) · DatosConsultora",
+    ]
+    ruta.write_text("\n".join(l), encoding="utf-8")
+    return str(ruta)
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\scrapers\base.py
+================================================================================
+# app/services/agentes/monitor/scrapers/base.py
+"""
+Contrato base de los scrapers del monitor.
+
+Cada familia de red implementa extraer(target) → ScrapedData y el
+agente no se entera de selectores ni de bloqueos: solo consume este
+contrato. Es el mismo patrón que proveedores/<jurisdiccion>.py del
+módulo judicial (preparar_pagina / extraer).
+"""
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+
+@dataclass
+class ComentarioCrudo:
+    """Un comentario tal cual salió del HTML, ya limpiado de ruido de UI."""
+
+    autor: str
+    texto: str
+    likes: int = 0
+    fecha: Optional[str] = None  # lo que la red muestre: "2 h", "1 d"…
+
+
+@dataclass
+class ScrapedData:
+    """Resultado de una extracción. El campo 'metodo' documenta cómo se obtuvo."""
+
+    comentarios: List[ComentarioCrudo] = field(default_factory=list)
+    metricas: dict = field(default_factory=dict)  # likes/shares del post, si vinieron
+    metodo: str = "url"  # "url" | "plan_b_html"
+    advertencias: List[str] = field(default_factory=list)
+
+
+class BloqueoDetectado(Exception):
+    """La red cortó la extracción: login wall, límites, DOM virtualizado."""
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\scrapers\meta_scraper.py
+================================================================================
+# app/services/agentes/monitor/scrapers/meta_scraper.py
+"""
+Scraper de la familia Meta (Facebook e Instagram).
+
+Estrategia en dos patas, siempre en este orden:
+  1. Intento por URL reutilizando ScraperService (Playwright headless).
+  2. Plan B: el humano exporta el hilo logueado (Ctrl+S → "Página web,
+     solo HTML") y parseamos ese archivo con BeautifulSoup + lxml.
+     Recupera el 100% de lo visible y no lo bloquea nadie. Hoy por hoy
+     es el camino confiable para Meta (lección aprendida, ago/2026).
+
+Selectores: SIEMPRE data-testid / aria-label / dir="auto" antes que
+clases CSS dinámicas, que Meta rota todas las semanas.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from bs4 import BeautifulSoup
+
+from ..config.monitor_config import MonitorTarget
+from .base import BloqueoDetectado, ComentarioCrudo, ScrapedData
+
+# Frases de ruido de UI que NO son contenido (filtros por red, lección 4).
+_RUIDO = [
+    re.compile(r"^Puede ser una imagen de", re.I),   # accesibilidad de IG/FB
+    re.compile(r"^Les gusta a \w+", re.I),           # "Les gusta a X y 113 más"
+    re.compile(r"^\d+\s*(me gusta|comentario|compartido|respuesta)", re.I),
+    re.compile(r"^(Me gusta|Responder|Compartir|Ver más|Editar)$", re.I),
+    re.compile(r"^(Todos los comentarios|Más relevantes|Filtros)$", re.I),
+    re.compile(r"^\d+\s*(min|h|d|sem)\b\.?$", re.I),  # timestamps sueltos
+]
+
+# Señales de que Meta nos mandó al login wall (lección 1).
+_SENALES_BLOQUEO = (
+    "se limitaron los comentarios",
+    "inicia sesión",
+    "log in or sign up",
+)
+
+
+class MetaScraper:
+    """Extrae comentarios de un post/hilo de Facebook o Instagram."""
+
+    def __init__(self, scraper_service: object = None) -> None:
+        # Inyección del ScraperService existente del proyecto. Si no
+        # llega (o falla), queda habilitado solo el Plan B.
+        self._scraper = scraper_service
+
+    def extraer(self, target: MonitorTarget) -> ScrapedData:
+        """URL primero; ante el primer bloqueo, Plan B sin discutir."""
+        if self._scraper is not None:
+            try:
+                return self._extraer_por_url(target)
+            except BloqueoDetectado:
+                pass  # caemos al Plan B, que es el que no falla
+        if target.html_local:
+            return self._extraer_de_html_local(target)
+        raise BloqueoDetectado(
+            f"{target.platform.value}: sin scraper vivo ni export Plan B "
+            f"para '{target.nombre}'. Guardá el hilo desde tu sesión "
+            f"(Ctrl+S → solo HTML) y cargalo en html_local."
+        )
+
+    # ----------------------------------------------------------------- URL
+    def _extraer_por_url(self, target: MonitorTarget) -> ScrapedData:
+        # ScraperService corre Playwright headless fuera del request.
+        html = self._scraper.obtener_html(target.url, headless=True)
+        bajo = html.lower()
+        if any(senal in bajo for senal in _SENALES_BLOQUEO):
+            raise BloqueoDetectado(f"Login wall / límite de comentarios en {target.url}")
+        return self._parsear(html, metodo="url", platform=target.platform.value)
+
+    # -------------------------------------------------------------- Plan B
+    def _extraer_de_html_local(self, target: MonitorTarget) -> ScrapedData:
+        ruta = Path(target.html_local)
+        if not ruta.exists():
+            raise BloqueoDetectado(f"No existe el export Plan B: {ruta}")
+        html = ruta.read_text(encoding="utf-8", errors="ignore")
+        datos = self._parsear(html, metodo="plan_b_html", platform=target.platform.value)
+        datos.advertencias.append("Extracción vía export local (Plan B)")
+        return datos
+
+    # --------------------------------------------------------------- parse
+    def _parsear(self, html: str, metodo: str, platform: str) -> ScrapedData:
+        """Parseo robusto: data-testid → aria-label → dir='auto'."""
+        soup = BeautifulSoup(html, "lxml")
+        comentarios = []
+        vistos = set()
+
+        nodos = soup.select('[data-testid="comment"]')
+        if not nodos:
+            # Fallback: los textos de comentario viven en dir="auto".
+            nodos = [
+                n for n in soup.select('[dir="auto"]') if n.get_text(strip=True)
+            ]
+
+        for nodo in nodos:
+            texto = nodo.get_text(" ", strip=True)
+            if not texto or self._es_ruido(texto):
+                continue
+            autor = self._autor_cercano(nodo)
+            clave = (autor, texto[:120])
+            if clave in vistos:  # nombres duplicados como comentario, etc.
+                continue
+            vistos.add(clave)
+            comentarios.append(
+                ComentarioCrudo(autor=autor, texto=texto,
+                                likes=self._likes_cercanos(nodo))
+            )
+
+        return ScrapedData(
+            comentarios=comentarios,
+            metodo=metodo,
+            metricas=self._metricas_post(soup, platform),
+        )
+
+    # ------------------------------------------------------------- helpers
+    @staticmethod
+    def _es_ruido(texto: str) -> bool:
+        return any(patron.match(texto) for patron in _RUIDO)
+
+    @staticmethod
+    def _autor_cercano(nodo) -> str:
+        """El autor suele ser el aria-label del enlace anterior al texto."""
+        enlace = nodo.find_previous("a", attrs={"aria-label": True})
+        if enlace:
+            return enlace["aria-label"].strip()
+        fuerte = nodo.find_previous(["strong", "span"], attrs={"role": "link"})
+        return fuerte.get_text(strip=True) if fuerte else "autor-desconocido"
+
+    @staticmethod
+    def _likes_cercanos(nodo) -> int:
+        """Los likes del comentario vienen en un span aria-label numérico."""
+        span = nodo.find_next("span", attrs={"aria-label": re.compile(r"\d")})
+        if span:
+            numeros = re.findall(r"\d+", span.get("aria-label", ""))
+            if numeros:
+                return int(numeros[0])
+        return 0
+
+    @staticmethod
+    def _metricas_post(soup, platform: str) -> dict:
+        """Métricas del post SOLO para Facebook: en FB aparecen como números
+        sueltos antes de 'Todos los comentarios'. La heurística de la clase
+        x6s0dn4 es de Instagram y acá NO se usa (lección 5)."""
+        if "facebook" not in platform:
+            return {}
+        marcador = soup.find(string=re.compile(r"Todos los comentarios"))
+        if not marcador:
+            return {}
+        numeros = re.findall(r"^\s*(\d+)\s*$", str(marcador.find_previous("div")))
+        return {"interacciones_crudas": [int(n) for n in numeros[:3]]}
+
+
+================================================================================
+ARCHIVO: app\services\agentes\monitor\tests\test_evolucion.py
+================================================================================
+# app/services/agentes/monitor/tests/test_evolucion.py
+"""
+Tests del comparador: la parte que no puede fallar en producción.
+
+Corren sin Playwright, sin Groq y sin red: solo dataclasses y JSON.
+"""
+from pathlib import Path
+
+from app.services.agentes.monitor.analyzers.evolucion import (
+    ComparadorEvolucion,
+    ComentarioAnalizado,
+    huella,
+)
+from app.services.agentes.monitor.config.monitor_config import (
+    MonitorTarget,
+    Platform,
+)
+
+
+def _target() -> MonitorTarget:
+    return MonitorTarget(
+        nombre="Café Aurora",
+        platform=Platform.FACEBOOK,
+        url="https://facebook.com/cafeaurora",
+    )
+
+
+def test_huella_estable_ante_ruido():
+    """Mismo comentario con distinto ruido de DOM → misma huella."""
+    assert huella(" Ana ", "  el café  está  bueno ") == huella(
+        "ana", "el café está bueno"
+    )
+
+
+def test_primera_corrida_marca_todo_nuevo(tmp_path):
+    comp = ComparadorEvolucion(carpeta_estados=tmp_path)
+    comentarios = [
+        ComentarioAnalizado(huella("ana", "buenísimo"), "ana", "buenísimo", "positivo")
+    ]
+    r = comp.comparar(_target(), comentarios, riesgos=[])
+    assert not r.sin_novedades
+    assert len(r.nuevos) == 1
+    assert r.estado_anterior_fecha is None
+
+
+def test_sin_novedades_cuando_no_cambia_nada(tmp_path):
+    comp = ComparadorEvolucion(carpeta_estados=tmp_path)
+    comentarios = [
+        ComentarioAnalizado(huella("ana", "buenísimo"), "ana", "buenísimo", "positivo")
+    ]
+    dist = {"positivo": 100.0, "neutro": 0.0, "negativo": 0.0}
+    comp.comparar(_target(), comentarios, riesgos=[])
+    comp.guardar_estado(_target(), comentarios, dist, [])
+
+    r2 = comp.comparar(_target(), comentarios, riesgos=[])
+    assert r2.sin_novedades
+    assert (Path(tmp_path) / "estado_cafe_aurora.json").exists()
+
+
+def test_riesgo_nuevo_rompe_el_sin_novedades(tmp_path):
+    comp = ComparadorEvolucion(carpeta_estados=tmp_path)
+    comentarios = [
+        ComentarioAnalizado(huella("ana", "buenísimo"), "ana", "buenísimo", "positivo")
+    ]
+    dist = {"positivo": 100.0, "neutro": 0.0, "negativo": 0.0}
+    comp.guardar_estado(_target(), comentarios, dist, [])
+
+    riesgo = {"titulo": "Queja recurrente: envío", "severidad": "media",
+              "detalle": "3 comentarios"}
+    r = comp.comparar(_target(), comentarios, riesgos=[riesgo])
+    assert not r.sin_novedades
+
+
+================================================================================
+ARCHIVO: requirements.txt
+================================================================================
+# app/requirements.txt
+
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-Mail==0.10.0
+Flask-WTF==1.2.2
+Werkzeug==3.0.1
+python-dotenv==1.0.0
+
+groq>=0.13.0
+gunicorn==21.2.0
+
+psycopg[binary]>=3.1.0
+mercadopago==2.2.3
+
+openai>=1.0.0
+openai-whisper
+pydub
+
+playwright
+beautifulsoup4==4.12.2
+
+pytest>=8.2.0
+pytest-cov>=6.0.0
+
+# compatibilidad Python 3.12
+greenlet>=3.0.3
+
+authlib>=1.3.0
+
+lxml>=5.1
+

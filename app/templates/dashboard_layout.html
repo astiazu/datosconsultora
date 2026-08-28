@@ -106,12 +106,16 @@
                 </a>
                 <a class="nav-link {% if active_section == 'analisis' %}active{% endif %}"
                     href="{{ url_for('servicios.analisis_sentimientos') }}">
-                    <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Sentimientos
+                    <i class="bi bi-chat-heart-fill me-2"></i>Análisis de Comentarios/Sentimiento
                 </a>
                 <a class="nav-link {% if active_section == 'agentes' %}active{% endif %}"
                 href="{{ url_for('agentes.panel_agentes') }}">
                     <i class="bi bi-robot me-2"></i> Agentes Judiciales
                 </a>
+                <a class="nav-link {% if active_section == 'monitor' %}active{% endif %}"
+                href="{{ url_for('monitor.panel_monitor') }}">
+                <i class="bi bi-eye-fill me-2"></i> Monitoreo de Marca
+                </a>                
                 <a class="nav-link {% if active_section == 'actividad' %}active{% endif %}" href="#">
                     <i class="bi bi-activity me-2"></i> Actividad
                 </a>

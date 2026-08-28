@@ -209,6 +209,9 @@ def analisis_sentimientos():
         # =========================================================================
         # LÓGICA 1B: PLAN B — subir página guardada (Ctrl+S)
         # =========================================================================
+        # =========================================================================
+        # LÓGICA 1B: PLAN B — subir página guardada (Ctrl+S)
+        # =========================================================================
         elif action == "subir_pagina":
             try:
                 puede_usar, uso_actual, limite = puede_analizar(current_user)
@@ -232,25 +235,35 @@ def analisis_sentimientos():
                     from app.services.conversation_service import ConversationService
                     service = ConversationService()
                     respuesta = service.from_saved_page(html_content, url_input, contexto)
-                    if respuesta["success"]:
+
+                    # ✅ ÉXITO: conversación viva → preview
+                    if respuesta.get("success") and respuesta.get("conversation") is not None:
                         conversation_plata = respuesta["conversation"]
                         red_social = respuesta.get("red_social", "facebook")
-                        participants_plata = {p.participant_id: p.display_name for p in conversation_plata.participants}
+                        participants_plata = {
+                            p.participant_id: p.display_name
+                            for p in conversation_plata.participants
+                        }
                         flash(f"✅ {conversation_plata.total_messages} comentarios recuperados de la página guardada.", "success")
+
+                        # Aviso honesto si hay métricas declaradas y trajimos menos
+                        stats = conversation_plata.metadata.get("stats") or {}
+                        declarados = str(stats.get("comentarios") or "").strip()
+                        if declarados:
+                            try:
+                                decl_num = int(declarados.replace(".", "").replace(",", ""))
+                                if conversation_plata.total_messages < decl_num:
+                                    flash(f"ℹ️ Se recuperaron {conversation_plata.total_messages} de {decl_num} comentarios declarados.", "info")
+                            except (ValueError, TypeError):
+                                pass
                         paso = "preview_plata"
-                                            # Mensaje de éxito con métricas si existen
-                    stats = conversation_plata.metadata.get("stats", {})
-                    if stats.get("comentarios"):
-                        flash(
-                            f"📊 Publicación con {stats['comentarios']} comentarios declarados. "
-                            f"Recuperaste {conversation_plata.total_messages} mediante página guardada.",
-                            "info"
-                        )
+                    # ✅ FALLO: sin conversación → volver al input
                     else:
                         flash("⚠️ " + (respuesta.get("error_msg") or "No se pudo procesar la página."), "warning")
                         paso = "input"
                         mostrar_fallback = True
             except Exception as e:
+                current_app.logger.exception("Error procesando la página (Plan B)")
                 flash(f"❌ Error procesando la página: {str(e)}", "error")
                 paso = "input"
                 mostrar_fallback = True

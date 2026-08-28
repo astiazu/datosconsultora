@@ -207,3 +207,17 @@ section {
         font-size: 24px;
     }
 }
+
+/* ========== MODO IMPRESIÓN: sale solo el informe ========== */
+@media print {
+  .dc-sidebar, .dc-topbar, nav, footer,
+  .btn, button, .modal, #overlayProcesando,
+  .alert-dismissible {           /* flashes de éxito/error, no el informe */
+    display: none !important;
+  }
+  body, .dc-main { background: #fff !important; }
+  .collapse { display: block !important; }   /* imprime el detalle completo */
+  .card { box-shadow: none !important; break-inside: avoid; }
+  a { text-decoration: none !important; color: inherit !important; }
+  @page { margin: 1.5cm; }
+}

@@ -1,0 +1,40 @@
+<!-- app/templates/monitor_nuevo.html -->
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'monitor' %}
+{% block title %}Agregar marca - DatosConsultora{% endblock %}
+{% block content %}
+<div class="mb-4">
+  <h1 class="text-petroleo fw-bold mb-1"><i class="bi bi-plus-circle me-2"></i>Agregar marca</h1>
+  <p class="text-muted">Candidato, producto o PyME a monitorear.</p>
+</div>
+<div class="card border-0 shadow-sm" style="max-width: 640px;"><div class="card-body">
+  <form method="POST">
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Nombre</label>
+      <input type="text" name="nombre" class="form-control" placeholder="Ej: Traslasierra Noticias" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Red</label>
+      <select name="platform" class="form-select">
+        <option value="facebook">Facebook</option>
+        <option value="instagram">Instagram</option>
+        <option value="x">X</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">URL (pata automática, opcional)</label>
+      <input type="url" name="url" class="form-control" placeholder="https://facebook.com/...">
+      <small class="text-muted">Si Meta bloquea la URL, el agente cae al Plan B (HTML subido).</small>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Keywords (separadas por coma)</label>
+      <input type="text" name="keywords" class="form-control" placeholder="precios, turismo, merlo">
+      <small class="text-muted">3+ comentarios negativos con la misma keyword = riesgo "queja recurrente".</small>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Guardar</button>
+      <a href="{{ url_for('monitor.panel_monitor') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+  </form>
+</div></div>
+{% endblock %}

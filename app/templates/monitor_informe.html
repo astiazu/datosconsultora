@@ -1,0 +1,104 @@
+{% extends "dashboard_layout.html" %}
+{% set active_section = 'monitor' %}
+{% block title %}Informe - {{ marca.nombre }} - DatosConsultora{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/monitor_informe.css') }}">
+{% endblock %}
+
+{% block content %}
+{# ===== Inyección de datos Jinja → JS (único bloque <script> en el HTML) ===== #}
+<script>
+  window.MONITOR_INFORME_MD   = {{ (contenido_md | default('')) | tojson }};
+  window.MONITOR_INFORME_RUTA = {{ (ruta | default('informe.md')) | tojson }};
+  {% if series %}
+  window.MONITOR_CHART_DATA = {
+    labels: [
+      {% for s in series %}
+        '{{ s.fecha.strftime('%d/%m %H:%M') }}'{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ],
+    datasets: [
+      {
+        label: 'Positivos %',
+        data: [{% for s in series %}{{ s.pct_positivo }}{% if not loop.last %},{% endif %}{% endfor %}],
+        borderColor: '#198754',
+        backgroundColor: 'rgba(25,135,84,.15)',
+        tension: 0.3,
+        fill: true
+      },
+      {
+        label: 'Negativos %',
+        data: [{% for s in series %}{{ s.pct_negativo }}{% if not loop.last %},{% endif %}{% endfor %}],
+        borderColor: '#dc3545',
+        backgroundColor: 'rgba(220,53,69,.15)',
+        tension: 0.3,
+        fill: true
+      },
+      {
+        label: 'Neutros %',
+        data: [{% for s in series %}{{ s.pct_neutro }}{% if not loop.last %},{% endif %}{% endfor %}],
+        borderColor: '#6c757d',
+        tension: 0.3,
+        fill: false
+      }
+    ]
+  };
+  {% else %}
+  window.MONITOR_CHART_DATA = null;
+  {% endif %}
+</script>
+
+{# ===== Header ===== #}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="text-petroleo fw-bold mb-0">
+      <i class="bi bi-file-earmark-text me-2"></i>{{ marca.nombre }}
+    </h1>
+    <p class="text-muted mb-0">Informe de inteligencia digital · {{ ruta }}</p>
+  </div>
+  <div class="d-flex gap-2 no-print">
+    <button onclick="window.print()" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
+    <button onclick="descargarMarkdown()" class="btn btn-outline-success btn-sm">
+      <i class="bi bi-download me-1"></i>Descargar .md
+    </button>
+    <a href="{{ url_for('monitor.panel_monitor') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Volver
+    </a>
+  </div>
+</div>
+
+{# ===== Gráfico de evolución (solo si hay series) ===== #}
+{% if series %}
+<div class="card border-0 shadow-sm mb-4 no-print">
+  <div class="card-body">
+    <h5 class="text-petroleo fw-bold mb-2">
+      <i class="bi bi-graph-up me-2"></i>Evolución del clima digital
+    </h5>
+    <div style="position: relative; height: 220px;">
+      <canvas id="chartInforme"></canvas>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ===== Cuerpo del informe (Markdown renderizado) ===== #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-4">
+    {% if contenido_html %}
+      <div class="informe-body">{{ contenido_html | safe }}</div>
+    {% else %}
+      <pre style="white-space: pre-wrap; font-family: inherit;">{{ contenido_md | default('') }}</pre>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  {% if series %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  {% endif %}
+  <script src="{{ url_for('static', filename='js/monitor_informe.js') }}"></script>
+{% endblock %}
